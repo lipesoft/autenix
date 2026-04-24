@@ -3,8 +3,8 @@ import { io } from "socket.io-client";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const CONFIG = {
-  nomeApp: "MenuExpress",
-  logoUrl: null,
+  //nomeApp: "MenuExpress",
+  logoUrl: "/2.png",
   logoCliente: null,
   corPrimaria: null,
   corSecundaria: null,
@@ -456,11 +456,11 @@ function Logo({ size = "md" }) {
   const fs = size === "lg" ? 26 : size === "sm" ? 14 : 18;
   if (logo)
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
         <img
           src={logo}
           alt="Logo"
-          style={{ height: size === "lg" ? 44 : 28, objectFit: "contain" }}
+          style={{ height: size === "lg" ? 110 : 30, objectFit: "contain" }}
         />
         {CONFIG.logoCliente && CONFIG.logoUrl && (
           <span style={{ color: T.muted, fontSize: 10 }}>
@@ -699,7 +699,7 @@ function PainelCliente({ mesa_id }) {
   T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Mesa ${mesa_id} — ${CONFIG.nomeApp}`;
+    document.title = `Mesa ${mesa_id} - ${CONFIG.nomeApp}`;
   }, [mesa_id]);
   const showToast = (msg) => {
     setToast(msg);
@@ -1537,7 +1537,7 @@ function PainelGarcom() {
   T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Garcom — ${CONFIG.nomeApp}`;
+    document.title = `Garcom - ${CONFIG.nomeApp}`;
   }, []);
 
   const fetchChamadas = useCallback(async () => {
@@ -1676,9 +1676,7 @@ function PainelGarcom() {
             <span
               ref={bellRef}
               style={{ fontSize: 18, transition: "transform .1s" }}
-            >
-              [ ]
-            </span>
+            ></span>
             {chamadas.length + pedidosProntos.length > 0 && (
               <span
                 className="pulse"
@@ -2099,7 +2097,7 @@ function PainelCozinha() {
   T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Cozinha — ${CONFIG.nomeApp}`;
+    document.title = `Cozinha - ${CONFIG.nomeApp}`;
   }, []);
 
   const fetchPedidos = useCallback(async () => {
@@ -2552,7 +2550,7 @@ function PainelAdmin() {
   T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Admin — ${CONFIG.nomeApp}`;
+    document.title = `Admin - ${CONFIG.nomeApp}`;
   }, []);
 
   const fetchCardapio = useCallback(async () => {
@@ -3736,7 +3734,7 @@ function PainelFinanceiro() {
   const css = gerarCSS(T);
 
   useEffect(() => {
-    document.title = `Financeiro — ${CONFIG.nomeApp}`;
+    document.title = `Financeiro - ${CONFIG.nomeApp}`;
   }, []);
 
   const fetchMesas = useCallback(async () => {
