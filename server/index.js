@@ -68,6 +68,14 @@ db.exec(`
     atendida INTEGER DEFAULT 0,
     criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    role TEXT NOT NULL,
+    senha TEXT NOT NULL,
+    ativo INTEGER DEFAULT 1
+  );
 `);
 
 // Seed dados de exemplo se vazio
@@ -311,8 +319,7 @@ app.get("/api/chamadas", (req, res) => {
 // QR Code por mesa
 app.get("/api/qrcode/:mesa_id", async (req, res) => {
   const ip = getLocalIP();
-  const port = process.env.PORT || 3001;
-  const url = `http://${ip}:${port}/mesa/${req.params.mesa_id}`;
+  const url = `http://${ip}:${PORT}/mesa/${req.params.mesa_id}`;
   const qr = await QRCode.toDataURL(url);
   res.json({ url, qr });
 });
@@ -362,7 +369,8 @@ app.delete("/api/produtos/:id", (req, res) => {
 
 // Historico do dia (mesas fechadas hoje)
 app.get("/api/historico", (req, res) => {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const agora = new Date();
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
   const rows = db
     .prepare(
       `
@@ -372,19 +380,141 @@ app.get("/api/historico", (req, res) => {
       MAX(p.nome_cliente) as nome_cliente,
       COUNT(DISTINCT ip.id) as total_itens,
       SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-      strftime('%H:%M', MAX(p.criado_em)) as fechado_em
+      strftime('%H:%M', MAX(p.criado_em), 'localtime') as fechado_em
     FROM pedidos p
     JOIN mesas m ON p.mesa_id = m.id
     JOIN itens_pedido ip ON ip.pedido_id = p.id
     JOIN produtos pr ON pr.id = ip.produto_id
     WHERE p.status = 'finalizado'
-      AND date(p.criado_em) = ?
-    GROUP BY p.mesa_id, date(p.criado_em)
+      AND date(p.criado_em, 'localtime') = ?
+    GROUP BY p.mesa_id, date(p.criado_em, 'localtime')
     ORDER BY MAX(p.criado_em) DESC
   `,
     )
     .all(hoje);
   res.json(rows);
+});
+
+// Relatorio por periodo
+app.get("/api/relatorio", (req, res) => {
+  const { periodo } = req.query;
+  const agora = new Date();
+  let dataInicio;
+  if (periodo === "semana") {
+    const d = new Date(agora);
+    d.setDate(d.getDate() - 7);
+    dataInicio = d.toISOString().slice(0, 10);
+  } else if (periodo === "mes") {
+    const d = new Date(agora);
+    d.setDate(d.getDate() - 30);
+    dataInicio = d.toISOString().slice(0, 10);
+  } else if (periodo === "ano") {
+    dataInicio = `${agora.getFullYear()}-01-01`;
+  } else {
+    // hoje
+    dataInicio = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  }
+  const rows = db
+    .prepare(
+      `
+    SELECT
+      p.mesa_id,
+      m.numero as mesa_numero,
+      MAX(p.nome_cliente) as nome_cliente,
+      COUNT(DISTINCT ip.id) as total_itens,
+      SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
+      strftime('%d/%m %H:%M', MAX(p.criado_em), 'localtime') as fechado_em
+    FROM pedidos p
+    JOIN mesas m ON p.mesa_id = m.id
+    JOIN itens_pedido ip ON ip.pedido_id = p.id
+    JOIN produtos pr ON pr.id = ip.produto_id
+    WHERE p.status = 'finalizado'
+      AND date(p.criado_em, 'localtime') >= ?
+    GROUP BY p.id
+    ORDER BY MAX(p.criado_em) DESC
+  `,
+    )
+    .all(dataInicio);
+  const totalGeral = rows.reduce((s, r) => s + (r.total || 0), 0);
+  res.json({ rows, totalGeral, periodo, dataInicio });
+});
+
+// Financeiro hoje (alias)
+app.get("/api/financeiro/hoje", (req, res) => {
+  const agora = new Date();
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  const rows = db
+    .prepare(
+      `
+    SELECT
+      p.mesa_id,
+      m.numero as mesa_numero,
+      MAX(p.nome_cliente) as nome_cliente,
+      COUNT(DISTINCT ip.id) as total_itens,
+      SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
+      strftime('%H:%M', MAX(p.criado_em), 'localtime') as fechado_em
+    FROM pedidos p
+    JOIN mesas m ON p.mesa_id = m.id
+    JOIN itens_pedido ip ON ip.pedido_id = p.id
+    JOIN produtos pr ON pr.id = ip.produto_id
+    WHERE p.status = 'finalizado'
+      AND date(p.criado_em, 'localtime') = ?
+    GROUP BY p.mesa_id
+    ORDER BY MAX(p.criado_em) DESC
+  `,
+    )
+    .all(hoje);
+  const totalDia = rows.reduce((s, r) => s + (r.total || 0), 0);
+  res.json({ rows, totalDia, data: hoje });
+});
+
+// Usuarios (equipe)
+app.get("/api/usuarios", (req, res) => {
+  try {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, role TEXT NOT NULL, senha TEXT NOT NULL, ativo INTEGER DEFAULT 1)",
+    );
+  } catch (e) {}
+  res.json(
+    db
+      .prepare("SELECT id, nome, role, ativo FROM usuarios ORDER BY role, nome")
+      .all(),
+  );
+});
+
+app.post("/api/usuarios", (req, res) => {
+  const { nome, role, senha } = req.body;
+  if (!nome || !role || !senha)
+    return res.status(400).json({ erro: "Dados incompletos" });
+  try {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, role TEXT NOT NULL, senha TEXT NOT NULL, ativo INTEGER DEFAULT 1)",
+    );
+  } catch (e) {}
+  const r = db
+    .prepare("INSERT INTO usuarios (nome, role, senha) VALUES (?, ?, ?)")
+    .run(nome, role, senha);
+  res.json({ id: r.lastInsertRowid });
+});
+
+app.patch("/api/usuarios/:id", (req, res) => {
+  const { nome, senha, ativo } = req.body;
+  const u = db
+    .prepare("SELECT * FROM usuarios WHERE id = ?")
+    .get(req.params.id);
+  if (!u) return res.status(404).json({ erro: "Usuario nao encontrado" });
+  db.prepare("UPDATE usuarios SET nome=?, senha=?, ativo=? WHERE id=?").run(
+    nome ?? u.nome,
+    senha && senha.length > 0 ? senha : u.senha,
+    ativo ?? u.ativo,
+    req.params.id,
+  );
+  res.json({ sucesso: true });
+});
+
+app.delete("/api/usuarios/:id", (req, res) => {
+  db.prepare("DELETE FROM usuarios WHERE id = ?").run(req.params.id);
+  res.json({ sucesso: true });
 });
 
 // ─── HELPER PEDIDO COMPLETO ────────────────────────────────────────────────
@@ -435,7 +565,8 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🍽️  Servidor rodando!`);
   console.log(`   Local:    http://localhost:${PORT}`);
   console.log(`   Rede:     http://${ip}:${PORT}`);
-  console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1\n`);
+  console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1`);
+  console.log(`   Financeiro: http://${ip}:${PORT}/financeiro\n`);
 });
 // ─── ROTAS EXTRAS (adicionadas na rodada 2) ───────────────────────────────
 

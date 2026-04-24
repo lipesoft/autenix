@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 
-const API = "http://localhost:3001";
+const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const CONFIG = {
   nomeApp: "MenuExpress",
   logoUrl: null,
@@ -692,8 +692,6 @@ function PainelCliente({ mesa_id }) {
   const [obs, setObs] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [toast, setToast] = useState(null);
-  const [pagModal, setPagModal] = useState(false);
-  const [pagSel, setPagSel] = useState(null);
   const [carrinhoModal, setCarrinhoModal] = useState(false);
   const [cancelandoItem, setCancelandoItem] = useState(null);
 
@@ -786,25 +784,6 @@ function PainelCliente({ mesa_id }) {
     showToast("Pedido enviado para a cozinha!");
     fetchPedidos();
     setAba("pedidos");
-  };
-
-  const chamarGarcom = async (motivo = "garcom") => {
-    await fetch(`${API}/api/chamadas`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mesa_id, motivo, nome_cliente: nomeCliente }),
-    });
-    showToast(
-      motivo.startsWith("conta")
-        ? "Conta solicitada! O garcom virá em breve."
-        : "Garcom chamado!",
-    );
-  };
-  const solicitarConta = async () => {
-    if (!pagSel) return;
-    await chamarGarcom(`conta:${pagSel}`);
-    setPagModal(false);
-    setPagSel(null);
   };
 
   // Item 6: cancelar item — só se ainda pendente
@@ -1387,20 +1366,26 @@ function PainelCliente({ mesa_id }) {
             zIndex: 50,
           }}
         >
-          <Btn
-            variant="ghost"
-            style={{ flex: 1, fontSize: 12 }}
-            onClick={() => chamarGarcom("garcom")}
+          {/* Bottom bar — apenas aviso */}
+          <div
+            style={{
+              position: "fixed",
+              bottom: 0,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: "100%",
+              maxWidth: 480,
+              background: T.bg2,
+              borderTop: `1px solid ${T.border}`,
+              padding: "14px 12px",
+              zIndex: 50,
+              textAlign: "center",
+            }}
           >
-            Chamar Garcom
-          </Btn>
-          <Btn
-            variant="amber"
-            style={{ flex: 1, fontSize: 12 }}
-            onClick={() => setPagModal(true)}
-          >
-            Pedir Conta
-          </Btn>
+            <div style={{ fontSize: 13, color: T.text2, fontWeight: 500 }}>
+              Qualquer duvida, chame o garcom
+            </div>
+          </div>
         </div>
 
         {/* Modal carrinho / confirmar pedido */}
@@ -1529,122 +1514,6 @@ function PainelCliente({ mesa_id }) {
                 style={{ flex: 2 }}
               >
                 {enviando ? "Enviando..." : "Confirmar Pedido"}
-              </Btn>
-            </div>
-          </Modal>
-        )}
-
-        {/* Modal pagamento */}
-        {pagModal && (
-          <Modal
-            onClose={() => {
-              setPagModal(false);
-              setPagSel(null);
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontSize: 20,
-                fontWeight: 700,
-                marginBottom: 6,
-              }}
-            >
-              Fechar Conta
-            </div>
-            <div style={{ color: T.text2, fontSize: 13, marginBottom: 18 }}>
-              Como deseja pagar?
-            </div>
-            {[
-              ["Cartao de Credito", "credito"],
-              ["Cartao de Debito", "debito"],
-              ["Dinheiro", "dinheiro"],
-              ["PIX", "pix"],
-            ].map(([label, val]) => (
-              <div
-                key={val}
-                onClick={() => setPagSel(val)}
-                style={{
-                  padding: "13px 16px",
-                  borderRadius: 12,
-                  marginBottom: 8,
-                  cursor: "pointer",
-                  border: `1.5px solid ${pagSel === val ? T.accent : T.border}`,
-                  background: pagSel === val ? T.accentGlow : T.card2,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  transition: "all .15s",
-                }}
-              >
-                {label}
-              </div>
-            ))}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <Btn
-                variant="ghost"
-                onClick={() => {
-                  setPagModal(false);
-                  setPagSel(null);
-                }}
-                style={{ flex: 1 }}
-              >
-                Cancelar
-              </Btn>
-              <Btn
-                onClick={solicitarConta}
-                disabled={!pagSel}
-                style={{ flex: 1 }}
-              >
-                Confirmar
-              </Btn>
-            </div>
-          </Modal>
-        )}
-
-        {/* Modal confirmar cancelamento item */}
-        {cancelandoItem && (
-          <Modal onClose={() => setCancelandoItem(null)}>
-            <div
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontSize: 18,
-                fontWeight: 700,
-                marginBottom: 10,
-              }}
-            >
-              Cancelar item?
-            </div>
-            <div style={{ color: T.text2, fontSize: 14, marginBottom: 20 }}>
-              Deseja cancelar{" "}
-              <strong style={{ color: T.text }}>
-                {cancelandoItem.quantidade}x {cancelandoItem.nome}
-              </strong>
-              ?<br />
-              <span
-                style={{
-                  fontSize: 12,
-                  color: T.muted,
-                  marginTop: 6,
-                  display: "block",
-                }}
-              >
-                Isso so e possivel enquanto o item nao estiver sendo preparado.
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn
-                variant="ghost"
-                onClick={() => setCancelandoItem(null)}
-                style={{ flex: 1 }}
-              >
-                Voltar
-              </Btn>
-              <Btn
-                variant="danger"
-                onClick={() => cancelarItem(cancelandoItem)}
-                style={{ flex: 1 }}
-              >
-                Cancelar item
               </Btn>
             </div>
           </Modal>
@@ -2665,6 +2534,19 @@ function PainelAdmin() {
   const [qrModal, setQrModal] = useState(null);
   const [mesas, setMesas] = useState([]);
   const [novaMesa, setNovaMesa] = useState("");
+  const [usuarios, setUsuarios] = useState([]);
+  const [novoUsuario, setNovoUsuario] = useState({
+    nome: "",
+    role: "garcom",
+    senha: "",
+  });
+  const [editandoUsuario, setEditandoUsuario] = useState(null);
+  const [relatorio, setRelatorio] = useState({
+    dados: [],
+    totalGeral: 0,
+    carregando: false,
+  });
+  const [periodoRel, setPeriodoRel] = useState("hoje");
 
   const tema = useTema();
   T = getTema();
@@ -2680,6 +2562,20 @@ function PainelAdmin() {
   const fetchMesas = useCallback(async () => {
     const r = await fetch(`${API}/api/mesas`);
     setMesas(await r.json());
+  }, []);
+  const fetchUsuarios = useCallback(async () => {
+    const r = await fetch(`${API}/api/usuarios`);
+    setUsuarios(await r.json());
+  }, []);
+  const fetchRelatorio = useCallback(async (periodo) => {
+    setRelatorio((prev) => ({ ...prev, carregando: true }));
+    const r = await fetch(`${API}/api/relatorio?periodo=${periodo}`);
+    const d = await r.json();
+    setRelatorio({
+      dados: d.rows || [],
+      totalGeral: d.totalGeral || 0,
+      carregando: false,
+    });
   }, []);
 
   useEffect(() => {
@@ -2811,6 +2707,8 @@ function PainelAdmin() {
             ["produtos", "Produtos"],
             ["categorias", "Categorias"],
             ["mesas", "Mesas"],
+            ["equipe", "Equipe"],
+            ["relatorios", "Relatorios"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -3203,6 +3101,324 @@ function PainelAdmin() {
             </div>
           )}
         </div>
+
+        {aba === "equipe" && (
+          <div className="fade-up">
+            <Card style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontFamily: "'Playfair Display',serif",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  marginBottom: 12,
+                }}
+              >
+                Novo Usuario
+              </div>
+              <input
+                placeholder="Nome completo"
+                value={novoUsuario.nome}
+                onChange={(e) =>
+                  setNovoUsuario((u) => ({ ...u, nome: e.target.value }))
+                }
+                style={{ marginBottom: 8 }}
+              />
+              <select
+                value={novoUsuario.role}
+                onChange={(e) =>
+                  setNovoUsuario((u) => ({ ...u, role: e.target.value }))
+                }
+                style={{ marginBottom: 8 }}
+              >
+                <option value="garcom">Garcom</option>
+                <option value="cozinha">Cozinha</option>
+                <option value="financeiro">Financeiro</option>
+              </select>
+              <input
+                placeholder="Senha"
+                type="password"
+                value={novoUsuario.senha}
+                onChange={(e) =>
+                  setNovoUsuario((u) => ({ ...u, senha: e.target.value }))
+                }
+                style={{ marginBottom: 10 }}
+              />
+              <Btn
+                onClick={salvarUsuario}
+                disabled={!novoUsuario.nome || !novoUsuario.senha}
+              >
+                Criar Usuario
+              </Btn>
+            </Card>
+            {["garcom", "cozinha", "financeiro"].map((role) => {
+              const lista = usuarios.filter((u) => u.role === role);
+              return (
+                <div key={role} style={{ marginBottom: 20 }}>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      color: T.accent,
+                      fontSize: 12,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {role === "garcom"
+                      ? "Garcons"
+                      : role === "cozinha"
+                        ? "Cozinha"
+                        : "Financeiro"}{" "}
+                    ({lista.length})
+                  </div>
+                  {lista.length === 0 ? (
+                    <div
+                      style={{ color: T.muted, fontSize: 13, padding: "8px 0" }}
+                    >
+                      Nenhum usuario
+                    </div>
+                  ) : (
+                    lista.map((u) => (
+                      <Card
+                        key={u.id}
+                        style={{ marginBottom: 8, opacity: u.ativo ? 1 : 0.5 }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{u.nome}</div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: u.ativo ? T.green : T.red,
+                              }}
+                            >
+                              {u.ativo ? "Ativo" : "Inativo"}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <Btn
+                              sm
+                              variant="ghost"
+                              onClick={() =>
+                                setEditandoUsuario({ ...u, senha: "" })
+                              }
+                            >
+                              Editar
+                            </Btn>
+                            <Btn
+                              sm
+                              variant="danger"
+                              onClick={() => deletarUsuario(u.id)}
+                            >
+                              Remover
+                            </Btn>
+                          </div>
+                        </div>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              );
+            })}
+            {editandoUsuario && (
+              <Modal onClose={() => setEditandoUsuario(null)}>
+                <div
+                  style={{
+                    fontFamily: "'Playfair Display',serif",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    marginBottom: 14,
+                  }}
+                >
+                  Editar Usuario
+                </div>
+                <input
+                  placeholder="Nome"
+                  value={editandoUsuario.nome}
+                  onChange={(e) =>
+                    setEditandoUsuario((u) => ({ ...u, nome: e.target.value }))
+                  }
+                  style={{ marginBottom: 8 }}
+                />
+                <input
+                  placeholder="Nova senha (vazio = manter)"
+                  type="password"
+                  value={editandoUsuario.senha || ""}
+                  onChange={(e) =>
+                    setEditandoUsuario((u) => ({ ...u, senha: e.target.value }))
+                  }
+                  style={{ marginBottom: 8 }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!editandoUsuario.ativo}
+                    onChange={(e) =>
+                      setEditandoUsuario((u) => ({
+                        ...u,
+                        ativo: e.target.checked ? 1 : 0,
+                      }))
+                    }
+                    style={{ width: "auto" }}
+                  />
+                  <span style={{ fontSize: 14 }}>Ativo</span>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn
+                    variant="ghost"
+                    onClick={() => setEditandoUsuario(null)}
+                    style={{ flex: 1 }}
+                  >
+                    Cancelar
+                  </Btn>
+                  <Btn onClick={salvarEdicaoUsuario} style={{ flex: 1 }}>
+                    Salvar
+                  </Btn>
+                </div>
+              </Modal>
+            )}
+          </div>
+        )}
+
+        {aba === "relatorios" && (
+          <div className="fade-up">
+            <Card style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontFamily: "'Playfair Display',serif",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  marginBottom: 12,
+                }}
+              >
+                Periodo
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  ["hoje", "Hoje"],
+                  ["semana", "7 dias"],
+                  ["mes", "30 dias"],
+                  ["ano", "Ano"],
+                ].map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => {
+                      setPeriodoRel(val);
+                      fetchRelatorio(val);
+                    }}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 99,
+                      border: `1px solid ${periodoRel === val ? T.accent : T.border}`,
+                      background:
+                        periodoRel === val ? T.accentGlow : "transparent",
+                      color: periodoRel === val ? T.accent : T.text2,
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: "pointer",
+                      fontFamily: "Inter,sans-serif",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            {relatorio.carregando ? (
+              <div
+                style={{
+                  color: T.muted,
+                  padding: "32px 0",
+                  textAlign: "center",
+                }}
+              >
+                Carregando...
+              </div>
+            ) : (
+              <>
+                <Card style={{ marginBottom: 16, background: T.card2 }}>
+                  <div
+                    style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}
+                  >
+                    Total do Periodo
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "'Playfair Display',serif",
+                      fontSize: 32,
+                      fontWeight: 700,
+                      color: T.accent,
+                    }}
+                  >
+                    R$ {relatorio.totalGeral.toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+                    {relatorio.dados.length} mesa(s) atendida(s)
+                  </div>
+                </Card>
+
+                {relatorio.dados.length === 0 ? (
+                  <div
+                    style={{ color: T.muted, fontSize: 13, padding: "20px 0" }}
+                  >
+                    Nenhum dado no periodo.
+                  </div>
+                ) : (
+                  relatorio.dados.map((r, i) => (
+                    <Card key={i} style={{ marginBottom: 8 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600 }}>
+                            Mesa {r.mesa_numero}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: T.muted,
+                              marginTop: 2,
+                            }}
+                          >
+                            {r.nome_cliente && `${r.nome_cliente} · `}
+                            {r.fechado_em} · {r.total_itens} item(s)
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 17,
+                            color: T.accent,
+                          }}
+                        >
+                          R$ {(r.total || 0).toFixed(2)}
+                        </div>
+                      </div>
+                    </Card>
+                  ))
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Modal editar produto */}
         {editando && (
@@ -3661,7 +3877,17 @@ function PainelFinanceiro() {
                 }}
               >
                 {mesasOcupadas.map((m) => (
-                  <div key={m.id} onClick={() => setComandaModal(m)} style={{ cursor: "pointer", background: T.card, border: `1px solid ${T.accent}`, borderRadius: 14, padding: 16 }}>
+                  <div
+                    key={m.id}
+                    onClick={() => setComandaModal(m)}
+                    style={{
+                      cursor: "pointer",
+                      background: T.card,
+                      border: `1px solid ${T.accent}`,
+                      borderRadius: 14,
+                      padding: 16,
+                    }}
+                  >
                     <div
                       style={{
                         fontFamily: "'Playfair Display',serif",
