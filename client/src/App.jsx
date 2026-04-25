@@ -262,6 +262,41 @@ function gerarCSS(t) {
   input::placeholder, textarea::placeholder { color: ${t.muted}; }
   select option { background: ${t.card2}; color: ${t.text}; }
   a { color: inherit; }
+
+  /* ─── RESPONSIVIDADE ─── */
+  /* Garcom: mobile-first (<480px) */
+  @media (max-width: 480px) {
+    .garcom-grid { grid-template-columns: 1fr 1fr !important; }
+    .garcom-card-title { font-size: 20px !important; }
+  }
+  /* Cozinha: tablet (768px+) */
+  @media (max-width: 768px) {
+    .cozinha-col { min-width: 140px !important; font-size: 12px; }
+    .cozinha-col-header { font-size: 11px !important; }
+  }
+  /* Admin: notebook (1024px+) */
+  .admin-tabs button { min-width: 80px; }
+  @media (max-width: 600px) {
+    .admin-tabs { overflow-x: auto; }
+    .admin-tabs button { font-size: 11px !important; padding: "10px 6px" !important; }
+  }
+  /* Financeiro: qualquer tela */
+  @media (max-width: 600px) {
+    .fin-grid { grid-template-columns: 1fr !important; }
+    .fin-mesas-grid { grid-template-columns: 1fr 1fr !important; }
+  }
+
+  /* Scroll horizontal invisível nas abas */
+  .tabs-scroll { overflow-x: auto; display: flex; scrollbar-width: none; }
+  .tabs-scroll::-webkit-scrollbar { display: none; }
+
+  /* Garantir que textos não quebrem layouts */
+  .no-break { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @media print {
+    body { background: white !important; color: black !important; }
+    .no-print { display: none !important; }
+  }
 `;
 }
 const css = gerarCSS(T);
@@ -2545,6 +2580,8 @@ function PainelAdmin() {
     carregando: false,
   });
   const [periodoRel, setPeriodoRel] = useState("hoje");
+  const [dataInicioRel, setDataInicioRel] = useState("");
+  const [dataFimRel, setDataFimRel] = useState("");
 
   const tema = useTema();
   T = getTema();
@@ -2565,9 +2602,12 @@ function PainelAdmin() {
     const r = await fetch(`${API}/api/usuarios`);
     setUsuarios(await r.json());
   }, []);
-  const fetchRelatorio = useCallback(async (periodo) => {
+  const fetchRelatorio = useCallback(async (periodo, di, df) => {
     setRelatorio((prev) => ({ ...prev, carregando: true }));
-    const r = await fetch(`${API}/api/relatorio?periodo=${periodo}`);
+    let url = `${API}/api/relatorio?periodo=${periodo || "hoje"}`;
+    if (di) url += `&dataInicio=${di}`;
+    if (df) url += `&dataFim=${df}`;
+    const r = await fetch(url);
     const d = await r.json();
     setRelatorio({
       dados: d.rows || [],
@@ -3304,7 +3344,14 @@ function PainelAdmin() {
               >
                 Periodo
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 12,
+                }}
+              >
                 {[
                   ["hoje", "Hoje"],
                   ["semana", "7 dias"],
@@ -3315,6 +3362,8 @@ function PainelAdmin() {
                     key={val}
                     onClick={() => {
                       setPeriodoRel(val);
+                      setDataInicioRel("");
+                      setDataFimRel("");
                       fetchRelatorio(val);
                     }}
                     style={{
@@ -3333,6 +3382,65 @@ function PainelAdmin() {
                     {label}
                   </button>
                 ))}
+              </div>
+              {/* Filtro por data + PDF */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  marginTop: 12,
+                }}
+              >
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <label style={{ fontSize: 12, color: T.muted }}>De:</label>
+                  <input
+                    type="date"
+                    value={dataInicioRel}
+                    onChange={(e) => setDataInicioRel(e.target.value)}
+                    style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <label style={{ fontSize: 12, color: T.muted }}>Ate:</label>
+                  <input
+                    type="date"
+                    value={dataFimRel}
+                    onChange={(e) => setDataFimRel(e.target.value)}
+                    style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                  />
+                </div>
+                <Btn
+                  sm
+                  onClick={() => {
+                    if (dataInicioRel) {
+                      setPeriodoRel("custom");
+                      fetchRelatorio("custom", dataInicioRel, dataFimRel);
+                    }
+                  }}
+                  disabled={!dataInicioRel}
+                >
+                  Filtrar
+                </Btn>
+                {relatorio.dados.length > 0 && (
+                  <Btn
+                    sm
+                    variant="success"
+                    onClick={() =>
+                      gerarPDF({
+                        historico: relatorio.dados,
+                        totalPeriodo: relatorio.totalGeral,
+                        periodo: periodoRel,
+                        dataInicio: dataInicioRel,
+                        dataFim: dataFimRel,
+                        nomeApp: CONFIG.nomeApp || "MenuExpress",
+                      })
+                    }
+                  >
+                    Exportar PDF
+                  </Btn>
+                )}
               </div>
             </Card>
 
@@ -3724,17 +3832,86 @@ export default function App() {
 }
 
 // ─── PAINEL FINANCEIRO ────────────────────────────────────────────────────────
+function gerarPDF({
+  historico,
+  totalPeriodo,
+  periodo,
+  dataInicio,
+  dataFim,
+  nomeApp,
+}) {
+  const linhasItens = historico
+    .map(
+      (h) =>
+        `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.mesa_numero}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.nome_cliente || "-"}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${h.total_itens}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.fechado_em || "-"}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#c8714a">R$ ${(h.total || 0).toFixed(2)}</td>
+    </tr>`,
+    )
+    .join("");
+
+  const labelPeriodo =
+    { hoje: "Hoje", semana: "7 dias", mes: "30 dias", ano: "Ano todo" }[
+      periodo
+    ] || periodo;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+  <title>Relatorio ${nomeApp}</title>
+  <style>
+    body{font-family:Georgia,serif;margin:40px;color:#222}
+    h1{font-size:24px;margin-bottom:4px}
+    .sub{color:#888;font-size:13px;margin-bottom:28px}
+    table{width:100%;border-collapse:collapse;margin-top:16px}
+    th{background:#f5f0eb;padding:8px;text-align:left;font-size:13px;border-bottom:2px solid #ddd}
+    .total-row{background:#fff8f5;font-weight:700}
+    .footer{margin-top:32px;font-size:12px;color:#aaa;border-top:1px solid #eee;padding-top:12px}
+    @media print{.no-print{display:none}}
+  </style></head><body>
+  <h1>${nomeApp} — Relatorio Financeiro</h1>
+  <div class="sub">
+    Periodo: <strong>${labelPeriodo}</strong>
+    ${dataInicio ? ` | De: <strong>${dataInicio}</strong>` : ""}
+    ${dataFim ? ` ate: <strong>${dataFim}</strong>` : ""}
+    | Gerado em: <strong>${new Date().toLocaleString("pt-BR")}</strong>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Mesa</th><th>Cliente</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
+    </tr></thead>
+    <tbody>${linhasItens}</tbody>
+    <tfoot><tr class="total-row">
+      <td colspan="4" style="padding:10px 8px;border-top:2px solid #c8714a">TOTAL GERAL</td>
+      <td style="padding:10px 8px;border-top:2px solid #c8714a;text-align:right;color:#c8714a;font-size:16px">R$ ${totalPeriodo.toFixed(2)}</td>
+    </tr></tfoot>
+  </table>
+  <div class="footer">${nomeApp} · Sistema de Gestao de Restaurante · ${historico.length} atendimento(s) no periodo</div>
+  <script>window.onload=()=>{window.print()}</script>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  w.document.write(html);
+  w.document.close();
+}
+
 function PainelFinanceiro() {
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [historico, setHistorico] = useState([]);
+  const [totalPeriodo, setTotalPeriodo] = useState(0);
+  const [periodo, setPeriodo] = useState("hoje");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+  const [carregando, setCarregando] = useState(false);
   const [comandaModal, setComandaModal] = useState(null);
   const tema = useTema();
   T = getTema();
   const css = gerarCSS(T);
 
   useEffect(() => {
-    document.title = `Financeiro - ${CONFIG.nomeApp}`;
+    document.title = `Financeiro — ${CONFIG.nomeApp || "MenuExpress"}`;
   }, []);
 
   const fetchMesas = useCallback(async () => {
@@ -3745,19 +3922,27 @@ function PainelFinanceiro() {
     const r = await fetch(`${API}/api/pedidos`);
     setPedidos(await r.json());
   }, []);
-  const fetchHistorico = useCallback(async () => {
-    const r = await fetch(`${API}/api/historico`);
-    setHistorico(await r.json());
+
+  const fetchHistorico = useCallback(async (p, di, df) => {
+    setCarregando(true);
+    let url = `${API}/api/relatorio?periodo=${p || "hoje"}`;
+    if (di) url += `&dataInicio=${di}`;
+    if (df) url += `&dataFim=${df}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    setHistorico(d.rows || []);
+    setTotalPeriodo(d.totalGeral || 0);
+    setCarregando(false);
   }, []);
 
   useEffect(() => {
     fetchMesas();
     fetchPedidos();
-    fetchHistorico();
+    fetchHistorico("hoje");
     const s = getSocket();
     s.on("mesa_atualizada", () => {
       fetchMesas();
-      fetchHistorico();
+      fetchHistorico(periodo, dataInicio, dataFim);
     });
     s.on("novo_pedido", fetchPedidos);
     s.on("pedido_atualizado", fetchPedidos);
@@ -3768,6 +3953,13 @@ function PainelFinanceiro() {
     };
   }, [fetchMesas, fetchPedidos, fetchHistorico]);
 
+  const mudarPeriodo = (p) => {
+    setPeriodo(p);
+    setDataInicio("");
+    setDataFim("");
+    fetchHistorico(p);
+  };
+
   const pedidosDaMesa = (mid) =>
     pedidos.filter((p) => p.mesa_id === mid && p.status !== "finalizado");
   const itensDaMesa = (mid) =>
@@ -3776,9 +3968,17 @@ function PainelFinanceiro() {
     );
   const totalMesa = (mid) =>
     itensDaMesa(mid).reduce((s, i) => s + i.preco * i.quantidade, 0);
-
-  const totalDia = historico.reduce((s, h) => s + (h.total || 0), 0);
   const mesasOcupadas = mesas.filter((m) => m.status === "ocupada");
+
+  const exportarPDF = () =>
+    gerarPDF({
+      historico,
+      totalPeriodo,
+      periodo,
+      dataInicio,
+      dataFim,
+      nomeApp: CONFIG.nomeApp || "MenuExpress",
+    });
 
   return (
     <>
@@ -3793,6 +3993,8 @@ function PainelFinanceiro() {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
           }}
         >
           <Logo />
@@ -3810,29 +4012,141 @@ function PainelFinanceiro() {
           </div>
         </div>
 
-        <div style={{ padding: 16, maxWidth: 860, margin: "0 auto" }}>
-          {/* Resumo do dia */}
+        <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
+          {/* Filtros de período */}
+          <div style={{ marginBottom: 20 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: 12,
+              }}
+            >
+              {[
+                ["hoje", "Hoje"],
+                ["semana", "7 dias"],
+                ["mes", "30 dias"],
+                ["ano", "Ano"],
+              ].map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => mudarPeriodo(val)}
+                  style={{
+                    padding: "7px 16px",
+                    borderRadius: 99,
+                    cursor: "pointer",
+                    fontFamily: "Inter,sans-serif",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    border: `1px solid ${periodo === val && !dataInicio ? T.accent : T.border}`,
+                    background:
+                      periodo === val && !dataInicio
+                        ? T.accentGlow
+                        : "transparent",
+                    color: periodo === val && !dataInicio ? T.accent : T.text2,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Filtro por data personalizada */}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <label
+                  style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap" }}
+                >
+                  De:
+                </label>
+                <input
+                  type="date"
+                  value={dataInicio}
+                  onChange={(e) => setDataInicio(e.target.value)}
+                  style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <label
+                  style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap" }}
+                >
+                  Ate:
+                </label>
+                <input
+                  type="date"
+                  value={dataFim}
+                  onChange={(e) => setDataFim(e.target.value)}
+                  style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                />
+              </div>
+              <Btn
+                sm
+                onClick={() => {
+                  if (dataInicio) {
+                    setPeriodo("custom");
+                    fetchHistorico("custom", dataInicio, dataFim);
+                  }
+                }}
+                disabled={!dataInicio}
+              >
+                Filtrar
+              </Btn>
+              <Btn
+                sm
+                variant="success"
+                onClick={exportarPDF}
+                disabled={historico.length === 0}
+              >
+                Exportar PDF
+              </Btn>
+            </div>
+          </div>
+
+          {/* Cards resumo */}
           <div
+            className="fin-grid"
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "1fr 1fr 1fr",
               gap: 12,
               marginBottom: 24,
             }}
           >
             <Card>
               <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>
-                Total do Dia
+                Total do Periodo
               </div>
               <div
                 style={{
                   fontFamily: "'Playfair Display',serif",
-                  fontSize: 28,
+                  fontSize: 26,
                   fontWeight: 700,
                   color: T.accent,
                 }}
               >
-                R$ {totalDia.toFixed(2)}
+                {carregando ? "..." : `R$ ${totalPeriodo.toFixed(2)}`}
+              </div>
+            </Card>
+            <Card>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>
+                Atendimentos
+              </div>
+              <div
+                style={{
+                  fontFamily: "'Playfair Display',serif",
+                  fontSize: 26,
+                  fontWeight: 700,
+                  color: T.blue,
+                }}
+              >
+                {historico.length}
               </div>
             </Card>
             <Card>
@@ -3842,7 +4156,7 @@ function PainelFinanceiro() {
               <div
                 style={{
                   fontFamily: "'Playfair Display',serif",
-                  fontSize: 28,
+                  fontSize: 26,
                   fontWeight: 700,
                   color: T.green,
                 }}
@@ -3852,7 +4166,7 @@ function PainelFinanceiro() {
             </Card>
           </div>
 
-          {/* Mesas abertas — comandas */}
+          {/* Mesas abertas */}
           {mesasOcupadas.length > 0 && (
             <div style={{ marginBottom: 28 }}>
               <div
@@ -3868,9 +4182,10 @@ function PainelFinanceiro() {
                 Mesas Abertas
               </div>
               <div
+                className="fin-mesas-grid"
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))",
+                  gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))",
                   gap: 10,
                 }}
               >
@@ -3883,13 +4198,13 @@ function PainelFinanceiro() {
                       background: T.card,
                       border: `1px solid ${T.accent}`,
                       borderRadius: 14,
-                      padding: 16,
+                      padding: 14,
                     }}
                   >
                     <div
                       style={{
                         fontFamily: "'Playfair Display',serif",
-                        fontSize: 20,
+                        fontSize: 18,
                         fontWeight: 700,
                       }}
                     >
@@ -3899,7 +4214,7 @@ function PainelFinanceiro() {
                       style={{
                         color: T.muted,
                         fontSize: 12,
-                        margin: "4px 0 10px",
+                        margin: "3px 0 8px",
                       }}
                     >
                       {itensDaMesa(m.id).length} item(s) ·{" "}
@@ -3918,7 +4233,7 @@ function PainelFinanceiro() {
                       <span
                         style={{
                           fontWeight: 800,
-                          fontSize: 18,
+                          fontSize: 16,
                           color: T.accent,
                         }}
                       >
@@ -3927,13 +4242,13 @@ function PainelFinanceiro() {
                     </div>
                     <div
                       style={{
-                        marginTop: 10,
+                        marginTop: 8,
                         fontSize: 11,
                         color: T.accent,
                         textAlign: "center",
                       }}
                     >
-                      Clique para ver comanda
+                      Ver comanda
                     </div>
                   </div>
                 ))}
@@ -3941,23 +4256,40 @@ function PainelFinanceiro() {
             </div>
           )}
 
-          {/* Historico do dia */}
+          {/* Historico */}
           <div>
             <div
               style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: T.muted,
-                textTransform: "uppercase",
-                letterSpacing: 1,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
                 marginBottom: 12,
               }}
             >
-              Historico do Dia
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: T.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
+                Historico
+              </div>
+              {historico.length > 0 && (
+                <Btn sm variant="ghost" onClick={exportarPDF}>
+                  Exportar PDF
+                </Btn>
+              )}
             </div>
-            {historico.length === 0 ? (
+            {carregando ? (
               <div style={{ color: T.muted, fontSize: 13, padding: "20px 0" }}>
-                Nenhuma mesa fechada hoje.
+                Carregando...
+              </div>
+            ) : historico.length === 0 ? (
+              <div style={{ color: T.muted, fontSize: 13, padding: "20px 0" }}>
+                Nenhum registro no periodo.
               </div>
             ) : (
               historico.map((h, i) => (
@@ -3967,6 +4299,8 @@ function PainelFinanceiro() {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
                     }}
                   >
                     <div>
@@ -3977,10 +4311,7 @@ function PainelFinanceiro() {
                         style={{ fontSize: 12, color: T.muted, marginTop: 2 }}
                       >
                         {h.nome_cliente && `${h.nome_cliente} · `}
-                        {h.fechado_em}
-                      </div>
-                      <div style={{ fontSize: 12, color: T.muted }}>
-                        {h.total_itens} item(s)
+                        {h.fechado_em} · {h.total_itens} item(s)
                       </div>
                     </div>
                     <div
@@ -4008,7 +4339,6 @@ function PainelFinanceiro() {
             >
               Mesa {comandaModal.numero}
             </div>
-            {/* Nome do cliente (primeiro pedido com nome) */}
             {(() => {
               const ps = pedidosDaMesa(comandaModal.id);
               const nomeC = ps.find((p) => p.nome_cliente)?.nome_cliente;
@@ -4020,8 +4350,6 @@ function PainelFinanceiro() {
                 <div style={{ marginBottom: 16 }} />
               );
             })()}
-
-            {/* Itens agrupados */}
             {pedidosDaMesa(comandaModal.id).map((p) => (
               <div key={p.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>
@@ -4050,8 +4378,6 @@ function PainelFinanceiro() {
                   ))}
               </div>
             ))}
-
-            {/* Total */}
             <div
               style={{
                 display: "flex",

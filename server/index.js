@@ -319,7 +319,7 @@ app.get("/api/chamadas", (req, res) => {
 // QR Code por mesa
 app.get("/api/qrcode/:mesa_id", async (req, res) => {
   const ip = getLocalIP();
-  const url = `http://${ip}:${PORT}/mesa/${req.params.mesa_id}`;
+  const url = `http://${ip}:3000/mesa/${req.params.mesa_id}`;
   const qr = await QRCode.toDataURL(url);
   res.json({ url, qr });
 });
@@ -397,23 +397,32 @@ app.get("/api/historico", (req, res) => {
 
 // Relatorio por periodo
 app.get("/api/relatorio", (req, res) => {
-  const { periodo } = req.query;
+  const { periodo, dataInicio: di, dataFim: df } = req.query;
   const agora = new Date();
-  let dataInicio;
-  if (periodo === "semana") {
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  let dataInicio, dataFim;
+
+  if (di) {
+    dataInicio = di;
+    dataFim = df || hoje;
+  } else if (periodo === "semana") {
     const d = new Date(agora);
     d.setDate(d.getDate() - 7);
     dataInicio = d.toISOString().slice(0, 10);
+    dataFim = hoje;
   } else if (periodo === "mes") {
     const d = new Date(agora);
     d.setDate(d.getDate() - 30);
     dataInicio = d.toISOString().slice(0, 10);
+    dataFim = hoje;
   } else if (periodo === "ano") {
     dataInicio = `${agora.getFullYear()}-01-01`;
+    dataFim = hoje;
   } else {
-    // hoje
-    dataInicio = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+    dataInicio = hoje;
+    dataFim = hoje;
   }
+
   const rows = db
     .prepare(
       `
@@ -430,13 +439,15 @@ app.get("/api/relatorio", (req, res) => {
     JOIN produtos pr ON pr.id = ip.produto_id
     WHERE p.status = 'finalizado'
       AND date(p.criado_em, 'localtime') >= ?
+      AND date(p.criado_em, 'localtime') <= ?
     GROUP BY p.id
     ORDER BY MAX(p.criado_em) DESC
   `,
     )
-    .all(dataInicio);
+    .all(dataInicio, dataFim);
+
   const totalGeral = rows.reduce((s, r) => s + (r.total || 0), 0);
-  res.json({ rows, totalGeral, periodo, dataInicio });
+  res.json({ rows, totalGeral, periodo, dataInicio, dataFim });
 });
 
 // Financeiro hoje (alias)
