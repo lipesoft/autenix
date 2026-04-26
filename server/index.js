@@ -18,6 +18,14 @@ app.use(express.json());
 const db = new Database("restaurante.db");
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    role TEXT NOT NULL,
+    senha TEXT NOT NULL,
+    ativo INTEGER DEFAULT 1
+  );
+
   CREATE TABLE IF NOT EXISTS categorias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
@@ -67,14 +75,6 @@ db.exec(`
     nome_cliente TEXT,
     atendida INTEGER DEFAULT 0,
     criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL,
-    role TEXT NOT NULL,
-    senha TEXT NOT NULL,
-    ativo INTEGER DEFAULT 1
   );
 `);
 
@@ -144,6 +144,8 @@ app.get("/api/mesas/:id", (req, res) => {
   if (!mesa) return res.status(404).json({ erro: "Mesa não encontrada" });
   res.json(mesa);
 });
+
+
 
 // Fazer pedido (cliente)
 app.post("/api/pedidos", (req, res) => {
@@ -481,31 +483,30 @@ app.get("/api/financeiro/hoje", (req, res) => {
 
 // Usuarios (equipe)
 app.get("/api/usuarios", (req, res) => {
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, role TEXT NOT NULL, senha TEXT NOT NULL, ativo INTEGER DEFAULT 1)",
-    );
-  } catch (e) {}
-  res.json(
-    db
-      .prepare("SELECT id, nome, role, ativo FROM usuarios ORDER BY role, nome")
-      .all(),
-  );
+  db.all("SELECT * FROM usuarios", [], (err, rows) => {
+    if (err) {
+      console.error("Erro ao buscar usuários:", err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(rows);
+  });
 });
 
 app.post("/api/usuarios", (req, res) => {
-  const { nome, role, senha } = req.body;
-  if (!nome || !role || !senha)
-    return res.status(400).json({ erro: "Dados incompletos" });
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, role TEXT NOT NULL, senha TEXT NOT NULL, ativo INTEGER DEFAULT 1)",
-    );
-  } catch (e) {}
-  const r = db
-    .prepare("INSERT INTO usuarios (nome, role, senha) VALUES (?, ?, ?)")
-    .run(nome, role, senha);
-  res.json({ id: r.lastInsertRowid });
+  const { nome, senha, role } = req.body;
+
+  db.run(
+    "INSERT INTO usuarios (nome, senha, role) VALUES (?, ?, ?)",
+    [nome, senha, role],
+    function (err) {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json({ id: this.lastID });
+    }
+  );
 });
 
 app.patch("/api/usuarios/:id", (req, res) => {

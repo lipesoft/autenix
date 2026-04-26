@@ -19,87 +19,43 @@ function getSocket() {
   return socket;
 }
 
-// ─── SISTEMA DE TEMAS ────────────────────────────────────────────────────────
-// Psicologia das cores para restaurantes:
-// Terracota/âmbar: estimula apetite, transmite aconchego
-// Verde-salva: sofisticação, frescor, confiança
-// Marfim (claro): clareza, limpeza, leveza
+// ─── TEMA FIXO CLARO ─────────────────────────────────────────────────────────
+// Cores baseadas na logo: #101f2f (azul-marinho) + #b1582e (terracota)
+// Psicologia: azul-marinho = confiança, sofisticação, seriedade
+//             terracota    = apetite, aconchego, calor, hospitalidade
 
-const PALETA = {
-  accent: CONFIG.corPrimaria || "#c8714a",
-  accent2: CONFIG.corSecundaria || "#a85535",
-  green: "#4caf82",
-  red: "#e05c5c",
-  blue: "#5b9bd5",
-  amber: "#d4a017",
+let T = {
+  // Backgrounds
+  bg:    "#f4f6f8",
+  bg2:   "#ffffff",
+  card:  "#ffffff",
+  card2: "#f0f3f6",
+  // Bordas
+  border:  "#dde3ea",
+  border2: "#c8d0da",
+  // Textos
+  text:  "#101f2f",
+  text2: "#3a4f63",
+  muted: "#7a8fa3",
+  // Cores da logo
+  accent:  "#b1582e",
+  accent2: "#8f3f1a",
+  navy:    "#101f2f",
+  // Status
+  green: "#2e8b57",
+  red:   "#c0392b",
+  blue:  "#2471a3",
+  amber: "#b7770d",
+  // Efeitos
+  accentGlow: "rgba(177,88,46,0.10)",
+  navyGlow:   "rgba(16,31,47,0.08)",
+  shadow:     "rgba(16,31,47,0.10)",
+  inputBg:    "#f8fafc",
 };
 
-const TEMAS = {
-  escuro: {
-    bg: "#141210",
-    bg2: "#1a1714",
-    card: "#211e1b",
-    card2: "#2a2623",
-    border: "#332e2a",
-    border2: "#3d3733",
-    text: "#f0ece6",
-    text2: "#b8afa6",
-    muted: "#7a706a",
-    accentGlow: "rgba(200,113,74,0.14)",
-    shadow: "rgba(0,0,0,0.5)",
-    inputBg: "#2a2623",
-  },
-  claro: {
-    bg: "#faf8f5",
-    bg2: "#ffffff",
-    card: "#ffffff",
-    card2: "#f5f2ee",
-    border: "#e8e2dc",
-    border2: "#ddd6ce",
-    text: "#1a1512",
-    text2: "#6b5e55",
-    muted: "#a8998f",
-    accentGlow: "rgba(200,113,74,0.10)",
-    shadow: "rgba(0,0,0,0.12)",
-    inputBg: "#f5f2ee",
-  },
-};
-
-const _temaInicial =
-  (typeof localStorage !== "undefined" &&
-    localStorage.getItem("menuexpress_tema")) ||
-  "escuro";
-let _temaAtual = _temaInicial;
-let _temaListeners = [];
-
-function getTema() {
-  return { ...TEMAS[_temaAtual], ...PALETA };
-}
-
-function alternarTema() {
-  _temaAtual = _temaAtual === "escuro" ? "claro" : "escuro";
-  if (typeof localStorage !== "undefined")
-    localStorage.setItem("menuexpress_tema", _temaAtual);
-  _temaListeners.forEach((fn) => fn(_temaAtual));
-  // Força atualização do CSS global
-  document.body.setAttribute("data-tema", _temaAtual);
-}
-
-function useTema() {
-  const [tema, setTema] = useState(_temaAtual);
-  useEffect(() => {
-    const handler = (t) => {
-      setTema(t);
-    };
-    _temaListeners.push(handler);
-    return () => {
-      _temaListeners = _temaListeners.filter((l) => l !== handler);
-    };
-  }, []);
-  return tema;
-}
-
-let T = getTema();
+// Stub para compatibilidade (tema fixo, sem alternância)
+function getTema() { return T; }
+function useTema() { return "claro"; }
 
 // ─── SOM ─────────────────────────────────────────────────────────────────────
 function playBeep(freq = 880, dur = 0.18, vol = 0.4) {
@@ -222,12 +178,12 @@ function useNotifs() {
 }
 
 // ─── CSS GLOBAL (reativo ao tema) ────────────────────────────────────────────
-function gerarCSS(t) {
+function gerarCSS(t = T) {
   return `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { -webkit-text-size-adjust: 100%; }
-  body { background: ${t.bg}; color: ${t.text}; font-family: 'Inter', sans-serif; font-size: 16px; line-height: 1.5; min-height: 100vh; overflow-x: hidden; transition: background .3s, color .3s; }
+  body { background: ${t.bg}; color: ${t.text}; font-family: 'Inter', sans-serif; font-size: 16px; line-height: 1.5; min-height: 100vh; overflow-x: hidden; }
   ::-webkit-scrollbar { width: 3px; height: 3px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: ${t.border2}; border-radius: 2px; }
@@ -256,7 +212,8 @@ function gerarCSS(t) {
   input, select, textarea {
     background: ${t.inputBg}; border: 1px solid ${t.border2};
     border-radius: 10px; color: ${t.text}; font-family: 'Inter',sans-serif;
-    font-size: 14px; padding: 10px 14px; width: 100%; outline: none; transition: border-color .2s, background .3s;
+    font-size: 14px; padding: 10px 14px; width: 100%; outline: none; transition: border-color .2s;
+    box-shadow: inset 0 1px 3px rgba(16,31,47,0.06);
   }
   input:focus, select:focus, textarea:focus { border-color: ${t.accent}; }
   input::placeholder, textarea::placeholder { color: ${t.muted}; }
@@ -264,34 +221,56 @@ function gerarCSS(t) {
   a { color: inherit; }
 
   /* ─── RESPONSIVIDADE ─── */
-  /* Garcom: mobile-first (<480px) */
+  button { -webkit-tap-highlight-color: transparent; }
+
+  /* Cliente — mobile first */
+  @media (max-width: 380px) {
+    .cliente-grid { grid-template-columns: 1fr !important; }
+    .cliente-filtros button { padding: 5px 10px !important; font-size: 11px !important; }
+  }
+
+  /* Garcom — mobile */
   @media (max-width: 480px) {
-    .garcom-grid { grid-template-columns: 1fr 1fr !important; }
-    .garcom-card-title { font-size: 20px !important; }
+    .garcom-mesas { grid-template-columns: 1fr 1fr !important; }
+    .garcom-mesas .mesa-num { font-size: 20px !important; }
   }
-  /* Cozinha: tablet (768px+) */
-  @media (max-width: 768px) {
-    .cozinha-col { min-width: 140px !important; font-size: 12px; }
-    .cozinha-col-header { font-size: 11px !important; }
+
+  /* Cozinha — tablet */
+  @media (max-width: 900px) {
+    .cozinha-col { font-size: 12px; }
+    .cozinha-col-header { font-size: 11px !important; padding: 8px !important; }
+    .cozinha-col .col-action-btn { font-size: 10px !important; padding: 4px 7px !important; }
   }
-  /* Admin: notebook (1024px+) */
+  @media (max-width: 600px) {
+    .cozinha-col { min-width: 100px !important; }
+  }
+
+  /* Admin — notebook */
+  .admin-tabs { display: flex; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+  .admin-tabs::-webkit-scrollbar { display: none; }
   .admin-tabs button { min-width: 80px; }
-  @media (max-width: 600px) {
-    .admin-tabs { overflow-x: auto; }
-    .admin-tabs button { font-size: 11px !important; padding: "10px 6px" !important; }
-  }
-  /* Financeiro: qualquer tela */
-  @media (max-width: 600px) {
-    .fin-grid { grid-template-columns: 1fr !important; }
-    .fin-mesas-grid { grid-template-columns: 1fr 1fr !important; }
+  @media (max-width: 768px) {
+    .admin-tabs button { font-size: 12px !important; min-width: 64px; }
+    .admin-produto-acoes { flex-direction: column !important; }
   }
 
-  /* Scroll horizontal invisível nas abas */
-  .tabs-scroll { overflow-x: auto; display: flex; scrollbar-width: none; }
-  .tabs-scroll::-webkit-scrollbar { display: none; }
+  /* Financeiro — qualquer tela */
+  @media (max-width: 700px) {
+    .fin-resumo { grid-template-columns: 1fr 1fr !important; }
+    .fin-mesas  { grid-template-columns: 1fr 1fr !important; }
+  }
+  @media (max-width: 480px) {
+    .fin-resumo { grid-template-columns: 1fr !important; }
+    .fin-filtros-datas { flex-direction: column !important; }
+    .fin-filtros-datas input { width: 100% !important; }
+  }
 
-  /* Garantir que textos não quebrem layouts */
-  .no-break { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Scroll horizontal */
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .scroll-x::-webkit-scrollbar { display: none; }
+
+  /* Texto truncado */
+  .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   @media print {
     body { background: white !important; color: black !important; }
@@ -329,35 +308,13 @@ function Btn({
     width: full ? "100%" : undefined,
   };
   const v = {
-    primary: {
-      background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
-      color: "#0d0f0e",
-    },
-    ghost: {
-      background: "transparent",
-      color: T.text2,
-      border: `1px solid ${T.border2}`,
-    },
-    danger: {
-      background: "rgba(248,113,113,.1)",
-      color: T.red,
-      border: "1px solid rgba(248,113,113,.25)",
-    },
-    success: {
-      background: "rgba(74,222,128,.1)",
-      color: T.green,
-      border: "1px solid rgba(74,222,128,.25)",
-    },
-    info: {
-      background: "rgba(96,165,250,.1)",
-      color: T.blue,
-      border: "1px solid rgba(96,165,250,.25)",
-    },
-    amber: {
-      background: "rgba(251,191,36,.1)",
-      color: T.amber,
-      border: "1px solid rgba(251,191,36,.25)",
-    },
+    primary: { background: `linear-gradient(135deg,${T.accent},${T.accent2})`, color: "#fff", boxShadow: "0 2px 8px rgba(177,88,46,0.2)" },
+    navy:    { background: T.navy, color: "#fff" },
+    ghost:   { background: "transparent", color: T.text2, border: `1px solid ${T.border2}` },
+    danger:  { background: "rgba(192,57,43,.08)", color: T.red,   border: "1px solid rgba(192,57,43,.3)" },
+    success: { background: "rgba(46,139,87,.08)",  color: T.green, border: "1px solid rgba(46,139,87,.3)" },
+    info:    { background: "rgba(36,113,163,.08)", color: T.blue,  border: "1px solid rgba(36,113,163,.3)" },
+    amber:   { background: "rgba(183,119,13,.08)", color: T.amber, border: "1px solid rgba(183,119,13,.3)" },
   };
   return (
     <button
@@ -381,7 +338,6 @@ function Card({
   onDragLeave,
 }) {
   useTema();
-  T = getTema();
   return (
     <div
       className={className}
@@ -417,7 +373,6 @@ function Badge({ status }) {
 
 function Modal({ children, onClose }) {
   useTema();
-  T = getTema();
   return (
     <div
       className="fade-in"
@@ -454,71 +409,23 @@ function Modal({ children, onClose }) {
   );
 }
 
-// ─── BOTAO TEMA ──────────────────────────────────────────────────────────────
-function BotaoTema() {
-  const tema = useTema();
-  // Atualiza T globalmente quando tema muda
-  T = getTema();
-  return (
-    <button
-      onClick={alternarTema}
-      title={
-        tema === "escuro" ? "Mudar para tema claro" : "Mudar para tema escuro"
-      }
-      style={{
-        background: "transparent",
-        border: `1px solid ${T.border2}`,
-        borderRadius: 8,
-        padding: "5px 10px",
-        cursor: "pointer",
-        color: T.text2,
-        fontSize: 12,
-        fontWeight: 600,
-        fontFamily: "Inter,sans-serif",
-        transition: "all .2s",
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-      }}
-    >
-      {tema === "escuro" ? "Tema Claro" : "Tema Escuro"}
-    </button>
-  );
-}
 
-function Logo({ size = "md" }) {
+function Logo({ size = "md", center = false }) {
   const logo = CONFIG.logoCliente || CONFIG.logoUrl;
-  const fs = size === "lg" ? 26 : size === "sm" ? 14 : 18;
-  if (logo)
-    return (
-      <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-        <img
-          src={logo}
-          alt="Logo"
-          style={{ height: size === "lg" ? 110 : 30, objectFit: "contain" }}
-        />
-        {CONFIG.logoCliente && CONFIG.logoUrl && (
-          <span style={{ color: T.muted, fontSize: 10 }}>
-            powered by {CONFIG.nomeApp}
-          </span>
-        )}
-      </div>
-    );
+  const h = size === "lg" ? 52 : size === "sm" ? 28 : 36;
+  const fs = size === "lg" ? 26 : size === "sm" ? 15 : 19;
+  if (logo) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: center ? "center" : "flex-start", gap: 8 }}>
+      <img src={logo} alt="Logo" style={{ height: h, objectFit: "contain", display: "block" }} />
+      {CONFIG.logoCliente && CONFIG.logoUrl && (
+        <span style={{ color: T.muted, fontSize: 10 }}>powered by MenuExpress</span>
+      )}
+    </div>
+  );
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span
-        style={{
-          fontFamily: "'Playfair Display',serif",
-          fontWeight: 700,
-          fontSize: fs,
-          letterSpacing: "-0.3px",
-          background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-        }}
-      >
-        {CONFIG.nomeApp}
-      </span>
+    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.navy }}>Menu</span>
+      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.accent }}>Express</span>
     </div>
   );
 }
@@ -537,7 +444,6 @@ const EMOJIS = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
 // ─── TELA LOGIN ───────────────────────────────────────────────────────────────
 function TelaLogin({ titulo, subtitulo, onLogin, senhaCorreta }) {
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState(false);
@@ -561,7 +467,7 @@ function TelaLogin({ titulo, subtitulo, onLogin, senhaCorreta }) {
         padding: 24,
       }}
     >
-      <Logo size="lg" />
+      <Logo size="lg" center />
       <div
         style={{
           marginTop: 40,
@@ -617,7 +523,6 @@ function TelaLogin({ titulo, subtitulo, onLogin, senhaCorreta }) {
 // ─── BOAS-VINDAS MESA ─────────────────────────────────────────────────────────
 function TelaBoasVindas({ mesa_id, onContinuar }) {
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
@@ -657,7 +562,7 @@ function TelaBoasVindas({ mesa_id, onContinuar }) {
           maxWidth: 380,
         }}
       >
-        <Logo size="lg" />
+        <Logo size="lg" center />
         <div
           style={{
             marginTop: 28,
@@ -731,7 +636,6 @@ function PainelCliente({ mesa_id }) {
   const [cancelandoItem, setCancelandoItem] = useState(null);
 
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Mesa ${mesa_id} - ${CONFIG.nomeApp}`;
@@ -880,7 +784,7 @@ function PainelCliente({ mesa_id }) {
               <div style={{ fontSize: 12, color: T.muted }}>
                 {nomeCliente} · Mesa {mesa_id}
               </div>
-              <BotaoTema />
+              
             </div>
           </div>
           <div style={{ display: "flex" }}>
@@ -1569,7 +1473,6 @@ function PainelGarcom() {
   const { notifs, push, dismiss } = useNotifs();
 
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Garcom - ${CONFIG.nomeApp}`;
@@ -1736,7 +1639,7 @@ function PainelGarcom() {
             >
               Garcom
             </span>
-            <BotaoTema />
+            
           </div>
         </div>
 
@@ -2129,7 +2032,6 @@ function PainelCozinha() {
   const [dragging, setDragging] = useState(null);
 
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Cozinha - ${CONFIG.nomeApp}`;
@@ -2301,7 +2203,7 @@ function PainelCozinha() {
                 {pedidos.length} ativo{pedidos.length > 1 ? "s" : ""}
               </span>
             )}
-            <BotaoTema />
+            
           </div>
         </div>
 
@@ -2584,7 +2486,6 @@ function PainelAdmin() {
   const [dataFimRel, setDataFimRel] = useState("");
 
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Admin - ${CONFIG.nomeApp}`;
@@ -2619,10 +2520,12 @@ function PainelAdmin() {
   useEffect(() => {
     fetchCardapio();
     fetchMesas();
+    fetchUsuarios();
+    fetchRelatorio("hoje");
     const s = getSocket();
     s.on("cardapio_atualizado", fetchCardapio);
     return () => s.off("cardapio_atualizado");
-  }, [fetchCardapio, fetchMesas]);
+  }, [fetchCardapio, fetchMesas, fetchUsuarios, fetchRelatorio]);
 
   const salvarProduto = async () => {
     if (!novoP.nome || !novoP.preco) return;
@@ -2704,6 +2607,37 @@ function PainelAdmin() {
       (p.descricao || "").toLowerCase().includes(busca.toLowerCase()),
   );
 
+  async function salvarUsuario() {
+  try {
+    const res = await fetch(`${API}/api/usuarios`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        nome: novoUsuario.nome,
+        senha: novoUsuario.senha,
+        role: novoUsuario.role,
+      }),
+    });
+
+    const data = await res.json();
+    console.log("Usuário criado:", data);
+
+    // Atualiza lista
+    fetchUsuarios();
+
+    // Limpa formulário
+    setNovoUsuario({
+      nome: "",
+      role: "garcom",
+      senha: "",
+    });
+  } catch (err) {
+    console.error("Erro ao criar usuário:", err);
+  }
+}
+
   return (
     <>
       <style>{css}</style>
@@ -2730,7 +2664,7 @@ function PainelAdmin() {
             >
               Administracao
             </span>
-            <BotaoTema />
+            
           </div>
         </div>
 
@@ -3668,7 +3602,6 @@ function PainelAdmin() {
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 export default function App() {
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
   const path = window.location.pathname;
   const [autAdmin, setAutAdmin] = useState(false);
@@ -3760,7 +3693,7 @@ export default function App() {
             textAlign: "center",
           }}
         >
-          <Logo size="lg" />
+          <Logo size="lg" center />
           <div
             style={{
               display: "flex",
@@ -3774,7 +3707,7 @@ export default function App() {
             <div style={{ color: T.muted, fontSize: 13 }}>
               Sistema de cardapio digital
             </div>
-            <BotaoTema />
+            
           </div>
           <div style={{ display: "grid", gap: 10 }}>
             {[
@@ -3907,7 +3840,6 @@ function PainelFinanceiro() {
   const [carregando, setCarregando] = useState(false);
   const [comandaModal, setComandaModal] = useState(null);
   const tema = useTema();
-  T = getTema();
   const css = gerarCSS(T);
 
   useEffect(() => {
@@ -4008,7 +3940,7 @@ function PainelFinanceiro() {
             >
               Financeiro
             </span>
-            <BotaoTema />
+            
           </div>
         </div>
 
