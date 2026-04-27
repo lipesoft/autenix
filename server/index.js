@@ -78,6 +78,25 @@ db.exec(`
   );
 `);
 
+// Migration: adicionar colunas que podem estar faltando na tabela usuarios
+try {
+  db.exec("ALTER TABLE usuarios ADD COLUMN role TEXT NOT NULL DEFAULT 'garcom'");
+} catch(e) {} // ignora se já existe
+
+try {
+  db.exec("ALTER TABLE usuarios ADD COLUMN ativo INTEGER DEFAULT 1");
+} catch(e) {} // ignora se já existe
+
+// Migration: nome_cliente em pedidos
+try {
+  db.exec("ALTER TABLE pedidos ADD COLUMN nome_cliente TEXT");
+} catch(e) {}
+
+// Migration: nome_cliente em chamadas  
+try {
+  db.exec("ALTER TABLE chamadas ADD COLUMN nome_cliente TEXT");
+} catch(e) {}
+
 // Seed dados de exemplo se vazio
 const totalCat = db.prepare("SELECT COUNT(*) as c FROM categorias").get();
 if (totalCat.c === 0) {
@@ -483,30 +502,26 @@ app.get("/api/financeiro/hoje", (req, res) => {
 
 // Usuarios (equipe)
 app.get("/api/usuarios", (req, res) => {
-  db.all("SELECT * FROM usuarios", [], (err, rows) => {
-    if (err) {
-      console.error("Erro ao buscar usuários:", err);
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare("SELECT id, nome, role, ativo FROM usuarios ORDER BY role, nome").all();
     res.json(rows);
-  });
+  } catch (e) {
+    console.error("Erro ao buscar usuarios:", e);
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 app.post("/api/usuarios", (req, res) => {
   const { nome, senha, role } = req.body;
-
-  db.run(
-    "INSERT INTO usuarios (nome, senha, role) VALUES (?, ?, ?)",
-    [nome, senha, role],
-    function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: err.message });
-      }
-
-      res.json({ id: this.lastID });
-    }
-  );
+  if (!nome || !senha || !role) return res.status(400).json({ erro: "Dados incompletos" });
+  if (!["garcom", "cozinha", "financeiro"].includes(role)) return res.status(400).json({ erro: "Role invalido" });
+  try {
+    const r = db.prepare("INSERT INTO usuarios (nome, senha, role) VALUES (?, ?, ?)").run(nome, senha, role);
+    res.json({ id: r.lastInsertRowid });
+  } catch (e) {
+    console.error("Erro ao criar usuario:", e);
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 app.patch("/api/usuarios/:id", (req, res) => {
