@@ -21,7 +21,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
-    role TEXT NOT NULL,
+    login TEXT,
+    role TEXT NOT NULL DEFAULT 'garcom',
     senha TEXT NOT NULL,
     ativo INTEGER DEFAULT 1
   );
@@ -51,6 +52,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS pedidos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero_dia INTEGER,
     mesa_id INTEGER NOT NULL,
     status TEXT DEFAULT 'pendente',
     criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -78,23 +80,22 @@ db.exec(`
   );
 `);
 
-// Migration: adicionar colunas que podem estar faltando na tabela usuarios
-try {
-  db.exec("ALTER TABLE usuarios ADD COLUMN role TEXT NOT NULL DEFAULT 'garcom'");
-} catch(e) {} // ignora se já existe
+// ─── MIGRATIONS (colunas adicionadas em versões posteriores) ─────────────────
+const migrations = [
+  "ALTER TABLE pedidos   ADD COLUMN nome_cliente TEXT",
+  "ALTER TABLE pedidos   ADD COLUMN numero_dia INTEGER",
+  "ALTER TABLE chamadas  ADD COLUMN nome_cliente TEXT",
+  "ALTER TABLE usuarios  ADD COLUMN role TEXT NOT NULL DEFAULT 'garcom'",
+  "ALTER TABLE usuarios  ADD COLUMN ativo INTEGER DEFAULT 1",
+  "ALTER TABLE usuarios  ADD COLUMN login TEXT",
+];
+for (const m of migrations) {
+  try { db.exec(m); } catch(e) { /* coluna já existe */ }
+}
 
+// Garantir login único onde não existe
 try {
-  db.exec("ALTER TABLE usuarios ADD COLUMN ativo INTEGER DEFAULT 1");
-} catch(e) {} // ignora se já existe
-
-// Migration: nome_cliente em pedidos
-try {
-  db.exec("ALTER TABLE pedidos ADD COLUMN nome_cliente TEXT");
-} catch(e) {}
-
-// Migration: nome_cliente em chamadas  
-try {
-  db.exec("ALTER TABLE chamadas ADD COLUMN nome_cliente TEXT");
+  db.prepare("UPDATE usuarios SET login = lower(replace(nome,' ','_')) WHERE login IS NULL OR login = ''").run();
 } catch(e) {}
 
 // Seed dados de exemplo se vazio
@@ -133,6 +134,17 @@ function getLocalIP() {
     }
   }
   return "localhost";
+}
+
+// Retorna próximo número de pedido do dia (reinicia a cada dia)
+function proximoNumeroDia() {
+  const agora = new Date();
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth()+1).padStart(2,'0')}-${String(agora.getDate()).padStart(2,'0')}`;
+  const ultimo = db.prepare(`
+    SELECT MAX(numero_dia) as ultimo FROM pedidos
+    WHERE date(criado_em, 'localtime') = ?
+  `).get(hoje);
+  return (ultimo?.ultimo || 0) + 1;
 }
 
 // ─── ROTAS API ─────────────────────────────────────────────────────────────
@@ -175,9 +187,10 @@ app.post("/api/pedidos", (req, res) => {
   const mesa = db.prepare("SELECT * FROM mesas WHERE id = ?").get(mesa_id);
   if (!mesa) return res.status(404).json({ erro: "Mesa não encontrada" });
 
+  const numeroDia = proximoNumeroDia();
   const pedido = db
-    .prepare("INSERT INTO pedidos (mesa_id, status) VALUES (?, ?)")
-    .run(mesa_id, "pendente");
+    .prepare("INSERT INTO pedidos (mesa_id, status, nome_cliente, numero_dia) VALUES (?, ?, ?, ?)")
+    .run(mesa_id, "pendente", nome_cliente || null, numeroDia);
   const pedido_id = pedido.lastInsertRowid;
 
   const insItem = db.prepare(
@@ -500,48 +513,75 @@ app.get("/api/financeiro/hoje", (req, res) => {
   res.json({ rows, totalDia, data: hoje });
 });
 
-// Usuarios (equipe)
+// ─── USUARIOS ──────────────────────────────────────────────────────────────
+
+// Login de usuario (garcom, financeiro, cozinha)
+app.post("/api/auth/login", (req, res) => {
+  const { login, senha } = req.body;
+  if (!login || !senha) return res.status(400).json({ erro: "Dados incompletos" });
+  try {
+    const u = db.prepare("SELECT * FROM usuarios WHERE (login = ? OR nome = ?) AND ativo = 1").get(login, login);
+    if (!u || u.senha !== senha) return res.status(401).json({ erro: "Login ou senha incorretos" });
+    res.json({ id: u.id, nome: u.nome, role: u.role, login: u.login });
+  } catch(e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
 app.get("/api/usuarios", (req, res) => {
   try {
-    const rows = db.prepare("SELECT id, nome, role, ativo FROM usuarios ORDER BY role, nome").all();
+    const rows = db.prepare("SELECT id, nome, login, role, ativo FROM usuarios ORDER BY role, nome").all();
     res.json(rows);
-  } catch (e) {
+  } catch(e) {
     console.error("Erro ao buscar usuarios:", e);
     res.status(500).json({ erro: e.message });
   }
 });
 
 app.post("/api/usuarios", (req, res) => {
-  const { nome, senha, role } = req.body;
+  const { nome, login, senha, role } = req.body;
   if (!nome || !senha || !role) return res.status(400).json({ erro: "Dados incompletos" });
-  if (!["garcom", "cozinha", "financeiro"].includes(role)) return res.status(400).json({ erro: "Role invalido" });
+  if (!["garcom","cozinha","financeiro","admin"].includes(role)) return res.status(400).json({ erro: "Role invalido" });
+  const loginFinal = (login || nome).toLowerCase().replace(/\s+/g, '_');
   try {
-    const r = db.prepare("INSERT INTO usuarios (nome, senha, role) VALUES (?, ?, ?)").run(nome, senha, role);
-    res.json({ id: r.lastInsertRowid });
-  } catch (e) {
+    // Verificar se login já existe
+    const existing = db.prepare("SELECT id FROM usuarios WHERE login = ?").get(loginFinal);
+    if (existing) return res.status(400).json({ erro: "Login ja existe, escolha outro" });
+    const r = db.prepare("INSERT INTO usuarios (nome, login, senha, role) VALUES (?, ?, ?, ?)").run(nome, loginFinal, senha, role);
+    res.json({ id: r.lastInsertRowid, login: loginFinal });
+  } catch(e) {
     console.error("Erro ao criar usuario:", e);
     res.status(500).json({ erro: e.message });
   }
 });
 
 app.patch("/api/usuarios/:id", (req, res) => {
-  const { nome, senha, ativo } = req.body;
-  const u = db
-    .prepare("SELECT * FROM usuarios WHERE id = ?")
-    .get(req.params.id);
-  if (!u) return res.status(404).json({ erro: "Usuario nao encontrado" });
-  db.prepare("UPDATE usuarios SET nome=?, senha=?, ativo=? WHERE id=?").run(
-    nome ?? u.nome,
-    senha && senha.length > 0 ? senha : u.senha,
-    ativo ?? u.ativo,
-    req.params.id,
-  );
-  res.json({ sucesso: true });
+  const { nome, login, senha, ativo, role } = req.body;
+  try {
+    const u = db.prepare("SELECT * FROM usuarios WHERE id = ?").get(req.params.id);
+    if (!u) return res.status(404).json({ erro: "Usuario nao encontrado" });
+    const novoLogin = login || u.login || u.nome?.toLowerCase().replace(/\s+/g, '_');
+    db.prepare("UPDATE usuarios SET nome=?, login=?, senha=?, ativo=?, role=? WHERE id=?").run(
+      nome ?? u.nome,
+      novoLogin,
+      senha && senha.length > 0 ? senha : u.senha,
+      ativo ?? u.ativo,
+      role ?? u.role,
+      req.params.id,
+    );
+    res.json({ sucesso: true });
+  } catch(e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 app.delete("/api/usuarios/:id", (req, res) => {
-  db.prepare("DELETE FROM usuarios WHERE id = ?").run(req.params.id);
-  res.json({ sucesso: true });
+  try {
+    db.prepare("DELETE FROM usuarios WHERE id = ?").run(req.params.id);
+    res.json({ sucesso: true });
+  } catch(e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 // ─── HELPER PEDIDO COMPLETO ────────────────────────────────────────────────

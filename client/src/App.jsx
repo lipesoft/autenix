@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const CONFIG = {
-  //nomeApp: "MenuExpress",
+  nomeApp: "MenuExpress",
   logoUrl: "/2.png",
   logoCliente: null,
   corPrimaria: null,
@@ -442,83 +442,74 @@ const formataPag = (v) =>
 const EMOJIS = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
 
 // ─── TELA LOGIN ───────────────────────────────────────────────────────────────
-function TelaLogin({ titulo, subtitulo, onLogin, senhaCorreta }) {
-  const tema = useTema();
+function TelaLoginSenha({ titulo, subtitulo, onLogin, senhaCorreta }) {
   const css = gerarCSS(T);
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState(false);
   const tentar = () => {
     if (senha === senhaCorreta) onLogin();
-    else {
-      setErro(true);
-      setSenha("");
-      setTimeout(() => setErro(false), 1500);
-    }
+    else { setErro(true); setSenha(""); setTimeout(() => setErro(false), 1500); }
   };
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        background: T.bg,
-        padding: 24,
-      }}
-    >
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: T.bg, padding: 24 }}>
+      <style>{css}</style>
       <Logo size="lg" center />
-      <div
-        style={{
-          marginTop: 40,
-          width: "100%",
-          maxWidth: 360,
-          background: T.card,
-          border: `1px solid ${T.border}`,
-          borderRadius: 20,
-          padding: 32,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "'Playfair Display',serif",
-            fontSize: 20,
-            fontWeight: 700,
-            marginBottom: 4,
-          }}
-        >
-          {titulo}
-        </div>
-        {subtitulo && (
-          <div style={{ color: T.muted, fontSize: 13, marginBottom: 22 }}>
-            {subtitulo}
-          </div>
-        )}
-        <input
-          type="password"
-          placeholder="Senha"
-          value={senha}
-          onChange={(e) => setSenha(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && tentar()}
-          style={{
-            marginBottom: 10,
-            marginTop: subtitulo ? 0 : 18,
-            borderColor: erro ? T.red : undefined,
-          }}
-          autoFocus
-        />
-        {erro && (
-          <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>
-            Senha incorreta.
-          </div>
-        )}
-        <Btn full onClick={tentar}>
-          Entrar
-        </Btn>
+      <div style={{ marginTop: 40, width: "100%", maxWidth: 360, background: T.card, border: `1px solid ${T.border}`, borderRadius: 20, padding: 32, boxShadow: "0 4px 24px rgba(16,31,47,0.10)" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{titulo}</div>
+        {subtitulo && <div style={{ color: T.muted, fontSize: 13, marginBottom: 22 }}>{subtitulo}</div>}
+        <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === "Enter" && tentar()} style={{ marginBottom: 10, marginTop: 18, borderColor: erro ? T.red : undefined }} autoFocus />
+        {erro && <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>Senha incorreta.</div>}
+        <Btn full onClick={tentar}>Entrar</Btn>
       </div>
     </div>
   );
 }
+
+// Login com usuario+senha (garcom, financeiro, cozinha)
+function TelaLogin({ titulo, role, onLogin }) {
+  const css = gerarCSS(T);
+  const [loginVal, setLoginVal] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const tentar = async () => {
+    if (!loginVal.trim() || !senha.trim()) { setErro("Preencha todos os campos."); return; }
+    setLoading(true); setErro("");
+    try {
+      const r = await fetch(`${API}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: loginVal.trim(), senha: senha.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setErro(d.erro || "Login ou senha incorretos."); setLoading(false); return; }
+      if (role && d.role !== role && d.role !== "admin") {
+        setErro("Voce nao tem permissao para este painel."); setLoading(false); return;
+      }
+      onLogin(d);
+    } catch(e) {
+      setErro("Erro de conexao com o servidor.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: T.bg, padding: 24 }}>
+      <style>{css}</style>
+      <Logo size="lg" center />
+      <div style={{ marginTop: 40, width: "100%", maxWidth: 360, background: T.card, border: `1px solid ${T.border}`, borderRadius: 20, padding: 32, boxShadow: "0 4px 24px rgba(16,31,47,0.10)" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{titulo}</div>
+        <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>Entre com suas credenciais</div>
+        <input placeholder="Usuario" value={loginVal} onChange={e => setLoginVal(e.target.value)} style={{ marginBottom: 10 }} autoFocus />
+        <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === "Enter" && tentar()} style={{ marginBottom: 10, borderColor: erro ? T.red : undefined }} />
+        {erro && <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>{erro}</div>}
+        <Btn full onClick={tentar} disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Btn>
+      </div>
+    </div>
+  );
+}
+
 
 // ─── BOAS-VINDAS MESA ─────────────────────────────────────────────────────────
 function TelaBoasVindas({ mesa_id, onContinuar }) {
@@ -1149,7 +1140,7 @@ function PainelCliente({ mesa_id }) {
                           fontWeight: 700,
                         }}
                       >
-                        Pedido #{p.id}
+                        Pedido #{p.numero_dia || p.id}
                       </div>
                       <Badge status={p.status} />
                     </div>
@@ -1463,12 +1454,18 @@ function PainelCliente({ mesa_id }) {
 }
 
 // ─── PAINEL GARCOM ────────────────────────────────────────────────────────────
-function PainelGarcom() {
+function PainelGarcom({ usuario }) {
   const [chamadas, setChamadas] = useState([]);
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [contaModal, setContaModal] = useState(null);
   const [pedidosModal, setPedidosModal] = useState(null);
+  // Cardápio para fazer pedido
+  const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
+  const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
+  const [carrinhoPedido, setCarrinhoPedido] = useState([]);
+  const [catAtiva, setCatAtiva] = useState(null);
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
   const bellRef = useRef(null);
   const { notifs, push, dismiss } = useNotifs();
 
@@ -1491,13 +1488,56 @@ function PainelGarcom() {
     setPedidos(await r.json());
   }, []);
 
+  const fetchCardapio = useCallback(async () => {
+    const r = await fetch(`${API}/api/cardapio`);
+    setCardapio(await r.json());
+  }, []);
+
+  const addCarrinho = (p) => setCarrinhoPedido(prev => {
+    const ex = prev.find(i => i.produto_id === p.id);
+    if (ex) return prev.map(i => i.produto_id === p.id ? { ...i, quantidade: i.quantidade + 1 } : i);
+    return [...prev, { produto_id: p.id, nome: p.nome, preco: p.preco, quantidade: 1 }];
+  });
+  const remCarrinho = (id) => setCarrinhoPedido(prev => {
+    const ex = prev.find(i => i.produto_id === id);
+    if (ex?.quantidade === 1) return prev.filter(i => i.produto_id !== id);
+    return prev.map(i => i.produto_id === id ? { ...i, quantidade: i.quantidade - 1 } : i);
+  });
+  const qtdCarrinho = (id) => carrinhoPedido.find(i => i.produto_id === id)?.quantidade || 0;
+  const totalCarrinho = carrinhoPedido.reduce((s, i) => s + i.preco * i.quantidade, 0);
+
+  const abrirCardapio = (mesa) => {
+    setCardapioModal(mesa);
+    setCarrinhoPedido([]);
+    setCatAtiva(null);
+    fetchCardapio();
+  };
+
+  const enviarPedidoGarcom = async () => {
+    if (!carrinhoPedido.length || !cardapioModal) return;
+    setEnviandoPedido(true);
+    await fetch(`${API}/api/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mesa_id: cardapioModal.id,
+        itens: carrinhoPedido.map(i => ({ ...i, observacao: "" })),
+        nome_cliente: `Garcom: ${usuario?.nome || "Garcom"}`,
+      }),
+    });
+    setEnviandoPedido(false);
+    setCardapioModal(null);
+    setCarrinhoPedido([]);
+    fetchPedidos(); fetchMesas();
+  };
+
   useEffect(() => {
     fetchChamadas();
     fetchMesas();
     fetchPedidos();
     const s = getSocket();
 
-    // Item 1 e 5: cliente chama garcom com nome e mesa
+    // cliente chama garcom com nome e mesa
     s.on("chamada_garcom", (data) => {
       fetchChamadas();
       const isPag = data.motivo?.startsWith("conta:");
@@ -1525,11 +1565,7 @@ function PainelGarcom() {
     // Pedido pronto na cozinha
     s.on("pedido_pronto", (data) => {
       fetchPedidos();
-      push(
-        `Pedido pronto — Mesa ${data.mesa_numero}`,
-        "Buscar na cozinha",
-        "pronto",
-      );
+      playNotifSound("pronto");
     });
 
     s.on("chamada_atendida", fetchChamadas);
@@ -1751,7 +1787,7 @@ function PainelGarcom() {
                   >
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>
-                        Mesa {p.mesa_numero} — Pedido #{p.id}
+                        Mesa {p.mesa_numero} - Pedido #{p.numero_dia || p.id}
                       </div>
                       <div
                         style={{ color: T.muted, fontSize: 12, marginTop: 2 }}
@@ -1833,24 +1869,13 @@ function PainelGarcom() {
                         R$ {totalMesa(m.id).toFixed(2)}
                       </span>
                     </div>
-                    <Btn
-                      sm
-                      full
-                      variant="info"
-                      onClick={() => setPedidosModal(m)}
-                      style={{ marginBottom: 6 }}
-                    >
-                      Ver Pedidos
-                    </Btn>
-                    <Btn
-                      sm
-                      full
-                      variant="danger"
-                      onClick={() => setContaModal(m)}
-                    >
-                      Fechar Mesa
-                    </Btn>
+                    <Btn sm full variant="info" onClick={() => setPedidosModal(m)} style={{ marginBottom: 6 }}>Ver Pedidos</Btn>
+                    <Btn sm full variant="success" onClick={() => abrirCardapio(m)} style={{ marginBottom: 6 }}>Fazer Pedido</Btn>
+                    <Btn sm full variant="danger" onClick={() => setContaModal(m)}>Fechar Mesa</Btn>
                   </>
+                )}
+                {m.status === "livre" && (
+                  <Btn sm full variant="success" onClick={() => abrirCardapio(m)} style={{ marginTop: 6 }}>Fazer Pedido</Btn>
                 )}
               </Card>
             ))}
@@ -1891,7 +1916,7 @@ function PainelGarcom() {
                     }}
                   >
                     <span style={{ fontSize: 12, color: T.muted }}>
-                      Pedido #{p.id}
+                      Pedido #{p.numero_dia || p.id}
                     </span>
                     <Badge status={p.status} />
                   </div>
@@ -1959,7 +1984,7 @@ function PainelGarcom() {
             {pedidosDaMesa(contaModal.id).map((p) => (
               <div key={p.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
-                  Pedido #{p.id}
+                  Pedido #{p.numero_dia || p.id}
                 </div>
                 {p.itens?.map((i) => (
                   <div
@@ -2021,6 +2046,69 @@ function PainelGarcom() {
           </Modal>
         )}
       </div>
+
+      {/* Modal Cardápio — fazer pedido pela mesa */}
+      {cardapioModal && (
+        <Modal onClose={() => setCardapioModal(null)}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+            Pedido - Mesa {cardapioModal.numero}
+          </div>
+          <div style={{ color: T.muted, fontSize: 13, marginBottom: 14 }}>
+            Selecione os itens do cardápio
+          </div>
+
+          {/* Filtro categorias */}
+          <div className="scroll-x" style={{ display: "flex", gap: 7, paddingBottom: 10, marginBottom: 12 }}>
+            <button onClick={() => setCatAtiva(null)} style={{ flexShrink: 0, padding: "5px 14px", borderRadius: 99, border: `1px solid ${catAtiva === null ? T.accent : T.border}`, background: catAtiva === null ? T.accentGlow : "transparent", color: catAtiva === null ? T.accent : T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>Todos</button>
+            {cardapio.categorias.map(c => (
+              <button key={c.id} onClick={() => setCatAtiva(c.id)} style={{ flexShrink: 0, padding: "5px 14px", borderRadius: 99, border: `1px solid ${catAtiva === c.id ? T.accent : T.border}`, background: catAtiva === c.id ? T.accentGlow : "transparent", color: catAtiva === c.id ? T.accent : T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>{c.nome}</button>
+            ))}
+          </div>
+
+          {/* Lista de produtos */}
+          <div style={{ maxHeight: 280, overflowY: "auto", marginBottom: 14 }}>
+            {(catAtiva === null ? cardapio.produtos : cardapio.produtos.filter(p => p.categoria_id === catAtiva)).map(p => {
+              const q = qtdCarrinho(p.id);
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: `1px solid ${T.border}` }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.nome}</div>
+                    <div style={{ color: T.accent, fontSize: 13, fontWeight: 700 }}>R$ {p.preco.toFixed(2)}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {q > 0 && <button onClick={() => remCarrinho(p.id)} style={{ width: 26, height: 26, borderRadius: 7, background: T.card2, border: `1px solid ${T.border2}`, color: "black", cursor: "pointer", fontSize: 14, fontWeight: 800 }}>-</button>}
+                    {q > 0 && <span style={{ fontWeight: 700, minWidth: 16, textAlign: "center" }}>{q}</span>}
+                    <button onClick={() => addCarrinho(p)} style={{ width: 26, height: 26, borderRadius: 7, background: `linear-gradient(135deg,${T.accent},${T.accent2})`, border: "none", color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 800 }}>+</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Total e confirmar */}
+          {carrinhoPedido.length > 0 && (
+            <div style={{ borderTop: `1px solid ${T.border2}`, paddingTop: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontWeight: 600 }}>Total</span>
+                <span style={{ fontWeight: 800, color: T.accent, fontSize: 16 }}>R$ {totalCarrinho.toFixed(2)}</span>
+              </div>
+              {carrinhoPedido.map(i => (
+                <div key={i.produto_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.muted }}>
+                  <span>{i.quantidade}x {i.nome}</span>
+                  <span>R$ {(i.preco * i.quantidade).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant="ghost" onClick={() => setCardapioModal(null)} style={{ flex: 1 }}>Cancelar</Btn>
+            <Btn onClick={enviarPedidoGarcom} disabled={!carrinhoPedido.length || enviandoPedido} style={{ flex: 2 }}>
+              {enviandoPedido ? "Enviando..." : "Confirmar Pedido"}
+            </Btn>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
@@ -2470,11 +2558,7 @@ function PainelAdmin() {
   const [mesas, setMesas] = useState([]);
   const [novaMesa, setNovaMesa] = useState("");
   const [usuarios, setUsuarios] = useState([]);
-  const [novoUsuario, setNovoUsuario] = useState({
-    nome: "",
-    role: "garcom",
-    senha: "",
-  });
+  const [novoUsuario, setNovoUsuario] = useState({ nome: "", login: "", role: "garcom", senha: "" });
   const [editandoUsuario, setEditandoUsuario] = useState(null);
   const [relatorio, setRelatorio] = useState({
     dados: [],
@@ -2607,36 +2691,50 @@ function PainelAdmin() {
       (p.descricao || "").toLowerCase().includes(busca.toLowerCase()),
   );
 
-  async function salvarUsuario() {
+  const salvarUsuario = async () => {
+    if (!novoUsuario.nome || !novoUsuario.senha) return;
+    try {
+      const loginFinal = (novoUsuario.login || novoUsuario.nome).toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const r = await fetch(`${API}/api/usuarios`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: novoUsuario.nome, login: loginFinal, senha: novoUsuario.senha, role: novoUsuario.role }),
+      });
+      const d = await r.json();
+      if (!r.ok) { alert(d.erro || "Erro ao criar usuario"); return; }
+      fetchUsuarios();
+      setNovoUsuario({ nome: "", login: "", role: "garcom", senha: "" });
+    } catch(e) { console.error("Erro:", e); }
+  };
+
+  const salvarEdicaoUsuario = async () => {
+  if (!editandoUsuario) return;
   try {
-    const res = await fetch(`${API}/api/usuarios`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+    const r = await fetch(`${API}/api/usuarios/${editandoUsuario.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        nome: novoUsuario.nome,
-        senha: novoUsuario.senha,
-        role: novoUsuario.role,
+        nome: editandoUsuario.nome,
+        login: editandoUsuario.login,
+        senha: editandoUsuario.senha,
+        ativo: editandoUsuario.ativo,
+        role: editandoUsuario.role,
       }),
     });
-
-    const data = await res.json();
-    console.log("Usuário criado:", data);
-
-    // Atualiza lista
+    const d = await r.json();
+    if (!r.ok) { alert(d.erro || "Erro ao editar usuario"); return; }
+    setEditandoUsuario(null);
     fetchUsuarios();
+  } catch(e) { console.error("Erro:", e); }
+};
 
-    // Limpa formulário
-    setNovoUsuario({
-      nome: "",
-      role: "garcom",
-      senha: "",
-    });
-  } catch (err) {
-    console.error("Erro ao criar usuário:", err);
-  }
-}
+const deletarUsuario = async (id) => {
+  if (!confirm("Remover usuario?")) return;
+  try {
+    await fetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
+    fetchUsuarios();
+  } catch(e) { console.error("Erro:", e); }
+};
 
   return (
     <>
@@ -3095,6 +3193,12 @@ function PainelAdmin() {
                 }
                 style={{ marginBottom: 8 }}
               />
+              <input
+                placeholder="Login para acesso (ex: joao_garcom) *"
+                value={novoUsuario.login || ""}
+                onChange={(e) => setNovoUsuario((u) => ({ ...u, login: e.target.value }))}
+                style={{ marginBottom: 8 }}
+              />
               <select
                 value={novoUsuario.role}
                 onChange={(e) =>
@@ -3115,10 +3219,10 @@ function PainelAdmin() {
                 }
                 style={{ marginBottom: 10 }}
               />
-              <Btn
-                onClick={salvarUsuario}
-                disabled={!novoUsuario.nome || !novoUsuario.senha}
-              >
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, padding: "8px 10px", background: T.card2, borderRadius: 8 }}>
+                O login sera usado para entrar no painel. Se deixar vazio, sera gerado automaticamente do nome.
+              </div>
+              <Btn onClick={salvarUsuario} disabled={!novoUsuario.nome || !novoUsuario.senha}>
                 Criar Usuario
               </Btn>
             </Card>
@@ -3604,60 +3708,41 @@ export default function App() {
   const tema = useTema();
   const css = gerarCSS(T);
   const path = window.location.pathname;
-  const [autAdmin, setAutAdmin] = useState(false);
-  const [autGarcom, setAutGarcom] = useState(false);
-  const [autFinanceiro, setAutFinanceiro] = useState(false);
+  const [autAdmin, setAutAdmin]           = useState(false);
+  const [usuarioLogado, setUsuarioLogado] = useState(null); // garcom/financeiro/cozinha
+
   useEffect(() => {
-    document.title = CONFIG.nomeApp;
+    document.title = `Painel Principal - ${CONFIG.nomeApp}`;
   }, []);
 
   const mesa_id = path.startsWith("/mesa/") ? path.split("/")[2] : null;
   if (mesa_id) return <PainelCliente mesa_id={mesa_id} />;
-  if (path === "/cozinha") return <PainelCozinha />;
 
+  // Cozinha — login com usuario+senha
+  if (path === "/cozinha") {
+    if (!usuarioLogado || (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin"))
+      return <TelaLogin titulo="Cozinha" role="cozinha" onLogin={setUsuarioLogado} />;
+    return <PainelCozinha usuario={usuarioLogado} />;
+  }
+
+  // Garcom — login com usuario+senha
   if (path === "/garcom") {
-    if (!autGarcom)
-      return (
-        <>
-          <style>{css}</style>
-          <TelaLogin
-            titulo="Garcom"
-            subtitulo="Acesso restrito"
-            senhaCorreta={CONFIG.senhaGarcom}
-            onLogin={() => setAutGarcom(true)}
-          />
-        </>
-      );
-    return <PainelGarcom />;
+    if (!usuarioLogado || (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin"))
+      return <TelaLogin titulo="Garcom" role="garcom" onLogin={setUsuarioLogado} />;
+    return <PainelGarcom usuario={usuarioLogado} />;
   }
+
+  // Financeiro — login com usuario+senha
   if (path === "/financeiro") {
-    if (!autFinanceiro)
-      return (
-        <>
-          <style>{css}</style>
-          <TelaLogin
-            titulo="Financeiro"
-            subtitulo="Acesso restrito"
-            senhaCorreta={CONFIG.senhaFinanceiro}
-            onLogin={() => setAutFinanceiro(true)}
-          />
-        </>
-      );
-    return <PainelFinanceiro />;
+    if (!usuarioLogado || (usuarioLogado.role !== "financeiro" && usuarioLogado.role !== "admin"))
+      return <TelaLogin titulo="Financeiro" role="financeiro" onLogin={setUsuarioLogado} />;
+    return <PainelFinanceiro usuario={usuarioLogado} />;
   }
+
+  // Admin — senha fixa do CONFIG
   if (path === "/admin") {
     if (!autAdmin)
-      return (
-        <>
-          <style>{css}</style>
-          <TelaLogin
-            titulo="Administracao"
-            subtitulo="Acesso restrito"
-            senhaCorreta={CONFIG.senhaAdmin}
-            onLogin={() => setAutAdmin(true)}
-          />
-        </>
-      );
+      return <TelaLoginSenha titulo="Administracao" subtitulo="Acesso restrito" senhaCorreta={CONFIG.senhaAdmin} onLogin={() => setAutAdmin(true)} />;
     return <PainelAdmin />;
   }
 
@@ -3843,7 +3928,7 @@ function PainelFinanceiro() {
   const css = gerarCSS(T);
 
   useEffect(() => {
-    document.title = `Financeiro — ${CONFIG.nomeApp || "MenuExpress"}`;
+    document.title = `Financeiro - ${CONFIG.nomeApp || "MenuExpress"}`;
   }, []);
 
   const fetchMesas = useCallback(async () => {
@@ -4285,7 +4370,7 @@ function PainelFinanceiro() {
             {pedidosDaMesa(comandaModal.id).map((p) => (
               <div key={p.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>
-                  Pedido #{p.id}
+                  Pedido #{p.numero_dia || p.id}
                 </div>
                 {p.itens
                   ?.filter((i) => i.status !== "cancelado")
