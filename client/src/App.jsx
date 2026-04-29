@@ -3,8 +3,8 @@ import { io } from "socket.io-client";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const CONFIG = {
-  nomeApp: "MenuExpress",
-  logoUrl: "/2.png",
+  nomeApp: "Autenix",
+  logoUrl: "/logoAutenix.png",
   logoCliente: null,
   corPrimaria: null,
   corSecundaria: null,
@@ -412,20 +412,19 @@ function Modal({ children, onClose }) {
 
 function Logo({ size = "md", center = false }) {
   const logo = CONFIG.logoCliente || CONFIG.logoUrl;
-  const h = size === "lg" ? 52 : size === "sm" ? 28 : 36;
+  const h = size === "lg" ? 140 : size === "sm" ? 28 : 36;
   const fs = size === "lg" ? 26 : size === "sm" ? 15 : 19;
   if (logo) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: center ? "center" : "flex-start", gap: 8 }}>
       <img src={logo} alt="Logo" style={{ height: h, objectFit: "contain", display: "block" }} />
       {CONFIG.logoCliente && CONFIG.logoUrl && (
-        <span style={{ color: T.muted, fontSize: 10 }}>powered by MenuExpress</span>
+        <span style={{ color: T.muted, fontSize: 10 }}>powered by Autenix</span>
       )}
     </div>
   );
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.navy }}>Menu</span>
-      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.accent }}>Express</span>
+      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.navy }}>Autenix</span>
     </div>
   );
 }
@@ -3472,7 +3471,7 @@ const deletarUsuario = async (id) => {
                         periodo: periodoRel,
                         dataInicio: dataInicioRel,
                         dataFim: dataFimRel,
-                        nomeApp: CONFIG.nomeApp || "MenuExpress",
+                        nomeApp: CONFIG.nomeApp || "Autenix",
                       })
                     }
                   >
@@ -3785,13 +3784,10 @@ export default function App() {
               alignItems: "center",
               justifyContent: "center",
               gap: 10,
-              marginTop: 8,
-              marginBottom: 36,
+              marginTop: 6,
+              marginBottom: 20,
             }}
           >
-            <div style={{ color: T.muted, fontSize: 13 }}>
-              Sistema de cardapio digital
-            </div>
             
           </div>
           <div style={{ display: "grid", gap: 10 }}>
@@ -3928,7 +3924,7 @@ function PainelFinanceiro() {
   const css = gerarCSS(T);
 
   useEffect(() => {
-    document.title = `Financeiro - ${CONFIG.nomeApp || "MenuExpress"}`;
+    document.title = `Financeiro - ${CONFIG.nomeApp || "Autenix"}`;
   }, []);
 
   const fetchMesas = useCallback(async () => {
@@ -3994,7 +3990,7 @@ function PainelFinanceiro() {
       periodo,
       dataInicio,
       dataFim,
-      nomeApp: CONFIG.nomeApp || "MenuExpress",
+      nomeApp: CONFIG.nomeApp || "Autenix",
     });
 
   return (

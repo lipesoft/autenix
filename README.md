@@ -1,6 +1,6 @@
-# MenuExpress
+# Autenix
 
-O MenuExpress é um sistema digital criado para modernizar o atendimento em restaurantes, substituindo o cardápio físico tradicional por um QR Code exclusivo para cada mesa.
+O Autenix é um sistema digital criado para modernizar o atendimento em restaurantes, substituindo o cardápio físico tradicional por um QR Code exclusivo para cada mesa.
 
 Ao chegar no restaurante, o cliente apenas escaneia o QR Code com a câmera do celular e automaticamente acessa o cardápio completo, sem precisar baixar nenhum aplicativo. A partir daí, ele pode navegar pelos produtos, ver descrições, preços e imagens, escolher o que deseja e fazer o pedido diretamente pelo próprio celular.
 
