@@ -197,7 +197,7 @@ app.get("/api/mesas/:id", (req, res) => {
 
 // Fazer pedido (cliente)
 app.post("/api/pedidos", (req, res) => {
-  const { mesa_id, itens } = req.body;
+  const { mesa_id, itens, nome_cliente } = req.body;
   if (!mesa_id || !itens?.length)
     return res.status(400).json({ erro: "Dados inválidos" });
 
@@ -269,7 +269,7 @@ app.get("/api/pedidos", (req, res) => {
   res.json(resultado);
 });
 
-// Atualizar status de item
+// Atualizar status do pedido
 app.patch("/api/pedidos/:id/status", (req, res) => {
   const { status, garcom_id, garcom_nome } = req.body;
   if (garcom_id) {
@@ -282,36 +282,28 @@ app.patch("/api/pedidos/:id/status", (req, res) => {
       req.params.id,
     );
   }
+  const pedido = getPedidoCompleto(Number(req.params.id));
+  io.emit("pedido_atualizado", pedido);
+  res.json({ sucesso: true });
+});
 
-  // Cancelar item (só se pendente)
-  app.patch("/api/itens/:id/cancelar", (req, res) => {
-    const item = db
-      .prepare("SELECT * FROM itens_pedido WHERE id = ?")
-      .get(req.params.id);
-    if (!item) return res.status(404).json({ erro: "Item nao encontrado" });
-    if (item.status !== "pendente")
-      return res.status(400).json({ erro: "Item ja em preparo" });
-    db.prepare("UPDATE itens_pedido SET status = 'cancelado' WHERE id = ?").run(
-      req.params.id,
-    );
-    const pedido = getPedidoCompleto(item.pedido_id);
-    io.emit("pedido_atualizado", pedido);
-    res.json({ sucesso: true });
-  });
+// Cancelar item (só se pendente)
+app.patch("/api/itens/:id/cancelar", (req, res) => {
+  const item = db
+    .prepare("SELECT * FROM itens_pedido WHERE id = ?")
+    .get(req.params.id);
+  if (!item) return res.status(404).json({ erro: "Item nao encontrado" });
+  if (item.status !== "pendente")
+    return res.status(400).json({ erro: "Item ja em preparo" });
+  db.prepare("UPDATE itens_pedido SET status = 'cancelado' WHERE id = ?").run(
+    req.params.id,
+  );
+  const pedido = getPedidoCompleto(item.pedido_id);
+  io.emit("pedido_atualizado", pedido);
+  res.json({ sucesso: true });
+});
 
-  // Atualizar status do pedido
-  app.patch("/api/pedidos/:id/status", (req, res) => {
-    const { status } = req.body;
-    db.prepare("UPDATE pedidos SET status = ? WHERE id = ?").run(
-      status,
-      req.params.id,
-    );
-    const pedido = getPedidoCompleto(Number(req.params.id));
-    io.emit("pedido_atualizado", pedido);
-    res.json({ sucesso: true });
-  });
-
-  // Fechar mesa
+// Fechar mesa
   app.post("/api/mesas/:id/fechar", (req, res) => {
     db.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(
       req.params.id,
@@ -734,4 +726,4 @@ app.patch("/api/pedidos/:id/status", (req, res) => {
     db.prepare("DELETE FROM mesas WHERE id = ?").run(req.params.id);
     res.json({ sucesso: true });
   });
-});
+

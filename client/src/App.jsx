@@ -1651,6 +1651,8 @@ function PainelGarcom({ usuario }) {
   const [pedidos, setPedidos] = useState([]);
   const [contaModal, setContaModal] = useState(null);
   const [pedidosModal, setPedidosModal] = useState(null);
+  const [historicoModal, setHistoricoModal] = useState(null);
+  const [historicoItens, setHistoricoItens] = useState([]);
 
   // Cardápio para fazer pedido
   const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
