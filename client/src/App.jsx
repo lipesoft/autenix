@@ -15,7 +15,14 @@ const CONFIG = {
 
 let socket = null;
 function getSocket() {
-  if (!socket) socket = io(API);
+  if (!socket) {
+    socket = io(API, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
+  }
   return socket;
 }
 
@@ -26,36 +33,40 @@ function getSocket() {
 
 let T = {
   // Backgrounds
-  bg:    "#f4f6f8",
-  bg2:   "#ffffff",
-  card:  "#ffffff",
+  bg: "#f4f6f8",
+  bg2: "#ffffff",
+  card: "#ffffff",
   card2: "#f0f3f6",
   // Bordas
-  border:  "#dde3ea",
+  border: "#dde3ea",
   border2: "#c8d0da",
   // Textos
-  text:  "#101f2f",
+  text: "#101f2f",
   text2: "#3a4f63",
   muted: "#7a8fa3",
   // Cores da logo
-  accent:  "#b1582e",
+  accent: "#b1582e",
   accent2: "#8f3f1a",
-  navy:    "#101f2f",
+  navy: "#101f2f",
   // Status
   green: "#2e8b57",
-  red:   "#c0392b",
-  blue:  "#2471a3",
+  red: "#c0392b",
+  blue: "#2471a3",
   amber: "#b7770d",
   // Efeitos
   accentGlow: "rgba(177,88,46,0.10)",
-  navyGlow:   "rgba(16,31,47,0.08)",
-  shadow:     "rgba(16,31,47,0.10)",
-  inputBg:    "#f8fafc",
+  navyGlow: "rgba(16,31,47,0.08)",
+  shadow: "rgba(16,31,47,0.10)",
+  inputBg: "#f8fafc",
 };
 
 // Stub para compatibilidade (tema fixo, sem alternância)
-function getTema() { return T; }
-function useTema() { return "claro"; }
+function getTema() {
+  return T;
+}
+function useTema() {
+  return "claro";
+}
 
 // ─── SOM ─────────────────────────────────────────────────────────────────────
 function playBeep(freq = 880, dur = 0.18, vol = 0.4) {
@@ -308,13 +319,37 @@ function Btn({
     width: full ? "100%" : undefined,
   };
   const v = {
-    primary: { background: `linear-gradient(135deg,${T.accent},${T.accent2})`, color: "#fff", boxShadow: "0 2px 8px rgba(177,88,46,0.2)" },
-    navy:    { background: T.navy, color: "#fff" },
-    ghost:   { background: "transparent", color: T.text2, border: `1px solid ${T.border2}` },
-    danger:  { background: "rgba(192,57,43,.08)", color: T.red,   border: "1px solid rgba(192,57,43,.3)" },
-    success: { background: "rgba(46,139,87,.08)",  color: T.green, border: "1px solid rgba(46,139,87,.3)" },
-    info:    { background: "rgba(36,113,163,.08)", color: T.blue,  border: "1px solid rgba(36,113,163,.3)" },
-    amber:   { background: "rgba(183,119,13,.08)", color: T.amber, border: "1px solid rgba(183,119,13,.3)" },
+    primary: {
+      background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
+      color: "#fff",
+      boxShadow: "0 2px 8px rgba(177,88,46,0.2)",
+    },
+    navy: { background: T.navy, color: "#fff" },
+    ghost: {
+      background: "transparent",
+      color: T.text2,
+      border: `1px solid ${T.border2}`,
+    },
+    danger: {
+      background: "rgba(192,57,43,.08)",
+      color: T.red,
+      border: "1px solid rgba(192,57,43,.3)",
+    },
+    success: {
+      background: "rgba(46,139,87,.08)",
+      color: T.green,
+      border: "1px solid rgba(46,139,87,.3)",
+    },
+    info: {
+      background: "rgba(36,113,163,.08)",
+      color: T.blue,
+      border: "1px solid rgba(36,113,163,.3)",
+    },
+    amber: {
+      background: "rgba(183,119,13,.08)",
+      color: T.amber,
+      border: "1px solid rgba(183,119,13,.3)",
+    },
   };
   return (
     <button
@@ -409,22 +444,44 @@ function Modal({ children, onClose }) {
   );
 }
 
-
 function Logo({ size = "md", center = false }) {
   const logo = CONFIG.logoCliente || CONFIG.logoUrl;
   const h = size === "lg" ? 140 : size === "sm" ? 28 : 36;
   const fs = size === "lg" ? 26 : size === "sm" ? 15 : 19;
-  if (logo) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: center ? "center" : "flex-start", gap: 8 }}>
-      <img src={logo} alt="Logo" style={{ height: h, objectFit: "contain", display: "block" }} />
-      {CONFIG.logoCliente && CONFIG.logoUrl && (
-        <span style={{ color: T.muted, fontSize: 10 }}>powered by Autenix</span>
-      )}
-    </div>
-  );
+  if (logo)
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: center ? "center" : "flex-start",
+          gap: 8,
+        }}
+      >
+        <img
+          src={logo}
+          alt="Logo"
+          style={{ height: h, objectFit: "contain", display: "block" }}
+        />
+        {CONFIG.logoCliente && CONFIG.logoUrl && (
+          <span style={{ color: T.muted, fontSize: 10 }}>
+            powered by Autenix
+          </span>
+        )}
+      </div>
+    );
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: fs, color: T.navy }}>Autenix</span>
+      <span
+        style={{
+          fontFamily: "'Playfair Display',serif",
+          fontWeight: 700,
+          fontSize: fs,
+          color: T.navy,
+        }}
+      >
+        Autenix
+      </span>
     </div>
   );
 }
@@ -447,18 +504,74 @@ function TelaLoginSenha({ titulo, subtitulo, onLogin, senhaCorreta }) {
   const [erro, setErro] = useState(false);
   const tentar = () => {
     if (senha === senhaCorreta) onLogin();
-    else { setErro(true); setSenha(""); setTimeout(() => setErro(false), 1500); }
+    else {
+      setErro(true);
+      setSenha("");
+      setTimeout(() => setErro(false), 1500);
+    }
   };
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: T.bg, padding: 24 }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: T.bg,
+        padding: 24,
+      }}
+    >
       <style>{css}</style>
       <Logo size="lg" center />
-      <div style={{ marginTop: 40, width: "100%", maxWidth: 360, background: T.card, border: `1px solid ${T.border}`, borderRadius: 20, padding: 32, boxShadow: "0 4px 24px rgba(16,31,47,0.10)" }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{titulo}</div>
-        {subtitulo && <div style={{ color: T.muted, fontSize: 13, marginBottom: 22 }}>{subtitulo}</div>}
-        <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === "Enter" && tentar()} style={{ marginBottom: 10, marginTop: 18, borderColor: erro ? T.red : undefined }} autoFocus />
-        {erro && <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>Senha incorreta.</div>}
-        <Btn full onClick={tentar}>Entrar</Btn>
+      <div
+        style={{
+          marginTop: 40,
+          width: "100%",
+          maxWidth: 360,
+          background: T.card,
+          border: `1px solid ${T.border}`,
+          borderRadius: 20,
+          padding: 32,
+          boxShadow: "0 4px 24px rgba(16,31,47,0.10)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "'Playfair Display',serif",
+            fontSize: 20,
+            fontWeight: 700,
+            marginBottom: 4,
+          }}
+        >
+          {titulo}
+        </div>
+        {subtitulo && (
+          <div style={{ color: T.muted, fontSize: 13, marginBottom: 22 }}>
+            {subtitulo}
+          </div>
+        )}
+        <input
+          type="password"
+          placeholder="Senha"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && tentar()}
+          style={{
+            marginBottom: 10,
+            marginTop: 18,
+            borderColor: erro ? T.red : undefined,
+          }}
+          autoFocus
+        />
+        {erro && (
+          <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>
+            Senha incorreta.
+          </div>
+        )}
+        <Btn full onClick={tentar}>
+          Entrar
+        </Btn>
       </div>
     </div>
   );
@@ -473,8 +586,12 @@ function TelaLogin({ titulo, role, onLogin }) {
   const [loading, setLoading] = useState(false);
 
   const tentar = async () => {
-    if (!loginVal.trim() || !senha.trim()) { setErro("Preencha todos os campos."); return; }
-    setLoading(true); setErro("");
+    if (!loginVal.trim() || !senha.trim()) {
+      setErro("Preencha todos os campos.");
+      return;
+    }
+    setLoading(true);
+    setErro("");
     try {
       const r = await fetch(`${API}/api/auth/login`, {
         method: "POST",
@@ -482,33 +599,89 @@ function TelaLogin({ titulo, role, onLogin }) {
         body: JSON.stringify({ login: loginVal.trim(), senha: senha.trim() }),
       });
       const d = await r.json();
-      if (!r.ok) { setErro(d.erro || "Login ou senha incorretos."); setLoading(false); return; }
+      if (!r.ok) {
+        setErro(d.erro || "Login ou senha incorretos.");
+        setLoading(false);
+        return;
+      }
       if (role && d.role !== role && d.role !== "admin") {
-        setErro("Voce nao tem permissao para este painel."); setLoading(false); return;
+        setErro("Voce nao tem permissao para este painel.");
+        setLoading(false);
+        return;
       }
       onLogin(d);
-    } catch(e) {
+    } catch (e) {
       setErro("Erro de conexao com o servidor.");
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: T.bg, padding: 24 }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: T.bg,
+        padding: 24,
+      }}
+    >
       <style>{css}</style>
       <Logo size="lg" center />
-      <div style={{ marginTop: 40, width: "100%", maxWidth: 360, background: T.card, border: `1px solid ${T.border}`, borderRadius: 20, padding: 32, boxShadow: "0 4px 24px rgba(16,31,47,0.10)" }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{titulo}</div>
-        <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>Entre com suas credenciais</div>
-        <input placeholder="Usuario" value={loginVal} onChange={e => setLoginVal(e.target.value)} style={{ marginBottom: 10 }} autoFocus />
-        <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === "Enter" && tentar()} style={{ marginBottom: 10, borderColor: erro ? T.red : undefined }} />
-        {erro && <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>{erro}</div>}
-        <Btn full onClick={tentar} disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Btn>
+      <div
+        style={{
+          marginTop: 40,
+          width: "100%",
+          maxWidth: 360,
+          background: T.card,
+          border: `1px solid ${T.border}`,
+          borderRadius: 20,
+          padding: 32,
+          boxShadow: "0 4px 24px rgba(16,31,47,0.10)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "'Playfair Display',serif",
+            fontSize: 20,
+            fontWeight: 700,
+            marginBottom: 4,
+          }}
+        >
+          {titulo}
+        </div>
+        <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>
+          Entre com suas credenciais
+        </div>
+        <input
+          placeholder="Usuario"
+          value={loginVal}
+          onChange={(e) => setLoginVal(e.target.value)}
+          style={{ marginBottom: 10 }}
+          autoFocus
+        />
+        <input
+          type="password"
+          placeholder="Senha"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && tentar()}
+          style={{ marginBottom: 10, borderColor: erro ? T.red : undefined }}
+        />
+        {erro && (
+          <div style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>
+            {erro}
+          </div>
+        )}
+        <Btn full onClick={tentar} disabled={loading}>
+          {loading ? "Entrando..." : "Entrar"}
+        </Btn>
       </div>
     </div>
   );
 }
-
 
 // ─── BOAS-VINDAS MESA ─────────────────────────────────────────────────────────
 function TelaBoasVindas({ mesa_id, onContinuar }) {
@@ -774,7 +947,6 @@ function PainelCliente({ mesa_id }) {
               <div style={{ fontSize: 12, color: T.muted }}>
                 {nomeCliente} · Mesa {mesa_id}
               </div>
-              
             </div>
           </div>
           <div style={{ display: "flex" }}>
@@ -1127,6 +1299,26 @@ function PainelCliente({ mesa_id }) {
                     <div
                       style={{
                         display: "flex",
+                        justifyContent: "flex-end",
+                        marginTop: 8,
+                        paddingTop: 8,
+                        borderTop: `1px solid ${T.border}`,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: T.muted }}>
+                        Total:{" "}
+                        <span style={{ color: T.accent, fontWeight: 700 }}>
+                          R${" "}
+                          {p.itens
+                            ?.filter((i) => i.status !== "cancelado")
+                            .reduce((s, i) => s + i.preco * i.quantidade, 0)
+                            .toFixed(2)}
+                        </span>
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
                         justifyContent: "space-between",
                         marginBottom: 10,
                         flexWrap: "wrap",
@@ -1459,6 +1651,7 @@ function PainelGarcom({ usuario }) {
   const [pedidos, setPedidos] = useState([]);
   const [contaModal, setContaModal] = useState(null);
   const [pedidosModal, setPedidosModal] = useState(null);
+
   // Cardápio para fazer pedido
   const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
   const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
@@ -1492,18 +1685,32 @@ function PainelGarcom({ usuario }) {
     setCardapio(await r.json());
   }, []);
 
-  const addCarrinho = (p) => setCarrinhoPedido(prev => {
-    const ex = prev.find(i => i.produto_id === p.id);
-    if (ex) return prev.map(i => i.produto_id === p.id ? { ...i, quantidade: i.quantidade + 1 } : i);
-    return [...prev, { produto_id: p.id, nome: p.nome, preco: p.preco, quantidade: 1 }];
-  });
-  const remCarrinho = (id) => setCarrinhoPedido(prev => {
-    const ex = prev.find(i => i.produto_id === id);
-    if (ex?.quantidade === 1) return prev.filter(i => i.produto_id !== id);
-    return prev.map(i => i.produto_id === id ? { ...i, quantidade: i.quantidade - 1 } : i);
-  });
-  const qtdCarrinho = (id) => carrinhoPedido.find(i => i.produto_id === id)?.quantidade || 0;
-  const totalCarrinho = carrinhoPedido.reduce((s, i) => s + i.preco * i.quantidade, 0);
+  const addCarrinho = (p) =>
+    setCarrinhoPedido((prev) => {
+      const ex = prev.find((i) => i.produto_id === p.id);
+      if (ex)
+        return prev.map((i) =>
+          i.produto_id === p.id ? { ...i, quantidade: i.quantidade + 1 } : i,
+        );
+      return [
+        ...prev,
+        { produto_id: p.id, nome: p.nome, preco: p.preco, quantidade: 1 },
+      ];
+    });
+  const remCarrinho = (id) =>
+    setCarrinhoPedido((prev) => {
+      const ex = prev.find((i) => i.produto_id === id);
+      if (ex?.quantidade === 1) return prev.filter((i) => i.produto_id !== id);
+      return prev.map((i) =>
+        i.produto_id === id ? { ...i, quantidade: i.quantidade - 1 } : i,
+      );
+    });
+  const qtdCarrinho = (id) =>
+    carrinhoPedido.find((i) => i.produto_id === id)?.quantidade || 0;
+  const totalCarrinho = carrinhoPedido.reduce(
+    (s, i) => s + i.preco * i.quantidade,
+    0,
+  );
 
   const abrirCardapio = (mesa) => {
     setCardapioModal(mesa);
@@ -1520,14 +1727,15 @@ function PainelGarcom({ usuario }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mesa_id: cardapioModal.id,
-        itens: carrinhoPedido.map(i => ({ ...i, observacao: "" })),
+        itens: carrinhoPedido.map((i) => ({ ...i, observacao: "" })),
         nome_cliente: `Garcom: ${usuario?.nome || "Garcom"}`,
       }),
     });
     setEnviandoPedido(false);
     setCardapioModal(null);
     setCarrinhoPedido([]);
-    fetchPedidos(); fetchMesas();
+    fetchPedidos();
+    fetchMesas();
   };
 
   useEffect(() => {
@@ -1594,11 +1802,22 @@ function PainelGarcom({ usuario }) {
     fetchPedidos();
   };
 
+  const verHistoricoMesa = async (mesa_id) => {
+    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa_id}`);
+    const d = await r.json();
+    setHistoricoItens(d);
+    setHistoricoModal(mesa);
+  };
+
   const confirmarRetirada = async (pedido_id) => {
     await fetch(`${API}/api/pedidos/${pedido_id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "entregue" }),
+      body: JSON.stringify({
+        status: "entregue",
+        garcom_id: usuario?.id,
+        garcom_nome: usuario?.nome,
+      }),
     });
     fetchPedidos();
   };
@@ -1674,7 +1893,6 @@ function PainelGarcom({ usuario }) {
             >
               Garcom
             </span>
-            
           </div>
         </div>
 
@@ -1868,13 +2086,53 @@ function PainelGarcom({ usuario }) {
                         R$ {totalMesa(m.id).toFixed(2)}
                       </span>
                     </div>
-                    <Btn sm full variant="info" onClick={() => setPedidosModal(m)} style={{ marginBottom: 6 }}>Ver Pedidos</Btn>
-                    <Btn sm full variant="success" onClick={() => abrirCardapio(m)} style={{ marginBottom: 6 }}>Fazer Pedido</Btn>
-                    <Btn sm full variant="danger" onClick={() => setContaModal(m)}>Fechar Mesa</Btn>
+                    <Btn
+                      sm
+                      full
+                      variant="info"
+                      onClick={() => setPedidosModal(m)}
+                      style={{ marginBottom: 6 }}
+                    >
+                      Ver Pedidos
+                    </Btn>
+                    <Btn
+                      sm
+                      full
+                      variant="ghost"
+                      onClick={() => verHistoricoMesa(m)}
+                      style={{ marginBottom: 6 }}
+                    >
+                      Historico
+                    </Btn>
+                    <Btn
+                      sm
+                      full
+                      variant="success"
+                      onClick={() => abrirCardapio(m)}
+                      style={{ marginBottom: 6 }}
+                    >
+                      Fazer Pedido
+                    </Btn>
+                    <Btn
+                      sm
+                      full
+                      variant="danger"
+                      onClick={() => setContaModal(m)}
+                    >
+                      Fechar Mesa
+                    </Btn>
                   </>
                 )}
                 {m.status === "livre" && (
-                  <Btn sm full variant="success" onClick={() => abrirCardapio(m)} style={{ marginTop: 6 }}>Fazer Pedido</Btn>
+                  <Btn
+                    sm
+                    full
+                    variant="success"
+                    onClick={() => abrirCardapio(m)}
+                    style={{ marginTop: 6 }}
+                  >
+                    Fazer Pedido
+                  </Btn>
                 )}
               </Card>
             ))}
@@ -1967,6 +2225,117 @@ function PainelGarcom({ usuario }) {
           </Modal>
         )}
 
+        {historicoModal && (
+          <Modal onClose={() => setHistoricoModal(null)}>
+            <div
+              style={{
+                fontFamily: "'Playfair Display',serif",
+                fontSize: 18,
+                fontWeight: 700,
+                marginBottom: 16,
+              }}
+            >
+              Historico - Mesa {historicoModal.numero}
+            </div>
+            {historicoItens.length === 0 ? (
+              <div style={{ color: T.muted }}>Nenhum pedido encontrado.</div>
+            ) : (
+              historicoItens.map((p) => (
+                <div key={p.id} style={{ marginBottom: 14 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: T.muted }}>
+                      Pedido #{p.numero_dia || p.id}
+                    </span>
+                    <Badge status={p.status} />
+                  </div>
+                  {p.itens
+                    ?.filter((i) => i.status !== "cancelado")
+                    .map((i) => (
+                      <div
+                        key={i.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: 13,
+                          padding: "4px 0",
+                          borderTop: `1px solid ${T.border}`,
+                        }}
+                      >
+                        <span>
+                          {i.quantidade}x {i.nome}
+                        </span>
+                        <span style={{ color: T.accent }}>
+                          R$ {(i.preco * i.quantidade).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      marginTop: 6,
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ color: T.muted }}>Subtotal: </span>
+                    <span
+                      style={{
+                        color: T.accent,
+                        fontWeight: 700,
+                        marginLeft: 6,
+                      }}
+                    >
+                      R${" "}
+                      {p.itens
+                        ?.filter((i) => i.status !== "cancelado")
+                        .reduce((s, i) => s + i.preco * i.quantidade, 0)
+                        .toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+            {historicoItens.length > 0 && (
+              <div
+                style={{
+                  borderTop: `2px solid ${T.border2}`,
+                  paddingTop: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span style={{ fontWeight: 700 }}>Total</span>
+                <span
+                  style={{ fontWeight: 800, fontSize: 18, color: T.accent }}
+                >
+                  R${" "}
+                  {historicoItens
+                    .flatMap(
+                      (p) =>
+                        p.itens?.filter((i) => i.status !== "cancelado") || [],
+                    )
+                    .reduce((s, i) => s + i.preco * i.quantidade, 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+            )}
+            <Btn
+              variant="ghost"
+              full
+              onClick={() => setHistoricoModal(null)}
+              style={{ marginTop: 16 }}
+            >
+              Fechar
+            </Btn>
+          </Modal>
+        )}
+
         {/* Modal fechar conta */}
         {contaModal && (
           <Modal onClose={() => setContaModal(null)}>
@@ -2049,7 +2418,14 @@ function PainelGarcom({ usuario }) {
       {/* Modal Cardápio — fazer pedido pela mesa */}
       {cardapioModal && (
         <Modal onClose={() => setCardapioModal(null)}>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+          <div
+            style={{
+              fontFamily: "'Playfair Display',serif",
+              fontSize: 18,
+              fontWeight: 700,
+              marginBottom: 4,
+            }}
+          >
             Pedido - Mesa {cardapioModal.numero}
           </div>
           <div style={{ color: T.muted, fontSize: 13, marginBottom: 14 }}>
@@ -2057,27 +2433,130 @@ function PainelGarcom({ usuario }) {
           </div>
 
           {/* Filtro categorias */}
-          <div className="scroll-x" style={{ display: "flex", gap: 7, paddingBottom: 10, marginBottom: 12 }}>
-            <button onClick={() => setCatAtiva(null)} style={{ flexShrink: 0, padding: "5px 14px", borderRadius: 99, border: `1px solid ${catAtiva === null ? T.accent : T.border}`, background: catAtiva === null ? T.accentGlow : "transparent", color: catAtiva === null ? T.accent : T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>Todos</button>
-            {cardapio.categorias.map(c => (
-              <button key={c.id} onClick={() => setCatAtiva(c.id)} style={{ flexShrink: 0, padding: "5px 14px", borderRadius: 99, border: `1px solid ${catAtiva === c.id ? T.accent : T.border}`, background: catAtiva === c.id ? T.accentGlow : "transparent", color: catAtiva === c.id ? T.accent : T.text2, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>{c.nome}</button>
+          <div
+            className="scroll-x"
+            style={{
+              display: "flex",
+              gap: 7,
+              paddingBottom: 10,
+              marginBottom: 12,
+            }}
+          >
+            <button
+              onClick={() => setCatAtiva(null)}
+              style={{
+                flexShrink: 0,
+                padding: "5px 14px",
+                borderRadius: 99,
+                border: `1px solid ${catAtiva === null ? T.accent : T.border}`,
+                background: catAtiva === null ? T.accentGlow : "transparent",
+                color: catAtiva === null ? T.accent : T.text2,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "Inter,sans-serif",
+              }}
+            >
+              Todos
+            </button>
+            {cardapio.categorias.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setCatAtiva(c.id)}
+                style={{
+                  flexShrink: 0,
+                  padding: "5px 14px",
+                  borderRadius: 99,
+                  border: `1px solid ${catAtiva === c.id ? T.accent : T.border}`,
+                  background: catAtiva === c.id ? T.accentGlow : "transparent",
+                  color: catAtiva === c.id ? T.accent : T.text2,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "Inter,sans-serif",
+                }}
+              >
+                {c.nome}
+              </button>
             ))}
           </div>
 
           {/* Lista de produtos */}
           <div style={{ maxHeight: 280, overflowY: "auto", marginBottom: 14 }}>
-            {(catAtiva === null ? cardapio.produtos : cardapio.produtos.filter(p => p.categoria_id === catAtiva)).map(p => {
+            {(catAtiva === null
+              ? cardapio.produtos
+              : cardapio.produtos.filter((p) => p.categoria_id === catAtiva)
+            ).map((p) => {
               const q = qtdCarrinho(p.id);
               return (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: `1px solid ${T.border}` }}>
+                <div
+                  key={p.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 0",
+                    borderTop: `1px solid ${T.border}`,
+                  }}
+                >
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.nome}</div>
-                    <div style={{ color: T.accent, fontSize: 13, fontWeight: 700 }}>R$ {p.preco.toFixed(2)}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {p.nome}
+                    </div>
+                    <div
+                      style={{ color: T.accent, fontSize: 13, fontWeight: 700 }}
+                    >
+                      R$ {p.preco.toFixed(2)}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {q > 0 && <button onClick={() => remCarrinho(p.id)} style={{ width: 26, height: 26, borderRadius: 7, background: T.card2, border: `1px solid ${T.border2}`, color: "black", cursor: "pointer", fontSize: 14, fontWeight: 800 }}>-</button>}
-                    {q > 0 && <span style={{ fontWeight: 700, minWidth: 16, textAlign: "center" }}>{q}</span>}
-                    <button onClick={() => addCarrinho(p)} style={{ width: 26, height: 26, borderRadius: 7, background: `linear-gradient(135deg,${T.accent},${T.accent2})`, border: "none", color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 800 }}>+</button>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    {q > 0 && (
+                      <button
+                        onClick={() => remCarrinho(p.id)}
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: 7,
+                          background: T.card2,
+                          border: `1px solid ${T.border2}`,
+                          color: "black",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          fontWeight: 800,
+                        }}
+                      >
+                        -
+                      </button>
+                    )}
+                    {q > 0 && (
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          minWidth: 16,
+                          textAlign: "center",
+                        }}
+                      >
+                        {q}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => addCarrinho(p)}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 7,
+                        background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
+                        border: "none",
+                        color: "#fff",
+                        cursor: "pointer",
+                        fontSize: 14,
+                        fontWeight: 800,
+                      }}
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               );
@@ -2086,14 +2565,40 @@ function PainelGarcom({ usuario }) {
 
           {/* Total e confirmar */}
           {carrinhoPedido.length > 0 && (
-            <div style={{ borderTop: `1px solid ${T.border2}`, paddingTop: 12, marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <div
+              style={{
+                borderTop: `1px solid ${T.border2}`,
+                paddingTop: 12,
+                marginBottom: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
                 <span style={{ fontWeight: 600 }}>Total</span>
-                <span style={{ fontWeight: 800, color: T.accent, fontSize: 16 }}>R$ {totalCarrinho.toFixed(2)}</span>
+                <span
+                  style={{ fontWeight: 800, color: T.accent, fontSize: 16 }}
+                >
+                  R$ {totalCarrinho.toFixed(2)}
+                </span>
               </div>
-              {carrinhoPedido.map(i => (
-                <div key={i.produto_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.muted }}>
-                  <span>{i.quantidade}x {i.nome}</span>
+              {carrinhoPedido.map((i) => (
+                <div
+                  key={i.produto_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 12,
+                    color: T.muted,
+                  }}
+                >
+                  <span>
+                    {i.quantidade}x {i.nome}
+                  </span>
                   <span>R$ {(i.preco * i.quantidade).toFixed(2)}</span>
                 </div>
               ))}
@@ -2101,8 +2606,18 @@ function PainelGarcom({ usuario }) {
           )}
 
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant="ghost" onClick={() => setCardapioModal(null)} style={{ flex: 1 }}>Cancelar</Btn>
-            <Btn onClick={enviarPedidoGarcom} disabled={!carrinhoPedido.length || enviandoPedido} style={{ flex: 2 }}>
+            <Btn
+              variant="ghost"
+              onClick={() => setCardapioModal(null)}
+              style={{ flex: 1 }}
+            >
+              Cancelar
+            </Btn>
+            <Btn
+              onClick={enviarPedidoGarcom}
+              disabled={!carrinhoPedido.length || enviandoPedido}
+              style={{ flex: 2 }}
+            >
               {enviandoPedido ? "Enviando..." : "Confirmar Pedido"}
             </Btn>
           </div>
@@ -2290,7 +2805,6 @@ function PainelCozinha() {
                 {pedidos.length} ativo{pedidos.length > 1 ? "s" : ""}
               </span>
             )}
-            
           </div>
         </div>
 
@@ -2557,7 +3071,12 @@ function PainelAdmin() {
   const [mesas, setMesas] = useState([]);
   const [novaMesa, setNovaMesa] = useState("");
   const [usuarios, setUsuarios] = useState([]);
-  const [novoUsuario, setNovoUsuario] = useState({ nome: "", login: "", role: "garcom", senha: "" });
+  const [novoUsuario, setNovoUsuario] = useState({
+    nome: "",
+    login: "",
+    role: "garcom",
+    senha: "",
+  });
   const [editandoUsuario, setEditandoUsuario] = useState(null);
   const [relatorio, setRelatorio] = useState({
     dados: [],
@@ -2693,47 +3212,66 @@ function PainelAdmin() {
   const salvarUsuario = async () => {
     if (!novoUsuario.nome || !novoUsuario.senha) return;
     try {
-      const loginFinal = (novoUsuario.login || novoUsuario.nome).toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const loginFinal = (novoUsuario.login || novoUsuario.nome)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "_");
       const r = await fetch(`${API}/api/usuarios`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: novoUsuario.nome, login: loginFinal, senha: novoUsuario.senha, role: novoUsuario.role }),
+        body: JSON.stringify({
+          nome: novoUsuario.nome,
+          login: loginFinal,
+          senha: novoUsuario.senha,
+          role: novoUsuario.role,
+        }),
       });
       const d = await r.json();
-      if (!r.ok) { alert(d.erro || "Erro ao criar usuario"); return; }
+      if (!r.ok) {
+        alert(d.erro || "Erro ao criar usuario");
+        return;
+      }
       fetchUsuarios();
       setNovoUsuario({ nome: "", login: "", role: "garcom", senha: "" });
-    } catch(e) { console.error("Erro:", e); }
+    } catch (e) {
+      console.error("Erro:", e);
+    }
   };
 
   const salvarEdicaoUsuario = async () => {
-  if (!editandoUsuario) return;
-  try {
-    const r = await fetch(`${API}/api/usuarios/${editandoUsuario.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nome: editandoUsuario.nome,
-        login: editandoUsuario.login,
-        senha: editandoUsuario.senha,
-        ativo: editandoUsuario.ativo,
-        role: editandoUsuario.role,
-      }),
-    });
-    const d = await r.json();
-    if (!r.ok) { alert(d.erro || "Erro ao editar usuario"); return; }
-    setEditandoUsuario(null);
-    fetchUsuarios();
-  } catch(e) { console.error("Erro:", e); }
-};
+    if (!editandoUsuario) return;
+    try {
+      const r = await fetch(`${API}/api/usuarios/${editandoUsuario.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: editandoUsuario.nome,
+          login: editandoUsuario.login,
+          senha: editandoUsuario.senha,
+          ativo: editandoUsuario.ativo,
+          role: editandoUsuario.role,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        alert(d.erro || "Erro ao editar usuario");
+        return;
+      }
+      setEditandoUsuario(null);
+      fetchUsuarios();
+    } catch (e) {
+      console.error("Erro:", e);
+    }
+  };
 
-const deletarUsuario = async (id) => {
-  if (!confirm("Remover usuario?")) return;
-  try {
-    await fetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
-    fetchUsuarios();
-  } catch(e) { console.error("Erro:", e); }
-};
+  const deletarUsuario = async (id) => {
+    if (!confirm("Remover usuario?")) return;
+    try {
+      await fetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
+      fetchUsuarios();
+    } catch (e) {
+      console.error("Erro:", e);
+    }
+  };
 
   return (
     <>
@@ -2761,7 +3299,6 @@ const deletarUsuario = async (id) => {
             >
               Administracao
             </span>
-            
           </div>
         </div>
 
@@ -3109,6 +3646,29 @@ const deletarUsuario = async (id) => {
                   <Btn onClick={criarMesa}>Criar</Btn>
                 </div>
               </Card>
+
+              <Card style={{ marginBottom: 16 }}>
+                <div>
+                  <Btn
+                    variant="danger"
+                    onClick={async () => {
+                      if (
+                        !confirm(
+                          "Reiniciar numeração dos pedidos? O próximo pedido será #1.",
+                        )
+                      )
+                        return;
+                      await fetch(`${API}/api/pedidos/reiniciar-numeracao`, {
+                        method: "POST",
+                      });
+                      alert("Numeração reiniciada! Próximo pedido será #1.");
+                    }}
+                  >
+                    Reiniciar Numeracao dos Pedidos
+                  </Btn>
+                </div>
+              </Card>
+
               <div
                 style={{
                   display: "grid",
@@ -3195,7 +3755,9 @@ const deletarUsuario = async (id) => {
               <input
                 placeholder="Login para acesso (ex: joao_garcom) *"
                 value={novoUsuario.login || ""}
-                onChange={(e) => setNovoUsuario((u) => ({ ...u, login: e.target.value }))}
+                onChange={(e) =>
+                  setNovoUsuario((u) => ({ ...u, login: e.target.value }))
+                }
                 style={{ marginBottom: 8 }}
               />
               <select
@@ -3218,10 +3780,23 @@ const deletarUsuario = async (id) => {
                 }
                 style={{ marginBottom: 10 }}
               />
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, padding: "8px 10px", background: T.card2, borderRadius: 8 }}>
-                O login sera usado para entrar no painel. Se deixar vazio, sera gerado automaticamente do nome.
+              <div
+                style={{
+                  fontSize: 12,
+                  color: T.muted,
+                  marginBottom: 10,
+                  padding: "8px 10px",
+                  background: T.card2,
+                  borderRadius: 8,
+                }}
+              >
+                O login sera usado para entrar no painel. Se deixar vazio, sera
+                gerado automaticamente do nome.
               </div>
-              <Btn onClick={salvarUsuario} disabled={!novoUsuario.nome || !novoUsuario.senha}>
+              <Btn
+                onClick={salvarUsuario}
+                disabled={!novoUsuario.nome || !novoUsuario.senha}
+              >
                 Criar Usuario
               </Btn>
             </Card>
@@ -3707,8 +4282,19 @@ export default function App() {
   const tema = useTema();
   const css = gerarCSS(T);
   const path = window.location.pathname;
-  const [autAdmin, setAutAdmin]           = useState(false);
-  const [usuarioLogado, setUsuarioLogado] = useState(null); // garcom/financeiro/cozinha
+  const [autAdmin, setAutAdmin] = useState(
+    () => sessionStorage.getItem("autAdmin") === "true",
+  );
+  const [usuarioLogado, setUsuarioLogado] = useState(() => {
+    const salvo = sessionStorage.getItem("usuarioLogado");
+    return salvo ? JSON.parse(salvo) : undefined;
+  }); // garcom/financeiro/cozinha
+
+  useEffect(() => {
+    if (usuarioLogado)
+      sessionStorage.setItem("usuarioLogado", JSON.stringify(usuarioLogado));
+    else sessionStorage.removeItem("usuarioLogado");
+  }, [usuarioLogado]);
 
   useEffect(() => {
     document.title = `Painel Principal - ${CONFIG.nomeApp}`;
@@ -3719,29 +4305,55 @@ export default function App() {
 
   // Cozinha — login com usuario+senha
   if (path === "/cozinha") {
-    if (!usuarioLogado || (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin"))
-      return <TelaLogin titulo="Cozinha" role="cozinha" onLogin={setUsuarioLogado} />;
+    if (
+      !usuarioLogado ||
+      (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin")
+    )
+      return (
+        <TelaLogin titulo="Cozinha" role="cozinha" onLogin={setUsuarioLogado} />
+      );
     return <PainelCozinha usuario={usuarioLogado} />;
   }
 
   // Garcom — login com usuario+senha
   if (path === "/garcom") {
-    if (!usuarioLogado || (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin"))
-      return <TelaLogin titulo="Garcom" role="garcom" onLogin={setUsuarioLogado} />;
+    if (
+      !usuarioLogado ||
+      (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin")
+    )
+      return (
+        <TelaLogin titulo="Garcom" role="garcom" onLogin={setUsuarioLogado} />
+      );
     return <PainelGarcom usuario={usuarioLogado} />;
   }
 
   // Financeiro — login com usuario+senha
   if (path === "/financeiro") {
-    if (!usuarioLogado || (usuarioLogado.role !== "financeiro" && usuarioLogado.role !== "admin"))
-      return <TelaLogin titulo="Financeiro" role="financeiro" onLogin={setUsuarioLogado} />;
+    if (
+      !usuarioLogado ||
+      (usuarioLogado.role !== "financeiro" && usuarioLogado.role !== "admin")
+    )
+      return (
+        <TelaLogin
+          titulo="Financeiro"
+          role="financeiro"
+          onLogin={setUsuarioLogado}
+        />
+      );
     return <PainelFinanceiro usuario={usuarioLogado} />;
   }
 
   // Admin — senha fixa do CONFIG
   if (path === "/admin") {
     if (!autAdmin)
-      return <TelaLoginSenha titulo="Administracao" subtitulo="Acesso restrito" senhaCorreta={CONFIG.senhaAdmin} onLogin={() => setAutAdmin(true)} />;
+      return (
+        <TelaLoginSenha
+          titulo="Administracao"
+          subtitulo="Acesso restrito"
+          senhaCorreta={CONFIG.senhaAdmin}
+          onLogin={() => setAutAdmin(true)}
+        />
+      );
     return <PainelAdmin />;
   }
 
@@ -3787,9 +4399,7 @@ export default function App() {
               marginTop: 6,
               marginBottom: 20,
             }}
-          >
-            
-          </div>
+          ></div>
           <div style={{ display: "grid", gap: 10 }}>
             {[
               {
@@ -3860,6 +4470,7 @@ function gerarPDF({
         `<tr>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.mesa_numero}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.nome_cliente || "-"}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.garcom_nome || "-"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${h.total_itens}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.fechado_em || "-"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#c8714a">R$ ${(h.total || 0).toFixed(2)}</td>
@@ -3893,11 +4504,11 @@ function gerarPDF({
   </div>
   <table>
     <thead><tr>
-      <th>Mesa</th><th>Cliente</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
+      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
     </tr></thead>
     <tbody>${linhasItens}</tbody>
     <tfoot><tr class="total-row">
-      <td colspan="4" style="padding:10px 8px;border-top:2px solid #c8714a">TOTAL GERAL</td>
+      <td colspan="5" style="padding:10px 8px;border-top:2px solid #c8714a">TOTAL GERAL</td>
       <td style="padding:10px 8px;border-top:2px solid #c8714a;text-align:right;color:#c8714a;font-size:16px">R$ ${totalPeriodo.toFixed(2)}</td>
     </tr></tfoot>
   </table>
@@ -3920,6 +4531,7 @@ function PainelFinanceiro() {
   const [dataFim, setDataFim] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [comandaModal, setComandaModal] = useState(null);
+  const [comandaHistModal, setComandaHistModal] = useState(null);
   const tema = useTema();
   const css = gerarCSS(T);
 
@@ -3993,6 +4605,69 @@ function PainelFinanceiro() {
       nomeApp: CONFIG.nomeApp || "Autenix",
     });
 
+  {
+    comandaHistModal && (
+      <Modal onClose={() => setComandaHistModal(null)}>
+        <div
+          style={{
+            fontFamily: "'Playfair Display',serif",
+            fontSize: 18,
+            fontWeight: 700,
+            marginBottom: 4,
+          }}
+        >
+          Mesa {comandaHistModal.mesa_numero}
+        </div>
+        {comandaHistModal.nome_cliente && (
+          <div style={{ color: T.text2, fontSize: 13, marginBottom: 16 }}>
+            {comandaHistModal.nome_cliente}
+          </div>
+        )}
+        {(comandaHistModal.itens || []).map((i, idx) => (
+          <div
+            key={idx}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: 14,
+              padding: "6px 0",
+              borderTop: `1px solid ${T.border}`,
+            }}
+          >
+            <span>
+              {i.quantidade}x {i.nome}
+            </span>
+            <span style={{ color: T.accent, fontWeight: 600 }}>
+              R$ {(i.preco * i.quantidade).toFixed(2)}
+            </span>
+          </div>
+        ))}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "12px 0 4px",
+            borderTop: `2px solid ${T.border2}`,
+            marginTop: 8,
+          }}
+        >
+          <span style={{ fontWeight: 700 }}>Total</span>
+          <span style={{ fontWeight: 800, fontSize: 20, color: T.accent }}>
+            R$ {(comandaHistModal.total || 0).toFixed(2)}
+          </span>
+        </div>
+        <Btn
+          variant="ghost"
+          full
+          onClick={() => setComandaHistModal(null)}
+          style={{ marginTop: 14 }}
+        >
+          Fechar
+        </Btn>
+      </Modal>
+    );
+  }
+
   return (
     <>
       <style>{css}</style>
@@ -4021,7 +4696,6 @@ function PainelFinanceiro() {
             >
               Financeiro
             </span>
-            
           </div>
         </div>
 
@@ -4306,7 +4980,11 @@ function PainelFinanceiro() {
               </div>
             ) : (
               historico.map((h, i) => (
-                <Card key={i} style={{ marginBottom: 8 }}>
+                <Card
+                  key={i}
+                  style={{ marginBottom: 8, cursor: "pointer" }}
+                  onClick={() => setComandaModal(h)}
+                >
                   <div
                     style={{
                       display: "flex",
@@ -4320,11 +4998,23 @@ function PainelFinanceiro() {
                       <div style={{ fontWeight: 600 }}>
                         Mesa {h.mesa_numero}
                       </div>
+                      {h.garcom_nome && (
+                        <span style={{ color: T.blue }}>
+                          {" "}
+                          · Garcom: {h.garcom_nome}
+                        </span>
+                      )}
                       <div
                         style={{ fontSize: 12, color: T.muted, marginTop: 2 }}
                       >
                         {h.nome_cliente && `${h.nome_cliente} · `}
                         {h.fechado_em} · {h.total_itens} item(s)
+                        {h.garcom_nome && (
+                          <span style={{ color: T.blue }}>
+                            {" "}
+                            · Garcom: {h.garcom_nome}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div
