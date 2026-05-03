@@ -287,6 +287,40 @@ app.patch("/api/pedidos/:id/status", (req, res) => {
   res.json({ sucesso: true });
 });
 
+// Atualizar status do item
+app.patch("/api/itens/:id/status", (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ erro: "Status é obrigatório" });
+    }
+
+    const item = db
+      .prepare("SELECT * FROM itens_pedido WHERE id = ?")
+      .get(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ erro: "Item nao encontrado" });
+    }
+
+    db.prepare(`
+      UPDATE itens_pedido
+      SET status = ?
+      WHERE id = ?
+    `).run(status, req.params.id);
+
+    const pedido = getPedidoCompleto(item.pedido_id);
+
+    io.emit("pedido_atualizado", pedido);
+
+    res.json({ sucesso: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ erro: "Erro ao atualizar status do item" });
+  }
+});
+
 // Cancelar item (só se pendente)
 app.patch("/api/itens/:id/cancelar", (req, res) => {
   const item = db
