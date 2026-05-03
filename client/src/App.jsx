@@ -1808,7 +1808,7 @@ function PainelGarcom({ usuario }) {
     const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa_id}`);
     const d = await r.json();
     setHistoricoItens(d);
-    setHistoricoModal(mesa);
+    setHistoricoModal(mesa_id);
   };
 
   const confirmarRetirada = async (pedido_id) => {
