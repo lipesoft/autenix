@@ -95,6 +95,9 @@ const migrations = [
   "ALTER TABLE usuarios  ADD COLUMN login TEXT",
   "ALTER TABLE pedidos ADD COLUMN garcom_id INTEGER",
   "ALTER TABLE pedidos ADD COLUMN garcom_nome TEXT",
+  "ALTER TABLE mesas ADD COLUMN forma_pagamento TEXT",
+  "ALTER TABLE mesas ADD COLUMN obs_pagamento TEXT",
+  "ALTER TABLE pedidos ADD COLUMN forma_pagamento TEXT",
 ];
 for (const m of migrations) {
   try {
@@ -338,19 +341,19 @@ app.patch("/api/itens/:id/cancelar", (req, res) => {
 });
 
 // Fechar mesa
-  app.post("/api/mesas/:id/fechar", (req, res) => {
-    db.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(
-      req.params.id,
-    );
-    db.prepare(
-      "UPDATE pedidos SET status = 'finalizado' WHERE mesa_id = ? AND status != 'finalizado'",
-    ).run(req.params.id);
-    const mesa = db
-      .prepare("SELECT * FROM mesas WHERE id = ?")
-      .get(req.params.id);
-    io.emit("mesa_atualizada", mesa);
-    res.json({ sucesso: true });
-  });
+app.post("/api/mesas/:id/fechar", (req, res) => {
+  const { forma_pagamento, obs_pagamento } = req.body || {};
+  if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
+  db.prepare("UPDATE mesas SET status = 'livre', forma_pagamento = ?, obs_pagamento = ? WHERE id = ?")
+    .run(forma_pagamento, obs_pagamento || null, req.params.id);
+  // Registrar forma de pagamento nos pedidos da mesa
+  db.prepare("UPDATE pedidos SET status = 'finalizado', forma_pagamento = ? WHERE mesa_id = ? AND status != 'finalizado'")
+    .run(forma_pagamento, req.params.id);
+  const mesa = db.prepare("SELECT * FROM mesas WHERE id = ?").get(req.params.id);
+  io.emit("mesa_atualizada", mesa);
+  io.emit("mesa_fechada", req.params.id);
+  res.json({ sucesso: true });
+});
 
   // Chamar garçom
   app.post("/api/chamadas", (req, res) => {
@@ -457,6 +460,7 @@ app.patch("/api/itens/:id/cancelar", (req, res) => {
       m.numero as mesa_numero,
       p.garcom_nome,
       p.nome_cliente,
+      p.forma_pagamento,
       strftime('%H:%M', p.criado_em, 'localtime') as fechado_em,
       SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
       COUNT(DISTINCT CASE WHEN ip.status != 'cancelado' THEN ip.id END) as total_itens
@@ -534,6 +538,7 @@ app.patch("/api/itens/:id/cancelar", (req, res) => {
       m.numero as mesa_numero,
       MAX(p.nome_cliente) as nome_cliente,
       MAX(p.garcom_nome) as garcom_nome,
+      MAX(p.forma_pagamento) as forma_pagamento,
       COUNT(DISTINCT ip.id) as total_itens,
       SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
       strftime('%d/%m %H:%M', MAX(p.criado_em), 'localtime') as fechado_em
@@ -760,4 +765,3 @@ app.patch("/api/itens/:id/cancelar", (req, res) => {
     db.prepare("DELETE FROM mesas WHERE id = ?").run(req.params.id);
     res.json({ sucesso: true });
   });
-

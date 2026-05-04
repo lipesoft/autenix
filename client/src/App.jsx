@@ -1504,7 +1504,7 @@ function PainelCliente({ mesa_id }) {
             }}
           >
             <div style={{ fontSize: 13, color: T.text2, fontWeight: 500 }}>
-              Qualquer duvida, chame o garcom
+              Qualquer duvida, chame o garçom
             </div>
           </div>
         </div>
@@ -1650,6 +1650,8 @@ function PainelGarcom({ usuario }) {
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [contaModal, setContaModal] = useState(null);
+  const [formaPagSel, setFormaPagSel] = useState(null);
+  const [obsFormaPag, setObsFormaPag] = useState("");
   const [pedidosModal, setPedidosModal] = useState(null);
   const [historicoModal, setHistoricoModal] = useState(null);
   const [historicoItens, setHistoricoItens] = useState([]);
@@ -1762,7 +1764,7 @@ function PainelGarcom({ usuario }) {
         );
       } else {
         push(
-          `${cliente} da Mesa ${data.mesa_numero} solicitando garcom`,
+          `${cliente} da Mesa ${data.mesa_numero} solicitando garçom`,
           "Dirija-se a mesa",
           "chamada",
         );
@@ -1796,10 +1798,16 @@ function PainelGarcom({ usuario }) {
     fetchChamadas();
   };
 
-  const fecharMesa = async (mesa_id) => {
-    await fetch(`${API}/api/mesas/${mesa_id}/fechar`, { method: "POST" });
+  const fecharMesa = async (mesa_id, forma_pagamento, obs_pagamento) => {
+    await fetch(`${API}/api/mesas/${mesa_id}/fechar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forma_pagamento, obs_pagamento }),
+    });
     getSocket().emit("mesa_fechada_event", mesa_id);
     setContaModal(null);
+    setFormaPagSel(null);
+    setObsFormaPag("");
     fetchMesas();
     fetchPedidos();
   };
@@ -1893,7 +1901,7 @@ function PainelGarcom({ usuario }) {
                 fontWeight: 700,
               }}
             >
-              Garcom
+              Garçom
             </span>
           </div>
         </div>
@@ -2340,76 +2348,59 @@ function PainelGarcom({ usuario }) {
 
         {/* Modal fechar conta */}
         {contaModal && (
-          <Modal onClose={() => setContaModal(null)}>
-            <div
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontSize: 20,
-                fontWeight: 700,
-                marginBottom: 16,
-              }}
-            >
+          <Modal onClose={() => { setContaModal(null); setFormaPagSel(null); setObsFormaPag(""); }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
               Fechar Mesa {contaModal.numero}
             </div>
+
+            {/* Itens consumidos */}
             {pedidosDaMesa(contaModal.id).map((p) => (
               <div key={p.id} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
-                  Pedido #{p.numero_dia || p.id}
-                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>Pedido #{p.numero_dia || p.id}</div>
                 {p.itens?.map((i) => (
-                  <div
-                    key={i.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "4px 0",
-                      borderTop: `1px solid ${T.border}`,
-                      opacity: i.status === "cancelado" ? 0.4 : 1,
-                    }}
-                  >
-                    <span
-                      style={{
-                        textDecoration:
-                          i.status === "cancelado" ? "line-through" : "none",
-                      }}
-                    >
-                      {i.quantidade}x {i.nome}
-                    </span>
-                    <span style={{ color: T.accent }}>
-                      R$ {(i.preco * i.quantidade).toFixed(2)}
-                    </span>
+                  <div key={i.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0", borderTop: `1px solid ${T.border}`, opacity: i.status === "cancelado" ? 0.4 : 1 }}>
+                    <span style={{ textDecoration: i.status === "cancelado" ? "line-through" : "none" }}>{i.quantidade}x {i.nome}</span>
+                    <span style={{ color: T.accent }}>R$ {(i.preco * i.quantidade).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
             ))}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                padding: "12px 0",
-                borderTop: `1px solid ${T.border2}`,
-                marginBottom: 16,
-              }}
-            >
+
+            {/* Total */}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `1px solid ${T.border2}`, marginBottom: 20 }}>
               <span style={{ fontWeight: 700 }}>Total</span>
-              <span style={{ fontWeight: 800, fontSize: 18, color: T.accent }}>
-                R$ {totalMesa(contaModal.id).toFixed(2)}
-              </span>
+              <span style={{ fontWeight: 800, fontSize: 18, color: T.accent }}>R$ {totalMesa(contaModal.id).toFixed(2)}</span>
             </div>
+
+            {/* Forma de pagamento — OBRIGATÓRIA */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: T.text }}>
+                Forma de Pagamento <span style={{ color: T.red }}>*</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {[["credito","Cartão Crédito"],["débito","Cartão Débito"],["dinheiro","Dinheiro"],["pix","PIX"]].map(([val, label]) => (
+                  <div key={val} onClick={() => setFormaPagSel(val)} style={{
+                    padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center",
+                    border: `1.5px solid ${formaPagSel === val ? T.accent : T.border}`,
+                    background: formaPagSel === val ? T.accentGlow : T.card2,
+                    color: formaPagSel === val ? T.accent : T.text2,
+                    fontWeight: formaPagSel === val ? 700 : 400,
+                    fontSize: 13, transition: "all .15s",
+                  }}>{label}</div>
+                ))}
+              </div>
+              {/* Campo para múltiplas formas ou observação */}
+              <input
+                placeholder="Observação (ex: metade credito, metade pix)"
+                value={obsFormaPag}
+                onChange={e => setObsFormaPag(e.target.value)}
+                style={{ marginTop: 10, fontSize: 13 }}
+              />
+            </div>
+
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn
-                variant="ghost"
-                onClick={() => setContaModal(null)}
-                style={{ flex: 1 }}
-              >
-                Cancelar
-              </Btn>
-              <Btn
-                variant="danger"
-                onClick={() => fecharMesa(contaModal.id)}
-                style={{ flex: 1 }}
-              >
+              <Btn variant="ghost" onClick={() => { setContaModal(null); setFormaPagSel(null); setObsFormaPag(""); }} style={{ flex: 1 }}>Cancelar</Btn>
+              <Btn variant="danger" disabled={!formaPagSel} onClick={() => fecharMesa(contaModal.id, formaPagSel, obsFormaPag)} style={{ flex: 1 }}>
                 Confirmar Fechamento
               </Btn>
             </div>
@@ -3769,7 +3760,7 @@ function PainelAdmin() {
                 }
                 style={{ marginBottom: 8 }}
               >
-                <option value="garcom">Garcom</option>
+                <option value="garcom">Garçom</option>
                 <option value="cozinha">Cozinha</option>
                 <option value="financeiro">Financeiro</option>
               </select>
@@ -4473,9 +4464,10 @@ function gerarPDF({
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.mesa_numero}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.nome_cliente || "-"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.garcom_nome || "-"}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${({credito:"Cred",debito:"Deb",dinheiro:"Dinheiro",pix:"PIX"})[h.forma_pagamento] || "-"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${h.total_itens}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.fechado_em || "-"}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#c8714a">R$ ${(h.total || 0).toFixed(2)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#b1582e">R$ ${(h.total || 0).toFixed(2)}</td>
     </tr>`,
     )
     .join("");
@@ -4506,7 +4498,7 @@ function gerarPDF({
   </div>
   <table>
     <thead><tr>
-      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
+      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Pagamento</th><th>Pagamento</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
     </tr></thead>
     <tbody>${linhasItens}</tbody>
     <tfoot><tr class="total-row">
@@ -5017,6 +5009,11 @@ function PainelFinanceiro() {
                             · Garcom: {h.garcom_nome}
                           </span>
                         )}
+                      {h.forma_pagamento && (
+                        <div style={{ fontSize: 12, color: T.green, marginTop: 2, fontWeight: 600 }}>
+                          {({credito:"Cartao Credito",debito:"Cartao Debito",dinheiro:"Dinheiro",pix:"PIX"})[h.forma_pagamento] || h.forma_pagamento}
+                        </div>
+                      )}
                       </div>
                     </div>
                     <div
