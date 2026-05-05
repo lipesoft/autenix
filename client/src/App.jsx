@@ -1812,11 +1812,11 @@ function PainelGarcom({ usuario }) {
     fetchPedidos();
   };
 
-  const verHistoricoMesa = async (mesa_id) => {
-    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa_id}`);
+  const verHistoricoMesa = async (mesa) => {
+    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa.id}`);
     const d = await r.json();
     setHistoricoItens(d);
-    setHistoricoModal(mesa_id);
+    setHistoricoModal(mesa);
   };
 
   const confirmarRetirada = async (pedido_id) => {
