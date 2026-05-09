@@ -1813,9 +1813,9 @@ function PainelGarcom({ usuario }) {
   };
 
   const verHistoricoMesa = async (mesa) => {
-    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa.id}`);
+    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa.id}&excluir_finalizados=true`);
     const d = await r.json();
-    setHistoricoItens(d);
+    setHistoricoItens(d.filter(p => p.status !== "finalizados"));
     setHistoricoModal(mesa);
   };
 
@@ -4498,7 +4498,7 @@ function gerarPDF({
   </div>
   <table>
     <thead><tr>
-      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Pagamento</th><th>Pagamento</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
+      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Pagamento</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
     </tr></thead>
     <tbody>${linhasItens}</tbody>
     <tfoot><tr class="total-row">
