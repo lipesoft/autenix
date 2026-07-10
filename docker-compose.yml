@@ -1,12 +1,12 @@
 version: "3.9"
 
 services:
-  # ── Backend Node.js ────────────────────────────────────────────────────────
+
   server:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: menuexpress-server
+    container_name: autenix-server
     restart: unless-stopped
     ports:
       - "3005:3001"
@@ -17,7 +17,6 @@ services:
     env_file:
       - .env
 
-  # ── Frontend React + Nginx ─────────────────────────────────────────────────
   client:
     build:
       context: ./client
@@ -25,7 +24,7 @@ services:
       args:
         # A URL do backend — em LAN usa o IP da máquina host, em produção usa domínio
         VITE_API_URL: ${VITE_API_URL}
-    container_name: menuexpress-client
+    container_name: autenix-client
     restart: unless-stopped
     ports:
       - "80:80"
