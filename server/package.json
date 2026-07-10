@@ -11,9 +11,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "pg": "^8.22.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   }

@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  # ── Backend Node.js ────────────────────────────────────────────────────────
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: menuexpress-server
+    restart: unless-stopped
+    ports:
+      - "3005:3001"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SSL: "true"
+      PORT: 3001
+    env_file:
+      - .env
+
+  # ── Frontend React + Nginx ─────────────────────────────────────────────────
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        # A URL do backend — em LAN usa o IP da máquina host, em produção usa domínio
+        VITE_API_URL: ${VITE_API_URL}
+    container_name: menuexpress-client
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - server

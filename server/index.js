@@ -1,7 +1,9 @@
+require('dotenv').config();
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 const cors = require("cors");
 const QRCode = require("qrcode");
 const path = require("path");
@@ -14,131 +16,133 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 
-// ─── BANCO DE DADOS ────────────────────────────────────────────────────────
-const db = new Database("restaurante.db");
+// ─── BANCO DE DADOS (PostgreSQL) ───────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false,
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL,
-    login TEXT,
-    role TEXT NOT NULL DEFAULT 'garcom',
-    senha TEXT NOT NULL,
-    ativo INTEGER DEFAULT 1
-  );
-
-  CREATE TABLE IF NOT EXISTS categorias (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL,
-    ordem INTEGER DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS produtos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    categoria_id INTEGER,
-    nome TEXT NOT NULL,
-    descricao TEXT,
-    preco REAL NOT NULL,
-    imagem TEXT,
-    disponivel INTEGER DEFAULT 1,
-    FOREIGN KEY (categoria_id) REFERENCES categorias(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS mesas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    numero TEXT NOT NULL UNIQUE,
-    status TEXT DEFAULT 'livre'
-  );
-
-  CREATE TABLE IF NOT EXISTS pedidos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    numero_dia INTEGER,
-    mesa_id INTEGER NOT NULL,
-    status TEXT DEFAULT 'pendente',
-    criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (mesa_id) REFERENCES mesas(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS itens_pedido (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pedido_id INTEGER NOT NULL,
-    produto_id INTEGER NOT NULL,
-    quantidade INTEGER NOT NULL,
-    observacao TEXT,
-    status TEXT DEFAULT 'pendente',
-    FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
-    FOREIGN KEY (produto_id) REFERENCES produtos(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS chamadas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mesa_id INTEGER NOT NULL,
-    motivo TEXT DEFAULT 'garcom',
-    nome_cliente TEXT,
-    atendida INTEGER DEFAULT 0,
-    criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS configuracoes (
-  chave TEXT PRIMARY KEY,
-  valor TEXT
-);
-`);
-
-// ─── MIGRATIONS (colunas adicionadas em versões posteriores) ─────────────────
-const migrations = [
-  "ALTER TABLE pedidos   ADD COLUMN nome_cliente TEXT",
-  "ALTER TABLE pedidos   ADD COLUMN numero_dia INTEGER",
-  "ALTER TABLE chamadas  ADD COLUMN nome_cliente TEXT",
-  "ALTER TABLE usuarios  ADD COLUMN role TEXT NOT NULL DEFAULT 'garcom'",
-  "ALTER TABLE usuarios  ADD COLUMN ativo INTEGER DEFAULT 1",
-  "ALTER TABLE usuarios  ADD COLUMN login TEXT",
-  "ALTER TABLE pedidos ADD COLUMN garcom_id INTEGER",
-  "ALTER TABLE pedidos ADD COLUMN garcom_nome TEXT",
-  "ALTER TABLE mesas ADD COLUMN forma_pagamento TEXT",
-  "ALTER TABLE mesas ADD COLUMN obs_pagamento TEXT",
-  "ALTER TABLE pedidos ADD COLUMN forma_pagamento TEXT",
-];
-for (const m of migrations) {
+// Helper: executa query com log de erro
+async function query(sql, params = []) {
+  const client = await pool.connect();
   try {
-    db.exec(m);
-  } catch (e) {
-    /* coluna já existe */
+    const result = await client.query(sql, params);
+    return result;
+  } finally {
+    client.release();
   }
 }
 
-// Garantir login único onde não existe
-try {
-  db.prepare(
-    "UPDATE usuarios SET login = lower(replace(nome,' ','_')) WHERE login IS NULL OR login = ''",
-  ).run();
-} catch (e) {}
+// ─── INICIALIZAÇÃO DO BANCO ────────────────────────────────────────────────
+async function initDB() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id SERIAL PRIMARY KEY,
+      nome TEXT NOT NULL,
+      login TEXT,
+      role TEXT NOT NULL DEFAULT 'garcom',
+      senha TEXT NOT NULL,
+      ativo INTEGER DEFAULT 1
+    );
 
-// Seed dados de exemplo se vazio
-const totalCat = db.prepare("SELECT COUNT(*) as c FROM categorias").get();
-if (totalCat.c === 0) {
-  const insC = db.prepare("INSERT INTO categorias (nome, ordem) VALUES (?, ?)");
-  insC.run("Entradas", 1);
-  insC.run("Pratos Principais", 2);
-  insC.run("Bebidas", 3);
-  insC.run("Sobremesas", 4);
+    CREATE TABLE IF NOT EXISTS categorias (
+      id SERIAL PRIMARY KEY,
+      nome TEXT NOT NULL,
+      ordem INTEGER DEFAULT 0
+    );
 
-  const insP = db.prepare(
-    "INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES (?, ?, ?, ?)",
-  );
-  insP.run(1, "Pão de Alho", "Pão artesanal com alho e manteiga", 18.9);
-  insP.run(1, "Bruschetta", "Tomate, manjericão e azeite", 22.0);
-  insP.run(2, "Frango Grelhado", "Com legumes e arroz", 45.9);
-  insP.run(2, "Picanha 300g", "Acompanha farofa e vinagrete", 89.9);
-  insP.run(2, "Massa Carbonara", "Espaguete, bacon e molho cremoso", 52.0);
-  insP.run(3, "Coca-Cola Lata", "350ml gelada", 8.0);
-  insP.run(3, "Suco de Laranja", "Natural 500ml", 14.0);
-  insP.run(3, "Água Mineral", "500ml", 5.0);
-  insP.run(4, "Pudim", "Pudim de leite condensado", 18.0);
-  insP.run(4, "Brownie", "Com sorvete de creme", 24.0);
+    CREATE TABLE IF NOT EXISTS produtos (
+      id SERIAL PRIMARY KEY,
+      categoria_id INTEGER,
+      nome TEXT NOT NULL,
+      descricao TEXT,
+      preco REAL NOT NULL,
+      imagem TEXT,
+      disponivel INTEGER DEFAULT 1,
+      FOREIGN KEY (categoria_id) REFERENCES categorias(id)
+    );
 
-  const insM = db.prepare("INSERT INTO mesas (numero) VALUES (?)");
-  for (let i = 1; i <= 12; i++) insM.run(String(i));
+    CREATE TABLE IF NOT EXISTS mesas (
+      id SERIAL PRIMARY KEY,
+      numero TEXT NOT NULL UNIQUE,
+      status TEXT DEFAULT 'livre',
+      forma_pagamento TEXT,
+      obs_pagamento TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS pedidos (
+      id SERIAL PRIMARY KEY,
+      numero_dia INTEGER,
+      mesa_id INTEGER NOT NULL,
+      status TEXT DEFAULT 'pendente',
+      nome_cliente TEXT,
+      garcom_id INTEGER,
+      garcom_nome TEXT,
+      forma_pagamento TEXT,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (mesa_id) REFERENCES mesas(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS itens_pedido (
+      id SERIAL PRIMARY KEY,
+      pedido_id INTEGER NOT NULL,
+      produto_id INTEGER NOT NULL,
+      quantidade INTEGER NOT NULL,
+      observacao TEXT,
+      status TEXT DEFAULT 'pendente',
+      FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
+      FOREIGN KEY (produto_id) REFERENCES produtos(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS chamadas (
+      id SERIAL PRIMARY KEY,
+      mesa_id INTEGER NOT NULL,
+      motivo TEXT DEFAULT 'garcom',
+      nome_cliente TEXT,
+      atendida INTEGER DEFAULT 0,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS configuracoes (
+      chave TEXT PRIMARY KEY,
+      valor TEXT
+    );
+  `);
+
+  // Seed dados de exemplo se vazio
+  const { rows: cats } = await query("SELECT COUNT(*) as c FROM categorias");
+  if (parseInt(cats[0].c) === 0) {
+    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Entradas", 1]);
+    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Pratos Principais", 2]);
+    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Bebidas", 3]);
+    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Sobremesas", 4]);
+
+    const { rows: catRows } = await query("SELECT id, nome FROM categorias ORDER BY ordem");
+    const catId = (nome) => catRows.find((c) => c.nome === nome)?.id;
+
+    const insP = (cat, nome, desc, preco) =>
+      query("INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES ($1, $2, $3, $4)", [catId(cat), nome, desc, preco]);
+
+    await insP("Entradas", "Pão de Alho", "Pão artesanal com alho e manteiga", 18.9);
+    await insP("Entradas", "Bruschetta", "Tomate, manjericão e azeite", 22.0);
+    await insP("Pratos Principais", "Frango Grelhado", "Com legumes e arroz", 45.9);
+    await insP("Pratos Principais", "Picanha 300g", "Acompanha farofa e vinagrete", 89.9);
+    await insP("Pratos Principais", "Massa Carbonara", "Espaguete, bacon e molho cremoso", 52.0);
+    await insP("Bebidas", "Coca-Cola Lata", "350ml gelada", 8.0);
+    await insP("Bebidas", "Suco de Laranja", "Natural 500ml", 14.0);
+    await insP("Bebidas", "Água Mineral", "500ml", 5.0);
+    await insP("Sobremesas", "Pudim", "Pudim de leite condensado", 18.0);
+    await insP("Sobremesas", "Brownie", "Com sorvete de creme", 24.0);
+
+    for (let i = 1; i <= 12; i++) {
+      await query("INSERT INTO mesas (numero) VALUES ($1)", [String(i)]);
+    }
+  }
+
+  // Garantir login único onde não existe
+  await query("UPDATE usuarios SET login = lower(replace(nome,' ','_')) WHERE login IS NULL OR login = ''");
+
+  console.log("✅ Banco de dados inicializado!");
 }
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
@@ -152,361 +156,425 @@ function getLocalIP() {
   return "localhost";
 }
 
-// Retorna próximo número de pedido do dia (reinicia a cada dia)
-function proximoNumeroDia() {
-  const cfg = db
-    .prepare("SELECT valor FROM configuracoes WHERE chave = 'ultimo_reinicio'")
-    .get();
-  const desde = cfg?.valor || new Date().toISOString().slice(0, 10);
-  const ultimo = db
-    .prepare(
-      `
-    SELECT MAX(numero_dia) as ultimo FROM pedidos
-    WHERE criado_em >= ?
-  `,
-    )
-    .get(desde);
-  return (ultimo?.ultimo || 0) + 1;
+async function proximoNumeroDia() {
+  const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'ultimo_reinicio'");
+  const desde = cfg[0]?.valor || new Date().toISOString().slice(0, 10);
+  const { rows: ultimo } = await query(
+    "SELECT MAX(numero_dia) as ultimo FROM pedidos WHERE criado_em >= $1",
+    [desde]
+  );
+  return (parseInt(ultimo[0]?.ultimo) || 0) + 1;
+}
+
+async function getPedidoCompleto(pedido_id) {
+  const { rows } = await query(
+    "SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE p.id = $1",
+    [pedido_id]
+  );
+  const pedido = rows[0];
+  if (!pedido) return null;
+  const { rows: itens } = await query(
+    `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
+     JOIN produtos pr ON ip.produto_id = pr.id WHERE ip.pedido_id = $1`,
+    [pedido_id]
+  );
+  pedido.itens = itens;
+  return pedido;
 }
 
 // ─── ROTAS API ─────────────────────────────────────────────────────────────
 
 // Cardápio
-app.get("/api/cardapio", (req, res) => {
-  const categorias = db
-    .prepare("SELECT * FROM categorias ORDER BY ordem")
-    .all();
-  const produtos = db
-    .prepare("SELECT * FROM produtos WHERE disponivel = 1")
-    .all();
-  res.json({ categorias, produtos });
+app.get("/api/cardapio", async (req, res) => {
+  try {
+    const { rows: categorias } = await query("SELECT * FROM categorias ORDER BY ordem");
+    const { rows: produtos } = await query("SELECT * FROM produtos WHERE disponivel = 1");
+    res.json({ categorias, produtos });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 // Mesas
-app.get("/api/mesas", (req, res) => {
-  const mesas = db
-    .prepare("SELECT * FROM mesas ORDER BY CAST(numero AS INTEGER)")
-    .all();
-  res.json(mesas);
+app.get("/api/mesas", async (req, res) => {
+  try {
+    const { rows } = await query("SELECT * FROM mesas ORDER BY CAST(numero AS INTEGER)");
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
-app.get("/api/mesas/:id", (req, res) => {
-  const mesa = db
-    .prepare("SELECT * FROM mesas WHERE id = ?")
-    .get(req.params.id);
-  if (!mesa) return res.status(404).json({ erro: "Mesa não encontrada" });
-  res.json(mesa);
+app.get("/api/mesas/:id", async (req, res) => {
+  try {
+    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.post("/api/mesas", async (req, res) => {
+  const { numero } = req.body;
+  if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
+  try {
+    const { rows } = await query(
+      "INSERT INTO mesas (numero) VALUES ($1) RETURNING *",
+      [String(numero)]
+    );
+    io.emit("mesa_atualizada", rows[0]);
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(400).json({ erro: "Mesa já existe" });
+  }
+});
+
+app.delete("/api/mesas/:id", async (req, res) => {
+  try {
+    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
+    if (rows[0].status === "ocupada") return res.status(400).json({ erro: "Mesa ocupada" });
+    await query("DELETE FROM mesas WHERE id = $1", [req.params.id]);
+    res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 // Fazer pedido (cliente)
-app.post("/api/pedidos", (req, res) => {
+app.post("/api/pedidos", async (req, res) => {
   const { mesa_id, itens, nome_cliente } = req.body;
   if (!mesa_id || !itens?.length)
     return res.status(400).json({ erro: "Dados inválidos" });
 
-  const mesa = db.prepare("SELECT * FROM mesas WHERE id = ?").get(mesa_id);
-  if (!mesa) return res.status(404).json({ erro: "Mesa não encontrada" });
+  try {
+    const { rows: mesaRows } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
+    if (!mesaRows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
 
-  const numeroDia = proximoNumeroDia();
-  const pedido = db
-    .prepare(
-      "INSERT INTO pedidos (mesa_id, status, nome_cliente, numero_dia) VALUES (?, ?, ?, ?)",
-    )
-    .run(mesa_id, "pendente", nome_cliente || null, numeroDia);
-  const pedido_id = pedido.lastInsertRowid;
-
-  const insItem = db.prepare(
-    "INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, observacao) VALUES (?, ?, ?, ?)",
-  );
-  for (const item of itens) {
-    insItem.run(
-      pedido_id,
-      item.produto_id,
-      item.quantidade,
-      item.observacao || "",
+    const numeroDia = await proximoNumeroDia();
+    const { rows: pedRows } = await query(
+      "INSERT INTO pedidos (mesa_id, status, nome_cliente, numero_dia) VALUES ($1, $2, $3, $4) RETURNING id",
+      [mesa_id, "pendente", nome_cliente || null, numeroDia]
     );
+    const pedido_id = pedRows[0].id;
+
+    for (const item of itens) {
+      await query(
+        "INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, observacao) VALUES ($1, $2, $3, $4)",
+        [pedido_id, item.produto_id, item.quantidade, item.observacao || ""]
+      );
+    }
+
+    await query("UPDATE mesas SET status = 'ocupada' WHERE id = $1", [mesa_id]);
+
+    const pedidoCompleto = await getPedidoCompleto(pedido_id);
+    io.emit("novo_pedido", pedidoCompleto);
+    const { rows: mesaAtual } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
+    io.emit("mesa_atualizada", mesaAtual[0]);
+
+    res.json({ sucesso: true, pedido_id });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
   }
-
-  // Atualiza mesa para ocupada
-  db.prepare("UPDATE mesas SET status = 'ocupada' WHERE id = ?").run(mesa_id);
-
-  const pedidoCompleto = getPedidoCompleto(pedido_id);
-  io.emit("novo_pedido", pedidoCompleto);
-  io.emit(
-    "mesa_atualizada",
-    db.prepare("SELECT * FROM mesas WHERE id = ?").get(mesa_id),
-  );
-
-  res.json({ sucesso: true, pedido_id });
 });
 
 // Listar pedidos (cozinha/admin)
-app.get("/api/pedidos", (req, res) => {
-  const { mesa_id, status } = req.query;
-  let sql = `SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE 1=1`;
-  const params = [];
-  if (mesa_id) {
-    sql += " AND p.mesa_id = ?";
-    params.push(mesa_id);
-  }
-  if (status) {
-    sql += " AND p.status = ?";
-    params.push(status);
-  }
-  sql += " ORDER BY p.criado_em DESC";
+app.get("/api/pedidos", async (req, res) => {
+  try {
+    const { mesa_id, status } = req.query;
+    let sql = `SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE 1=1`;
+    const params = [];
+    let i = 1;
 
-  const pedidos = db.prepare(sql).all(...params);
-  const resultado = pedidos.map((p) => ({
-    ...p,
-    itens: db
-      .prepare(
-        `
-      SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-      JOIN produtos pr ON ip.produto_id = pr.id
-      WHERE ip.pedido_id = ?
-    `,
-      )
-      .all(p.id),
-  }));
+    if (mesa_id) {
+      sql += ` AND p.mesa_id = $${i++}`;
+      params.push(mesa_id);
+    }
+    if (status) {
+      sql += ` AND p.status = $${i++}`;
+      params.push(status);
+    }
+    sql += " ORDER BY p.criado_em DESC";
 
-  res.json(resultado);
+    const { rows: pedidos } = await query(sql, params);
+    const resultado = await Promise.all(
+      pedidos.map(async (p) => {
+        const { rows: itens } = await query(
+          `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
+           JOIN produtos pr ON ip.produto_id = pr.id WHERE ip.pedido_id = $1`,
+          [p.id]
+        );
+        return { ...p, itens };
+      })
+    );
+    res.json(resultado);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 // Atualizar status do pedido
-app.patch("/api/pedidos/:id/status", (req, res) => {
-  const { status, garcom_id, garcom_nome } = req.body;
-  if (garcom_id) {
-    db.prepare(
-      "UPDATE pedidos SET status = ?, garcom_id = ?, garcom_nome = ? WHERE id = ?",
-    ).run(status, garcom_id, garcom_nome, req.params.id);
-  } else {
-    db.prepare("UPDATE pedidos SET status = ? WHERE id = ?").run(
-      status,
-      req.params.id,
-    );
+app.patch("/api/pedidos/:id/status", async (req, res) => {
+  try {
+    const { status, garcom_id, garcom_nome } = req.body;
+    if (garcom_id) {
+      await query(
+        "UPDATE pedidos SET status = $1, garcom_id = $2, garcom_nome = $3 WHERE id = $4",
+        [status, garcom_id, garcom_nome, req.params.id]
+      );
+    } else {
+      await query("UPDATE pedidos SET status = $1 WHERE id = $2", [status, req.params.id]);
+    }
+    const pedido = await getPedidoCompleto(Number(req.params.id));
+    io.emit("pedido_atualizado", pedido);
+    res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
   }
-  const pedido = getPedidoCompleto(Number(req.params.id));
-  io.emit("pedido_atualizado", pedido);
-  res.json({ sucesso: true });
 });
 
 // Atualizar status do item
-app.patch("/api/itens/:id/status", (req, res) => {
+app.patch("/api/itens/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
+    if (!status) return res.status(400).json({ erro: "Status é obrigatório" });
 
-    if (!status) {
-      return res.status(400).json({ erro: "Status é obrigatório" });
-    }
+    const { rows } = await query("SELECT * FROM itens_pedido WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
 
-    const item = db
-      .prepare("SELECT * FROM itens_pedido WHERE id = ?")
-      .get(req.params.id);
+    await query("UPDATE itens_pedido SET status = $1 WHERE id = $2", [status, req.params.id]);
 
-    if (!item) {
-      return res.status(404).json({ erro: "Item nao encontrado" });
-    }
-
-    db.prepare(`
-      UPDATE itens_pedido
-      SET status = ?
-      WHERE id = ?
-    `).run(status, req.params.id);
-
-    const pedido = getPedidoCompleto(item.pedido_id);
-
+    const pedido = await getPedidoCompleto(rows[0].pedido_id);
     io.emit("pedido_atualizado", pedido);
-
     res.json({ sucesso: true });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: "Erro ao atualizar status do item" });
+    res.status(500).json({ erro: e.message });
   }
 });
 
-// Cancelar item (só se pendente)
-app.patch("/api/itens/:id/cancelar", (req, res) => {
-  const item = db
-    .prepare("SELECT * FROM itens_pedido WHERE id = ?")
-    .get(req.params.id);
-  if (!item) return res.status(404).json({ erro: "Item nao encontrado" });
-  if (item.status !== "pendente")
-    return res.status(400).json({ erro: "Item ja em preparo" });
-  db.prepare("UPDATE itens_pedido SET status = 'cancelado' WHERE id = ?").run(
-    req.params.id,
-  );
-  const pedido = getPedidoCompleto(item.pedido_id);
-  io.emit("pedido_atualizado", pedido);
-  res.json({ sucesso: true });
+// Cancelar item
+app.patch("/api/itens/:id/cancelar", async (req, res) => {
+  try {
+    const { rows } = await query("SELECT * FROM itens_pedido WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
+    if (rows[0].status !== "pendente") return res.status(400).json({ erro: "Item ja em preparo" });
+
+    await query("UPDATE itens_pedido SET status = 'cancelado' WHERE id = $1", [req.params.id]);
+    const pedido = await getPedidoCompleto(rows[0].pedido_id);
+    io.emit("pedido_atualizado", pedido);
+    res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 // Fechar mesa
-app.post("/api/mesas/:id/fechar", (req, res) => {
-  const { forma_pagamento, obs_pagamento } = req.body || {};
-  if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
-  db.prepare("UPDATE mesas SET status = 'livre', forma_pagamento = ?, obs_pagamento = ? WHERE id = ?")
-    .run(forma_pagamento, obs_pagamento || null, req.params.id);
-  // Registrar forma de pagamento nos pedidos da mesa
-  db.prepare("UPDATE pedidos SET status = 'finalizado', forma_pagamento = ? WHERE mesa_id = ? AND status != 'finalizado'")
-    .run(forma_pagamento, req.params.id);
-  const mesa = db.prepare("SELECT * FROM mesas WHERE id = ?").get(req.params.id);
-  io.emit("mesa_atualizada", mesa);
-  io.emit("mesa_fechada", req.params.id);
-  res.json({ sucesso: true });
+app.post("/api/mesas/:id/fechar", async (req, res) => {
+  try {
+    const { forma_pagamento, obs_pagamento } = req.body || {};
+    if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
+
+    await query(
+      "UPDATE mesas SET status = 'livre', forma_pagamento = $1, obs_pagamento = $2 WHERE id = $3",
+      [forma_pagamento, obs_pagamento || null, req.params.id]
+    );
+    await query(
+      "UPDATE pedidos SET status = 'finalizado', forma_pagamento = $1 WHERE mesa_id = $2 AND status != 'finalizado'",
+      [forma_pagamento, req.params.id]
+    );
+
+    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
+    io.emit("mesa_atualizada", rows[0]);
+    io.emit("mesa_fechada", req.params.id);
+    res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
-  // Chamar garçom
-  app.post("/api/chamadas", (req, res) => {
+// Chamar garçom
+app.post("/api/chamadas", async (req, res) => {
+  try {
     const { mesa_id, motivo, nome_cliente } = req.body;
-    const chamada = db
-      .prepare(
-        "INSERT INTO chamadas (mesa_id, motivo, nome_cliente) VALUES (?, ?, ?)",
-      )
-      .run(mesa_id, motivo || "garcom", nome_cliente || null);
-    const mesa = db.prepare("SELECT * FROM mesas WHERE id = ?").get(mesa_id);
+    const { rows } = await query(
+      "INSERT INTO chamadas (mesa_id, motivo, nome_cliente) VALUES ($1, $2, $3) RETURNING id",
+      [mesa_id, motivo || "garcom", nome_cliente || null]
+    );
+    const { rows: mesaRows } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
     io.emit("chamada_garcom", {
-      id: chamada.lastInsertRowid,
+      id: rows[0].id,
       mesa_id,
-      mesa_numero: mesa.numero,
+      mesa_numero: mesaRows[0].numero,
       motivo: motivo || "garcom",
       nome_cliente,
     });
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Atender chamada
-  app.patch("/api/chamadas/:id/atender", (req, res) => {
-    db.prepare("UPDATE chamadas SET atendida = 1 WHERE id = ?").run(
-      req.params.id,
-    );
+// Atender chamada
+app.patch("/api/chamadas/:id/atender", async (req, res) => {
+  try {
+    await query("UPDATE chamadas SET atendida = 1 WHERE id = $1", [req.params.id]);
     io.emit("chamada_atendida", { id: Number(req.params.id) });
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Chamadas pendentes
-  app.get("/api/chamadas", (req, res) => {
-    const chamadas = db
-      .prepare(
-        `
-    SELECT ch.*, m.numero as mesa_numero FROM chamadas ch
-    JOIN mesas m ON ch.mesa_id = m.id
-    WHERE ch.atendida = 0 ORDER BY ch.criado_em DESC
-  `,
-      )
-      .all();
-    res.json(chamadas);
-  });
+// Chamadas pendentes
+app.get("/api/chamadas", async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT ch.*, m.numero as mesa_numero FROM chamadas ch
+       JOIN mesas m ON ch.mesa_id = m.id
+       WHERE ch.atendida = 0 ORDER BY ch.criado_em DESC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // QR Code por mesa
-  app.get("/api/qrcode/:mesa_id", async (req, res) => {
+// QR Code por mesa
+app.get("/api/qrcode/:mesa_id", async (req, res) => {
+  try {
     const ip = getLocalIP();
     const url = `http://${ip}:3000/mesa/${req.params.mesa_id}`;
     const qr = await QRCode.toDataURL(url);
     res.json({ url, qr });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Categorias (admin)
-  app.post("/api/categorias", (req, res) => {
+// Categorias (admin)
+app.post("/api/categorias", async (req, res) => {
+  try {
     const { nome } = req.body;
-    const r = db
-      .prepare("INSERT INTO categorias (nome, ordem) VALUES (?, ?)")
-      .run(nome, 99);
+    const { rows } = await query(
+      "INSERT INTO categorias (nome, ordem) VALUES ($1, $2) RETURNING id",
+      [nome, 99]
+    );
     io.emit("cardapio_atualizado");
-    res.json({ id: r.lastInsertRowid });
-  });
+    res.json({ id: rows[0].id });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  app.delete("/api/categorias/:id", (req, res) => {
-    db.prepare("DELETE FROM categorias WHERE id = ?").run(req.params.id);
+app.delete("/api/categorias/:id", async (req, res) => {
+  try {
+    await query("DELETE FROM categorias WHERE id = $1", [req.params.id]);
     io.emit("cardapio_atualizado");
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Produtos (admin)
-  app.post("/api/produtos", (req, res) => {
+// Produtos (admin)
+app.post("/api/produtos", async (req, res) => {
+  try {
     const { categoria_id, nome, descricao, preco } = req.body;
-    const r = db
-      .prepare(
-        "INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES (?, ?, ?, ?)",
-      )
-      .run(categoria_id, nome, descricao, preco);
+    const { rows } = await query(
+      "INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES ($1, $2, $3, $4) RETURNING id",
+      [categoria_id, nome, descricao, preco]
+    );
     io.emit("cardapio_atualizado");
-    res.json({ id: r.lastInsertRowid });
-  });
+    res.json({ id: rows[0].id });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  app.patch("/api/produtos/:id", (req, res) => {
+app.patch("/api/produtos/:id", async (req, res) => {
+  try {
     const { nome, descricao, preco, disponivel } = req.body;
-    db.prepare(
-      "UPDATE produtos SET nome=?, descricao=?, preco=?, disponivel=? WHERE id=?",
-    ).run(nome, descricao, preco, disponivel ? 1 : 0, req.params.id);
+    await query(
+      "UPDATE produtos SET nome=$1, descricao=$2, preco=$3, disponivel=$4 WHERE id=$5",
+      [nome, descricao, preco, disponivel ? 1 : 0, req.params.id]
+    );
     io.emit("cardapio_atualizado");
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  app.delete("/api/produtos/:id", (req, res) => {
-    db.prepare("DELETE FROM produtos WHERE id = ?").run(req.params.id);
+app.delete("/api/produtos/:id", async (req, res) => {
+  try {
+    await query("DELETE FROM produtos WHERE id = $1", [req.params.id]);
     io.emit("cardapio_atualizado");
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Historico do dia (mesas fechadas hoje)
-  app.get("/api/historico", (req, res) => {
-    const agora = new Date();
-    const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
-    const rows = db
-      .prepare(
-        `
-    SELECT
-      p.id, p.numero_dia, p.mesa_id,
-      m.numero as mesa_numero,
-      p.garcom_nome,
-      p.nome_cliente,
-      p.forma_pagamento,
-      strftime('%H:%M', p.criado_em, 'localtime') as fechado_em,
-      SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-      COUNT(DISTINCT CASE WHEN ip.status != 'cancelado' THEN ip.id END) as total_itens
-    FROM pedidos p
-    JOIN mesas m ON p.mesa_id = m.id
-    JOIN itens_pedido ip ON ip.pedido_id = p.id
-    JOIN produtos pr ON pr.id = ip.produto_id
-    WHERE p.status = 'finalizado'
-      AND date(p.criado_em, 'localtime') = ?
-    GROUP BY p.id
-    ORDER BY p.criado_em DESC
-  `,
-      )
-      .all(hoje);
+// Histórico do dia
+app.get("/api/historico", async (req, res) => {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { rows } = await query(
+      `SELECT
+        p.id, p.numero_dia, p.mesa_id,
+        m.numero as mesa_numero,
+        p.garcom_nome, p.nome_cliente, p.forma_pagamento,
+        to_char(p.criado_em AT TIME ZONE 'America/Bahia', 'HH24:MI') as fechado_em,
+        SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
+        COUNT(DISTINCT CASE WHEN ip.status != 'cancelado' THEN ip.id END) as total_itens
+       FROM pedidos p
+       JOIN mesas m ON p.mesa_id = m.id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id
+       JOIN produtos pr ON pr.id = ip.produto_id
+       WHERE p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $1
+       GROUP BY p.id, m.numero
+       ORDER BY p.criado_em DESC`,
+      [hoje]
+    );
 
-    // Buscar itens de cada pedido
-    const resultado = rows.map((r) => ({
-      ...r,
-      itens: db
-        .prepare(
-          `
-      SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-      JOIN produtos pr ON pr.id = ip.produto_id
-      WHERE ip.pedido_id = ? AND ip.status != 'cancelado'
-    `,
-        )
-        .all(r.id),
-    }));
-
+    const resultado = await Promise.all(
+      rows.map(async (r) => {
+        const { rows: itens } = await query(
+          `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
+           JOIN produtos pr ON pr.id = ip.produto_id
+           WHERE ip.pedido_id = $1 AND ip.status != 'cancelado'`,
+          [r.id]
+        );
+        return { ...r, itens };
+      })
+    );
     res.json(resultado);
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Reiniciar os pedidos (para testes)
-  app.post("/api/pedidos/reiniciar-numeracao", (req, res) => {
-    // Não apaga nada — só marca o ponto de reinício guardando a data
-    db.prepare(
-      "INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('ultimo_reinicio', ?)",
-    ).run(new Date().toISOString());
+// Reiniciar numeração
+app.post("/api/pedidos/reiniciar-numeracao", async (req, res) => {
+  try {
+    await query(
+      "INSERT INTO configuracoes (chave, valor) VALUES ('ultimo_reinicio', $1) ON CONFLICT (chave) DO UPDATE SET valor = $1",
+      [new Date().toISOString()]
+    );
     res.json({ sucesso: true });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Relatorio por periodo
-  app.get("/api/relatorio", (req, res) => {
+// Relatório por período
+app.get("/api/relatorio", async (req, res) => {
+  try {
     const { periodo, dataInicio: di, dataFim: df } = req.query;
     const agora = new Date();
-    const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+    const hoje = agora.toISOString().slice(0, 10);
     let dataInicio, dataFim;
 
     if (di) {
@@ -530,238 +598,180 @@ app.post("/api/mesas/:id/fechar", (req, res) => {
       dataFim = hoje;
     }
 
-    const rows = db
-      .prepare(
-        `
-    SELECT
-      p.mesa_id,
-      m.numero as mesa_numero,
-      MAX(p.nome_cliente) as nome_cliente,
-      MAX(p.garcom_nome) as garcom_nome,
-      MAX(p.forma_pagamento) as forma_pagamento,
-      COUNT(DISTINCT ip.id) as total_itens,
-      SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-      strftime('%d/%m %H:%M', MAX(p.criado_em), 'localtime') as fechado_em
-    FROM pedidos p
-    JOIN mesas m ON p.mesa_id = m.id
-    JOIN itens_pedido ip ON ip.pedido_id = p.id
-    JOIN produtos pr ON pr.id = ip.produto_id
-    WHERE p.status = 'finalizado'
-      AND date(p.criado_em, 'localtime') >= ?
-      AND date(p.criado_em, 'localtime') <= ?
-    GROUP BY p.id
-    ORDER BY MAX(p.criado_em) DESC
-  `,
-      )
-      .all(dataInicio, dataFim);
+    const { rows } = await query(
+      `SELECT
+        p.mesa_id,
+        m.numero as mesa_numero,
+        MAX(p.nome_cliente) as nome_cliente,
+        MAX(p.garcom_nome) as garcom_nome,
+        MAX(p.forma_pagamento) as forma_pagamento,
+        COUNT(DISTINCT ip.id) as total_itens,
+        SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
+        to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'DD/MM HH24:MI') as fechado_em
+       FROM pedidos p
+       JOIN mesas m ON p.mesa_id = m.id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id
+       JOIN produtos pr ON pr.id = ip.produto_id
+       WHERE p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date >= $1
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date <= $2
+       GROUP BY p.id, m.numero
+       ORDER BY MAX(p.criado_em) DESC`,
+      [dataInicio, dataFim]
+    );
 
-    const totalGeral = rows.reduce((s, r) => s + (r.total || 0), 0);
+    const totalGeral = rows.reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
     res.json({ rows, totalGeral, periodo, dataInicio, dataFim });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // Financeiro hoje (alias)
-  app.get("/api/financeiro/hoje", (req, res) => {
-    const agora = new Date();
-    const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
-    const rows = db
-      .prepare(
-        `
-    SELECT
-      p.mesa_id,
-      m.numero as mesa_numero,
-      MAX(p.nome_cliente) as nome_cliente,
-      COUNT(DISTINCT ip.id) as total_itens,
-      SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-      strftime('%H:%M', MAX(p.criado_em), 'localtime') as fechado_em
-    FROM pedidos p
-    JOIN mesas m ON p.mesa_id = m.id
-    JOIN itens_pedido ip ON ip.pedido_id = p.id
-    JOIN produtos pr ON pr.id = ip.produto_id
-    WHERE p.status = 'finalizado'
-      AND date(p.criado_em, 'localtime') = ?
-    GROUP BY p.mesa_id
-    ORDER BY MAX(p.criado_em) DESC
-  `,
-      )
-      .all(hoje);
-    const totalDia = rows.reduce((s, r) => s + (r.total || 0), 0);
+// Financeiro hoje
+app.get("/api/financeiro/hoje", async (req, res) => {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { rows } = await query(
+      `SELECT
+        p.mesa_id,
+        m.numero as mesa_numero,
+        MAX(p.nome_cliente) as nome_cliente,
+        COUNT(DISTINCT ip.id) as total_itens,
+        SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
+        to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'HH24:MI') as fechado_em
+       FROM pedidos p
+       JOIN mesas m ON p.mesa_id = m.id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id
+       JOIN produtos pr ON pr.id = ip.produto_id
+       WHERE p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $1
+       GROUP BY p.mesa_id, m.numero
+       ORDER BY MAX(p.criado_em) DESC`,
+      [hoje]
+    );
+    const totalDia = rows.reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
     res.json({ rows, totalDia, data: hoje });
-  });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  // ─── USUARIOS ──────────────────────────────────────────────────────────────
+// ─── USUARIOS ──────────────────────────────────────────────────────────────
 
-  // Login de usuario (garcom, financeiro, cozinha)
-  app.post("/api/auth/login", (req, res) => {
-    const { login, senha } = req.body;
-    if (!login || !senha)
-      return res.status(400).json({ erro: "Dados incompletos" });
-    try {
-      const u = db
-        .prepare(
-          "SELECT * FROM usuarios WHERE (login = ? OR nome = ?) AND ativo = 1",
-        )
-        .get(login, login);
-      if (!u || u.senha !== senha)
-        return res.status(401).json({ erro: "Login ou senha incorretos" });
-      res.json({ id: u.id, nome: u.nome, role: u.role, login: u.login });
-    } catch (e) {
-      res.status(500).json({ erro: e.message });
-    }
-  });
+app.post("/api/auth/login", async (req, res) => {
+  const { login, senha } = req.body;
+  if (!login || !senha) return res.status(400).json({ erro: "Dados incompletos" });
+  try {
+    const { rows } = await query(
+      "SELECT * FROM usuarios WHERE (login = $1 OR nome = $1) AND ativo = 1",
+      [login]
+    );
+    const u = rows[0];
+    if (!u || u.senha !== senha)
+      return res.status(401).json({ erro: "Login ou senha incorretos" });
+    res.json({ id: u.id, nome: u.nome, role: u.role, login: u.login });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  app.get("/api/usuarios", (req, res) => {
-    try {
-      const rows = db
-        .prepare(
-          "SELECT id, nome, login, role, ativo FROM usuarios ORDER BY role, nome",
-        )
-        .all();
-      res.json(rows);
-    } catch (e) {
-      console.error("Erro ao buscar usuarios:", e);
-      res.status(500).json({ erro: e.message });
-    }
-  });
+app.get("/api/usuarios", async (req, res) => {
+  try {
+    const { rows } = await query(
+      "SELECT id, nome, login, role, ativo FROM usuarios ORDER BY role, nome"
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
 
-  app.post("/api/usuarios", (req, res) => {
-    const { nome, login, senha, role } = req.body;
-    if (!nome || !senha || !role)
-      return res.status(400).json({ erro: "Dados incompletos" });
-    if (!["garcom", "cozinha", "financeiro", "admin"].includes(role))
-      return res.status(400).json({ erro: "Role invalido" });
-    const loginFinal = (login || nome).toLowerCase().replace(/\s+/g, "_");
-    try {
-      // Verificar se login já existe
-      const existing = db
-        .prepare("SELECT id FROM usuarios WHERE login = ?")
-        .get(loginFinal);
-      if (existing)
-        return res.status(400).json({ erro: "Login ja existe, escolha outro" });
-      const r = db
-        .prepare(
-          "INSERT INTO usuarios (nome, login, senha, role) VALUES (?, ?, ?, ?)",
-        )
-        .run(nome, loginFinal, senha, role);
-      res.json({ id: r.lastInsertRowid, login: loginFinal });
-    } catch (e) {
-      console.error("Erro ao criar usuario:", e);
-      res.status(500).json({ erro: e.message });
-    }
-  });
+app.post("/api/usuarios", async (req, res) => {
+  const { nome, login, senha, role } = req.body;
+  if (!nome || !senha || !role) return res.status(400).json({ erro: "Dados incompletos" });
+  if (!["garcom", "cozinha", "financeiro", "admin"].includes(role))
+    return res.status(400).json({ erro: "Role invalido" });
 
-  app.patch("/api/usuarios/:id", (req, res) => {
+  const loginFinal = (login || nome).toLowerCase().replace(/\s+/g, "_");
+  try {
+    const { rows: existing } = await query(
+      "SELECT id FROM usuarios WHERE login = $1",
+      [loginFinal]
+    );
+    if (existing[0]) return res.status(400).json({ erro: "Login ja existe, escolha outro" });
+
+    const { rows } = await query(
+      "INSERT INTO usuarios (nome, login, senha, role) VALUES ($1, $2, $3, $4) RETURNING id",
+      [nome, loginFinal, senha, role]
+    );
+    res.json({ id: rows[0].id, login: loginFinal });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.patch("/api/usuarios/:id", async (req, res) => {
+  try {
     const { nome, login, senha, ativo, role } = req.body;
-    try {
-      const u = db
-        .prepare("SELECT * FROM usuarios WHERE id = ?")
-        .get(req.params.id);
-      if (!u) return res.status(404).json({ erro: "Usuario nao encontrado" });
-      const novoLogin =
-        login || u.login || u.nome?.toLowerCase().replace(/\s+/g, "_");
-      db.prepare(
-        "UPDATE usuarios SET nome=?, login=?, senha=?, ativo=?, role=? WHERE id=?",
-      ).run(
+    const { rows } = await query("SELECT * FROM usuarios WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ erro: "Usuario nao encontrado" });
+    const u = rows[0];
+    const novoLogin = login || u.login || u.nome?.toLowerCase().replace(/\s+/g, "_");
+    await query(
+      "UPDATE usuarios SET nome=$1, login=$2, senha=$3, ativo=$4, role=$5 WHERE id=$6",
+      [
         nome ?? u.nome,
         novoLogin,
         senha && senha.length > 0 ? senha : u.senha,
         ativo ?? u.ativo,
         role ?? u.role,
         req.params.id,
-      );
-      res.json({ sucesso: true });
-    } catch (e) {
-      res.status(500).json({ erro: e.message });
-    }
-  });
-
-  app.delete("/api/usuarios/:id", (req, res) => {
-    try {
-      db.prepare("DELETE FROM usuarios WHERE id = ?").run(req.params.id);
-      res.json({ sucesso: true });
-    } catch (e) {
-      res.status(500).json({ erro: e.message });
-    }
-  });
-
-  // ─── HELPER PEDIDO COMPLETO ────────────────────────────────────────────────
-  function getPedidoCompleto(pedido_id) {
-    const pedido = db
-      .prepare(
-        "SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE p.id = ?",
-      )
-      .get(pedido_id);
-    if (!pedido) return null;
-    pedido.itens = db
-      .prepare(
-        `
-    SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-    JOIN produtos pr ON ip.produto_id = pr.id WHERE ip.pedido_id = ?
-  `,
-      )
-      .all(pedido_id);
-    return pedido;
-  }
-
-  // ─── SOCKET.IO ─────────────────────────────────────────────────────────────
-  io.on("connection", (socket) => {
-    console.log("Cliente conectado:", socket.id);
-
-    socket.on("connect", () => {
-      console.log("Conectado!", socket.id);
-    });
-
-    // Garçom emite quando fecha mesa — propaga para clientes da mesa
-    socket.on("pedido_ficou_pronto", (data) => {
-      io.emit("pedido_pronto", data);
-    });
-
-    socket.on("mesa_fechada_event", (mesa_id) => {
-      io.emit("mesa_fechada", mesa_id);
-    });
-
-    socket.on("disconnect", () =>
-      console.log("Cliente desconectado:", socket.id),
+      ]
     );
-  });
-
-  // ─── START ─────────────────────────────────────────────────────────────────
-  const PORT = process.env.PORT || 3001;
-  server.listen(PORT, "0.0.0.0", () => {
-    const ip = getLocalIP();
-    console.log(`\n🍽️  Servidor rodando!`);
-    console.log(`   Local:    http://localhost:${PORT}`);
-    console.log(`   Rede:     http://${ip}:${PORT}`);
-    console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1`);
-    console.log(`   Financeiro: http://${ip}:${PORT}/financeiro\n`);
-  });
-  // ─── ROTAS EXTRAS (adicionadas na rodada 2) ───────────────────────────────
-
-  // Criar nova mesa
-  app.post("/api/mesas", (req, res) => {
-    const { numero } = req.body;
-    if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
-    try {
-      const r = db
-        .prepare("INSERT INTO mesas (numero) VALUES (?)")
-        .run(String(numero));
-      const mesa = db
-        .prepare("SELECT * FROM mesas WHERE id = ?")
-        .get(r.lastInsertRowid);
-      io.emit("mesa_atualizada", mesa);
-      res.json(mesa);
-    } catch (e) {
-      res.status(400).json({ erro: "Mesa já existe" });
-    }
-  });
-
-  // Deletar mesa (só livres)
-  app.delete("/api/mesas/:id", (req, res) => {
-    const mesa = db
-      .prepare("SELECT * FROM mesas WHERE id = ?")
-      .get(req.params.id);
-    if (!mesa) return res.status(404).json({ erro: "Mesa não encontrada" });
-    if (mesa.status === "ocupada")
-      return res.status(400).json({ erro: "Mesa ocupada" });
-    db.prepare("DELETE FROM mesas WHERE id = ?").run(req.params.id);
     res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.delete("/api/usuarios/:id", async (req, res) => {
+  try {
+    await query("DELETE FROM usuarios WHERE id = $1", [req.params.id]);
+    res.json({ sucesso: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+// ─── SOCKET.IO ─────────────────────────────────────────────────────────────
+io.on("connection", (socket) => {
+  console.log("Cliente conectado:", socket.id);
+
+  socket.on("pedido_ficou_pronto", (data) => {
+    io.emit("pedido_pronto", data);
+  });
+
+  socket.on("mesa_fechada_event", (mesa_id) => {
+    io.emit("mesa_fechada", mesa_id);
+  });
+
+  socket.on("disconnect", () => console.log("Cliente desconectado:", socket.id));
+});
+
+// ─── START ─────────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3001;
+
+initDB()
+  .then(() => {
+    server.listen(PORT, "0.0.0.0", () => {
+      const ip = getLocalIP();
+      console.log(`\n🍽️  Servidor rodando!`);
+      console.log(`   Local:    http://localhost:${PORT}`);
+      console.log(`   Rede:     http://${ip}:${PORT}`);
+      console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1\n`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Erro ao conectar no banco:", err.message);
+    process.exit(1);
   });
