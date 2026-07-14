@@ -10,6 +10,102 @@ const CONFIG = {
   corSecundaria: null,
 };
 
+const ROLE_DETAILS = {
+  admin: {
+    label: "Administração",
+    hint: "Produtos, categorias, mesas, equipe e relatórios.",
+  },
+  garcom: {
+    label: "Garçom",
+    hint: "Mesas, chamadas, pedidos e fechamento de conta.",
+  },
+  cozinha: {
+    label: "Cozinha",
+    hint: "Kanban de preparo e pedidos em tempo real.",
+  },
+  financeiro: {
+    label: "Financeiro",
+    hint: "Comandas, pagamentos, histórico e exportação PDF.",
+  },
+};
+
+const ADMIN_TABS = ["produtos", "categorias", "mesas", "equipe", "relatorios"];
+
+const ACCESS_MODULES = [
+  {
+    area: "Operação",
+    title: "Garçom",
+    href: "/garcom",
+    desc: "Acompanhe mesas, chamadas, pedidos prontos e fechamento de conta.",
+    roles: ["garcom", "admin"],
+    meta: "Dispositivo de salão",
+  },
+  {
+    area: "Operação",
+    title: "Cozinha",
+    href: "/cozinha",
+    desc: "Organize pedidos em recebidos, preparando e prontos.",
+    roles: ["cozinha", "admin"],
+    meta: "Painel Kanban",
+  },
+  {
+    area: "Operação",
+    title: "Pedidos",
+    href: "/cozinha",
+    desc: "Veja o fluxo operacional de preparo em tempo real.",
+    roles: ["cozinha", "admin"],
+    meta: "Tempo real",
+  },
+  {
+    area: "Gestão",
+    title: "Administração",
+    href: "/admin",
+    desc: "Gerencie cardápio, categorias, mesas, equipe e configurações.",
+    roles: ["admin"],
+    meta: "Acesso gerencial",
+  },
+  {
+    area: "Gestão",
+    title: "Mesas e QR Codes",
+    href: "/admin?aba=mesas",
+    desc: "Crie mesas e acesse QR Codes para o cardápio do cliente.",
+    roles: ["admin"],
+    meta: "Cardápio por mesa",
+  },
+  {
+    area: "Gestão",
+    title: "Equipe e permissões",
+    href: "/admin?aba=equipe",
+    desc: "Cadastre usuários e distribua acesso por perfil.",
+    roles: ["admin"],
+    meta: "Roles",
+  },
+  {
+    area: "Análise",
+    title: "Financeiro",
+    href: "/financeiro",
+    desc: "Controle comandas abertas, pagamentos e histórico.",
+    roles: ["financeiro", "admin"],
+    meta: "Caixa",
+  },
+  {
+    area: "Análise",
+    title: "Relatórios",
+    href: "/admin?aba=relatorios",
+    desc: "Consulte vendas por período e acompanhe resultados.",
+    roles: ["admin"],
+    meta: "Indicadores",
+  },
+  {
+    area: "Cliente",
+    title: "Cardápio via QR Code",
+    href: "/mesa/1",
+    desc: "Simule a experiência pública do cliente na mesa 1.",
+    roles: [],
+    meta: "Público",
+  },
+];
+
 let socket = null;
 function getSocket() {
   if (!socket) {
@@ -247,9 +343,77 @@ function gerarCSS(t = T) {
   input::placeholder, textarea::placeholder { color: ${t.muted}; }
   select option { background: ${t.card2}; color: ${t.text}; }
   a { color: inherit; }
+  .panel-header {
+    background: ${t.bg2};
+    border-bottom: 1px solid ${t.border};
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .panel-header-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .panel-header-copy { min-width: 0; }
+  .panel-header-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 16px; color: ${t.text}; line-height: 1.2; }
+  .panel-header-subtitle { color: ${t.muted}; font-size: 12px; margin-top: 2px; }
+  .panel-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .panel-user-pill {
+    border: 1px solid ${t.border};
+    background: ${t.card};
+    color: ${t.text2};
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    max-width: 220px;
+  }
+  .access-page {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 20% 0%, ${t.accentGlow} 0%, transparent 38%),
+      linear-gradient(180deg, ${t.bg2} 0%, ${t.bg} 38%);
+    padding: 22px;
+  }
+  .access-shell { width: 100%; max-width: 1120px; margin: 0 auto; }
+  .access-topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+  .access-hero { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(280px,.8fr); gap: 16px; align-items: stretch; margin-bottom: 22px; }
+  .access-title { font-family: 'Playfair Display', serif; font-size: 34px; line-height: 1.08; font-weight: 700; color: ${t.text}; margin-bottom: 10px; }
+  .access-description { color: ${t.text2}; max-width: 620px; font-size: 15px; }
+  .access-kpis { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 22px; }
+  .access-kpi { background: ${t.card}; border: 1px solid ${t.border}; border-radius: 12px; padding: 12px; }
+  .access-kpi strong { display: block; font-size: 20px; color: ${t.accent}; line-height: 1; margin-bottom: 5px; }
+  .access-section-title { color: ${t.accent}; font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; margin: 24px 0 10px; }
+  .access-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+  .access-card-link { display: block; height: 100%; text-decoration: none; }
+  .access-card-link:focus-visible { outline: 3px solid ${t.accentGlow}; outline-offset: 3px; border-radius: 14px; }
+  .access-card { height: 100%; display: flex; flex-direction: column; gap: 12px; min-height: 164px; }
+  .access-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .access-card-title { font-weight: 800; font-size: 16px; color: ${t.text}; }
+  .access-card-desc { color: ${t.text2}; font-size: 13px; line-height: 1.45; flex: 1; }
+  .access-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
+  .access-tag { border: 1px solid ${t.border}; background: ${t.card2}; border-radius: 999px; color: ${t.muted}; font-size: 11px; font-weight: 700; padding: 4px 8px; white-space: nowrap; }
+  .access-status { color: ${t.accent}; font-size: 12px; font-weight: 800; white-space: nowrap; }
 
   /* ─── RESPONSIVIDADE ─── */
   button { -webkit-tap-highlight-color: transparent; }
+
+  @media (max-width: 920px) {
+    .access-hero { grid-template-columns: 1fr; }
+    .access-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  }
+
+  @media (max-width: 640px) {
+    .access-page { padding: 16px; }
+    .access-topbar { margin-bottom: 20px; }
+    .access-title { font-size: 28px; }
+    .access-kpis { grid-template-columns: 1fr; }
+    .access-grid { grid-template-columns: 1fr; }
+    .panel-header { align-items: flex-start; }
+    .panel-header-actions { justify-content: flex-start; width: 100%; }
+    .panel-user-pill { max-width: 100%; }
+  }
 
   /* Cliente — mobile first */
   @media (max-width: 380px) {
@@ -257,7 +421,7 @@ function gerarCSS(t = T) {
     .cliente-filtros button { padding: 5px 10px !important; font-size: 11px !important; }
   }
 
-  /* Garcom — mobile */
+  /* Garçom — mobile */
   @media (max-width: 480px) {
     .garcom-mesas { grid-template-columns: 1fr 1fr !important; }
     .garcom-mesas .mesa-num { font-size: 20px !important; }
@@ -503,6 +667,240 @@ function Logo({ size = "md", center = false }) {
   );
 }
 
+function roleLabel(role) {
+  return ROLE_DETAILS[role]?.label || role || "Equipe";
+}
+
+function canAccessModule(usuario, module) {
+  if (!module.roles?.length) return true;
+  if (!usuario) return false;
+  return usuario.role === "admin" || module.roles.includes(usuario.role);
+}
+
+function moduleAccessText(usuario, module) {
+  if (!module.roles?.length) return "Acesso público";
+  if (!usuario) return "Login necessário";
+  return canAccessModule(usuario, module) ? "Disponível" : "Trocar perfil";
+}
+
+function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
+  return (
+    <div className="panel-header">
+      <div className="panel-header-main">
+        <Logo />
+        <div className="panel-header-copy">
+          <div className="panel-header-title">{title}</div>
+          {subtitle && <div className="panel-header-subtitle">{subtitle}</div>}
+        </div>
+      </div>
+      <div className="panel-header-actions">
+        {actions}
+        {usuario && (
+          <span className="panel-user-pill truncate">
+            {usuario.nome || usuario.login || roleLabel(usuario.role)} -{" "}
+            {roleLabel(usuario.role)}
+          </span>
+        )}
+        <a
+          href="/"
+          style={{
+            textDecoration: "none",
+            border: `1px solid ${T.border2}`,
+            borderRadius: 10,
+            padding: "5px 13px",
+            fontSize: 12,
+            fontWeight: 700,
+            color: T.text2,
+            background: T.card,
+          }}
+        >
+          Central
+        </a>
+        {onLogout && (
+          <Btn sm variant="ghost" onClick={onLogout}>
+            Sair
+          </Btn>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AccessModuleCard({ module, usuario }) {
+  const disponivel = canAccessModule(usuario, module);
+  return (
+    <a href={module.href} className="access-card-link">
+      <Card
+        className="access-card"
+        style={{
+          borderColor: disponivel ? T.border : T.border2,
+          boxShadow: disponivel ? "0 10px 30px rgba(16,31,47,0.06)" : "none",
+        }}
+      >
+        <div className="access-card-top">
+          <div>
+            <div className="access-card-title">{module.title}</div>
+            <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>
+              {module.meta}
+            </div>
+          </div>
+          <span className="access-tag">
+            {module.roles?.length
+              ? module.roles.map(roleLabel).join(" / ")
+              : "Público"}
+          </span>
+        </div>
+        <div className="access-card-desc">{module.desc}</div>
+        <div className="access-card-meta">
+          <span className="access-status">
+            {moduleAccessText(usuario, module)}
+          </span>
+          <span style={{ color: T.text2, fontSize: 12, fontWeight: 800 }}>
+            Abrir
+          </span>
+        </div>
+      </Card>
+    </a>
+  );
+}
+
+function AccessHub({ usuario, onLogout }) {
+  const css = gerarCSS(T);
+  const areas = ["Operação", "Gestão", "Análise", "Cliente"];
+
+  useEffect(() => {
+    document.title = `Central - ${CONFIG.nomeApp}`;
+  }, []);
+
+  return (
+    <>
+      <style>{css}</style>
+      <div className="access-page">
+        <div className="access-shell">
+          <div className="access-topbar">
+            <Logo />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="panel-user-pill truncate">
+                {usuario
+                  ? `${usuario.nome || usuario.login || "Usuário"} - ${roleLabel(usuario.role)}`
+                  : "Nenhuma sessão ativa"}
+              </span>
+              {usuario && (
+                <Btn sm variant="ghost" onClick={onLogout}>
+                  Sair
+                </Btn>
+              )}
+            </div>
+          </div>
+
+          <div className="access-hero">
+            <div>
+              <div className="access-title">Central do restaurante</div>
+              <div className="access-description">
+                Um ponto único para abrir a operação do salão, acompanhar a
+                cozinha, administrar cardápio, equipe, mesas, relatórios e
+                testar o cardápio público por QR Code.
+              </div>
+              <div className="access-kpis">
+                <div className="access-kpi">
+                  <strong>4</strong>
+                  <span style={{ color: T.muted, fontSize: 12 }}>
+                    Perfis operacionais
+                  </span>
+                </div>
+                <div className="access-kpi">
+                  <strong>9</strong>
+                  <span style={{ color: T.muted, fontSize: 12 }}>
+                    Áreas de acesso
+                  </span>
+                </div>
+                <div className="access-kpi">
+                  <strong>QR</strong>
+                  <span style={{ color: T.muted, fontSize: 12 }}>
+                    Cardápio público
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <Card
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                minHeight: 210,
+                boxShadow: "0 16px 40px rgba(16,31,47,0.08)",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: T.accent,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: 0.8,
+                    textTransform: "uppercase",
+                    marginBottom: 8,
+                  }}
+                >
+                  Sessão atual
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Playfair Display',serif",
+                    fontSize: 24,
+                    fontWeight: 700,
+                    lineHeight: 1.15,
+                  }}
+                >
+                  {usuario
+                    ? roleLabel(usuario.role)
+                    : "Escolha uma área para entrar"}
+                </div>
+                <div style={{ color: T.text2, fontSize: 13, marginTop: 10 }}>
+                  {usuario
+                    ? ROLE_DETAILS[usuario.role]?.hint ||
+                      "Perfil autenticado no sistema."
+                    : "Os painéis internos solicitam login antes de liberar dados protegidos."}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <a href="/admin" style={{ textDecoration: "none" }}>
+                  <Btn sm>Administração</Btn>
+                </a>
+                <a href="/mesa/1" style={{ textDecoration: "none" }}>
+                  <Btn sm variant="ghost">
+                    Ver mesa 1
+                  </Btn>
+                </a>
+              </div>
+            </Card>
+          </div>
+
+          {areas.map((area) => {
+            const modules = ACCESS_MODULES.filter((m) => m.area === area);
+            if (!modules.length) return null;
+            return (
+              <section key={area}>
+                <div className="access-section-title">{area}</div>
+                <div className="access-grid">
+                  {modules.map((module) => (
+                    <AccessModuleCard
+                      key={`${module.area}-${module.title}`}
+                      module={module}
+                      usuario={usuario}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // Formata forma de pagamento
 const formataPag = (v) =>
   ({
@@ -594,13 +992,14 @@ function TelaLoginSenha({ titulo, subtitulo, onLogin, senhaCorreta }) {
   );
 }
 
-// Login com usuario+senha (garcom, financeiro, cozinha)
+// Login com usuário e senha (garçom, financeiro, cozinha)
 function TelaLogin({ titulo, role, onLogin }) {
   const css = gerarCSS(T);
   const [loginVal, setLoginVal] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [loading, setLoading] = useState(false);
+  const info = ROLE_DETAILS[role] || { label: titulo, hint: "Acesso interno" };
 
   const tentar = async () => {
     if (!loginVal.trim() || !senha.trim()) {
@@ -622,13 +1021,13 @@ function TelaLogin({ titulo, role, onLogin }) {
         return;
       }
       if (role && d.role !== role && d.role !== "admin") {
-        setErro("Voce nao tem permissao para este painel.");
+        setErro("Você não tem permissão para este painel.");
         setLoading(false);
         return;
       }
       onLogin(d);
     } catch (e) {
-      setErro("Erro de conexao com o servidor.");
+      setErro("Erro de conexão com o servidor.");
       setLoading(false);
     }
   };
@@ -641,39 +1040,65 @@ function TelaLogin({ titulo, role, onLogin }) {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: T.bg,
-        padding: 24,
+        background: `linear-gradient(180deg,${T.bg2} 0%,${T.bg} 44%)`,
+        padding: 20,
       }}
     >
       <style>{css}</style>
-      <Logo size="lg" center />
-      <div
+      <a
+        href="/"
         style={{
-          marginTop: 40,
-          width: "100%",
-          maxWidth: 360,
-          background: T.card,
-          border: `1px solid ${T.border}`,
-          borderRadius: 20,
-          padding: 32,
-          boxShadow: "0 4px 24px rgba(16,31,47,0.10)",
+          position: "absolute",
+          top: 18,
+          left: 18,
+          textDecoration: "none",
+          color: T.text2,
+          fontSize: 13,
+          fontWeight: 700,
         }}
       >
+        Central
+      </a>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 430,
+          background: T.card,
+          border: `1px solid ${T.border}`,
+          borderRadius: 18,
+          padding: 28,
+          boxShadow: "0 18px 50px rgba(16,31,47,0.10)",
+        }}
+      >
+        <Logo size="md" />
         <div
           style={{
             fontFamily: "'Playfair Display',serif",
-            fontSize: 20,
+            fontSize: 24,
             fontWeight: 700,
+            marginTop: 22,
             marginBottom: 4,
           }}
         >
-          {titulo}
+          {info.label}
         </div>
-        <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>
-          Entre com suas credenciais
+        <div style={{ color: T.text2, fontSize: 13, marginBottom: 22 }}>
+          {info.hint}
+        </div>
+        <div
+          style={{
+            color: T.accent,
+            fontSize: 11,
+            fontWeight: 800,
+            textTransform: "uppercase",
+            letterSpacing: 0.8,
+            marginBottom: 8,
+          }}
+        >
+          Login seguro
         </div>
         <input
-          placeholder="Usuario"
+          placeholder="Usuário"
           value={loginVal}
           onChange={(e) => setLoginVal(e.target.value)}
           style={{ marginBottom: 10 }}
@@ -968,7 +1393,7 @@ function PainelCliente({ mesa_id }) {
           </div>
           <div style={{ display: "flex" }}>
             {[
-              ["cardapio", "Cardapio"],
+              ["cardapio", "Cardápio"],
               ["pedidos", "Meus Pedidos"],
             ].map(([id, label]) => (
               <button
@@ -1029,7 +1454,7 @@ function PainelCliente({ mesa_id }) {
             overflowX: "hidden",
           }}
         >
-          {/* CARDAPIO */}
+          {/* CARDÁPIO */}
           {aba === "cardapio" && (
             <div className="fade-up">
               {/* Filtro horizontal */}
@@ -1521,7 +1946,7 @@ function PainelCliente({ mesa_id }) {
             }}
           >
             <div style={{ fontSize: 13, color: T.text2, fontWeight: 500 }}>
-              Qualquer duvida, chame o garçom
+              Qualquer dúvida, chame o garçom
             </div>
           </div>
         </div>
@@ -1661,8 +2086,8 @@ function PainelCliente({ mesa_id }) {
   );
 }
 
-// ─── PAINEL GARCOM ────────────────────────────────────────────────────────────
-function PainelGarcom({ usuario }) {
+// ─── PAINEL GARÇOM ────────────────────────────────────────────────────────────
+function PainelGarcom({ usuario, onLogout }) {
   const [chamadas, setChamadas] = useState([]);
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
@@ -1685,7 +2110,7 @@ function PainelGarcom({ usuario }) {
   const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Garcom - ${CONFIG.nomeApp}`;
+    document.title = `Garçom - ${CONFIG.nomeApp}`;
   }, []);
 
   const fetchChamadas = useCallback(async () => {
@@ -1749,7 +2174,7 @@ function PainelGarcom({ usuario }) {
       body: JSON.stringify({
         mesa_id: cardapioModal.id,
         itens: carrinhoPedido.map((i) => ({ ...i, observacao: "" })),
-        nome_cliente: `Garcom: ${usuario?.nome || "Garcom"}`,
+        nome_cliente: `Garçom: ${usuario?.nome || "Garçom"}`,
       }),
     });
     setEnviandoPedido(false);
@@ -1765,7 +2190,7 @@ function PainelGarcom({ usuario }) {
     fetchPedidos();
     const s = getSocket();
 
-    // cliente chama garcom com nome e mesa
+    // Cliente chama garçom com nome e mesa.
     s.on("chamada_garcom", (data) => {
       fetchChamadas();
       const isPag = data.motivo?.startsWith("conta:");
@@ -1880,49 +2305,35 @@ function PainelGarcom({ usuario }) {
       <style>{css}</style>
       <NotifBanner notifs={notifs} onDismiss={dismiss} />
       <div style={{ minHeight: "100vh", background: T.bg }}>
-        <div
-          style={{
-            background: T.bg2,
-            borderBottom: `1px solid ${T.border}`,
-            padding: "13px 16px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Logo />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              ref={bellRef}
-              style={{ fontSize: 18, transition: "transform .1s" }}
-            ></span>
-            {chamadas.length + pedidosProntos.length > 0 && (
+        <PanelHeader
+          title="Garçom"
+          subtitle="Chamadas, mesas e pedidos do salão"
+          usuario={usuario}
+          onLogout={onLogout}
+          actions={
+            <>
               <span
-                className="pulse"
-                style={{
-                  background: T.red,
-                  color: "#fff",
-                  borderRadius: 99,
-                  padding: "2px 10px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                {chamadas.length + pedidosProntos.length}
-              </span>
-            )}
-            <span
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontSize: 16,
-                fontWeight: 700,
-              }}
-            >
-              Garçom
-            </span>
-          </div>
-        </div>
-
+                ref={bellRef}
+                style={{ fontSize: 18, transition: "transform .1s" }}
+              ></span>
+              {chamadas.length + pedidosProntos.length > 0 && (
+                <span
+                  className="pulse"
+                  style={{
+                    background: T.red,
+                    color: "#fff",
+                    borderRadius: 99,
+                    padding: "2px 10px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {chamadas.length + pedidosProntos.length}
+                </span>
+              )}
+            </>
+          }
+        />
         <div style={{ padding: 14 }}>
           {/* Chamadas — Item 5: mostra nome + mesa */}
           {chamadas.length > 0 && (
@@ -1965,7 +2376,7 @@ function PainelGarcom({ usuario }) {
                         <div style={{ fontWeight: 700, fontSize: 14 }}>
                           {isPag
                             ? `${cliente} da Mesa ${c.mesa_numero} solicitou a conta`
-                            : `${cliente} da Mesa ${c.mesa_numero} solicitando garcom`}
+                            : `${cliente} da Mesa ${c.mesa_numero} solicitando garçom`}
                         </div>
                         {isPag && (
                           <div
@@ -2129,7 +2540,7 @@ function PainelGarcom({ usuario }) {
                       onClick={() => verHistoricoMesa(m)}
                       style={{ marginBottom: 6 }}
                     >
-                      Historico
+                      Histórico
                     </Btn>
                     <Btn
                       sm
@@ -2262,7 +2673,7 @@ function PainelGarcom({ usuario }) {
                 marginBottom: 16,
               }}
             >
-              Historico - Mesa {historicoModal.numero}
+              Histórico - Mesa {historicoModal.numero}
             </div>
             {historicoItens.length === 0 ? (
               <div style={{ color: T.muted }}>Nenhum pedido encontrado.</div>
@@ -2395,7 +2806,7 @@ function PainelGarcom({ usuario }) {
                 Forma de Pagamento <span style={{ color: T.red }}>*</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {[["credito","Cartão Crédito"],["débito","Cartão Débito"],["dinheiro","Dinheiro"],["pix","PIX"]].map(([val, label]) => (
+                {[["credito","Cartão Crédito"],["debito","Cartão Débito"],["dinheiro","Dinheiro"],["pix","PIX"]].map(([val, label]) => (
                   <div key={val} onClick={() => setFormaPagSel(val)} style={{
                     padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center",
                     border: `1.5px solid ${formaPagSel === val ? T.accent : T.border}`,
@@ -2638,7 +3049,7 @@ function PainelGarcom({ usuario }) {
 }
 
 // ─── PAINEL COZINHA ───────────────────────────────────────────────────────────
-function PainelCozinha() {
+function PainelCozinha({ usuario, onLogout }) {
   const [pedidos, setPedidos] = useState([]);
   const [chamadas, setChamadas] = useState([]);
   const [dragging, setDragging] = useState(null);
@@ -2781,26 +3192,13 @@ function PainelCozinha() {
           overflow: "hidden",
         }}
       >
-        {/* Header */}
-        <div
-          style={{
-            background: T.bg2,
-            borderBottom: `1px solid ${T.border}`,
-            padding: "12px 16px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Logo />
-            <span style={{ color: T.muted, fontSize: 14, marginLeft: 4 }}>
-              Cozinha
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {pedidos.length > 0 && (
+        <PanelHeader
+          title="Cozinha"
+          subtitle="Kanban de preparo em tempo real"
+          usuario={usuario}
+          onLogout={onLogout}
+          actions={
+            pedidos.length > 0 ? (
               <span
                 className="pulse"
                 style={{
@@ -2814,9 +3212,9 @@ function PainelCozinha() {
               >
                 {pedidos.length} ativo{pedidos.length > 1 ? "s" : ""}
               </span>
-            )}
-          </div>
-        </div>
+            ) : null
+          }
+        />
 
         {/* Chamadas */}
         {chamadas.length > 0 && (
@@ -2848,7 +3246,7 @@ function PainelCozinha() {
                   Mesa {c.mesa_numero}
                 </span>
                 <span style={{ color: T.muted, fontSize: 12 }}>
-                  {c.motivo?.startsWith("conta") ? "Conta" : "Garcom"}
+                  {c.motivo?.startsWith("conta") ? "Conta" : "Garçom"}
                 </span>
                 <Btn sm variant="success" onClick={() => atenderChamada(c.id)}>
                   Ok
@@ -3064,8 +3462,11 @@ function PainelCozinha() {
 }
 
 // ─── PAINEL ADMIN ─────────────────────────────────────────────────────────────
-function PainelAdmin() {
-  const [aba, setAba] = useState("produtos");
+function PainelAdmin({ usuario, onLogout }) {
+  const [aba, setAba] = useState(() => {
+    const abaInicial = new URLSearchParams(window.location.search).get("aba");
+    return ADMIN_TABS.includes(abaInicial) ? abaInicial : "produtos";
+  });
   const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
   const [busca, setBusca] = useState("");
   const [novoP, setNovoP] = useState({
@@ -3237,7 +3638,7 @@ function PainelAdmin() {
       });
       const d = await r.json();
       if (!r.ok) {
-        alert(d.erro || "Erro ao criar usuario");
+                alert(d.erro || "Erro ao criar usuário");
         return;
       }
       fetchUsuarios();
@@ -3263,7 +3664,7 @@ function PainelAdmin() {
       });
       const d = await r.json();
       if (!r.ok) {
-        alert(d.erro || "Erro ao editar usuario");
+        alert(d.erro || "Erro ao editar usuário");
         return;
       }
       setEditandoUsuario(null);
@@ -3274,7 +3675,7 @@ function PainelAdmin() {
   };
 
   const deletarUsuario = async (id) => {
-    if (!confirm("Remover usuario?")) return;
+    if (!confirm("Remover usuário?")) return;
     try {
       await authFetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
       fetchUsuarios();
@@ -3287,32 +3688,15 @@ function PainelAdmin() {
     <>
       <style>{css}</style>
       <div style={{ minHeight: "100vh", background: T.bg }}>
-        <div
-          style={{
-            background: T.bg2,
-            borderBottom: `1px solid ${T.border}`,
-            padding: "12px 16px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Logo />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontWeight: 700,
-                fontSize: 15,
-                color: T.accent,
-              }}
-            >
-              Administracao
-            </span>
-          </div>
-        </div>
+        <PanelHeader
+          title="Administração"
+          subtitle="Cardápio, mesas, equipe e relatórios"
+          usuario={usuario}
+          onLogout={onLogout}
+        />
 
         <div
+          className="admin-tabs"
           style={{
             background: T.bg2,
             borderBottom: `1px solid ${T.border}`,
@@ -3324,7 +3708,7 @@ function PainelAdmin() {
             ["categorias", "Categorias"],
             ["mesas", "Mesas"],
             ["equipe", "Equipe"],
-            ["relatorios", "Relatorios"],
+            ["relatorios", "Relatórios"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -3387,7 +3771,7 @@ function PainelAdmin() {
                   style={{ marginBottom: 8 }}
                 />
                 <textarea
-                  placeholder="Descricao"
+                  placeholder="Descrição"
                   value={novoP.descricao}
                   onChange={(e) =>
                     setNovoP((p) => ({ ...p, descricao: e.target.value }))
@@ -3403,7 +3787,7 @@ function PainelAdmin() {
                   }}
                 >
                   <input
-                    placeholder="Preco (R$) *"
+                    placeholder="Preço (R$) *"
                     type="number"
                     step="0.01"
                     value={novoP.preco}
@@ -3752,7 +4136,7 @@ function PainelAdmin() {
                   marginBottom: 12,
                 }}
               >
-                Novo Usuario
+                Novo Usuário
               </div>
               <input
                 placeholder="Nome completo"
@@ -3807,7 +4191,7 @@ function PainelAdmin() {
                 onClick={salvarUsuario}
                 disabled={!novoUsuario.nome || !novoUsuario.senha}
               >
-                Criar Usuario
+                Criar Usuário
               </Btn>
             </Card>
             {["garcom", "cozinha", "financeiro"].map((role) => {
@@ -3825,7 +4209,7 @@ function PainelAdmin() {
                     }}
                   >
                     {role === "garcom"
-                      ? "Garcons"
+                      ? "Garçons"
                       : role === "cozinha"
                         ? "Cozinha"
                         : "Financeiro"}{" "}
@@ -3835,7 +4219,7 @@ function PainelAdmin() {
                     <div
                       style={{ color: T.muted, fontSize: 13, padding: "8px 0" }}
                     >
-                      Nenhum usuario
+                      Nenhum usuário
                     </div>
                   ) : (
                     lista.map((u) => (
@@ -3896,7 +4280,7 @@ function PainelAdmin() {
                     marginBottom: 14,
                   }}
                 >
-                  Editar Usuario
+                  Editar Usuário
                 </div>
                 <input
                   placeholder="Nome"
@@ -3964,7 +4348,7 @@ function PainelAdmin() {
                   marginBottom: 12,
                 }}
               >
-                Periodo
+                Período
               </div>
               <div
                 style={{
@@ -4025,7 +4409,7 @@ function PainelAdmin() {
                   />
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <label style={{ fontSize: 12, color: T.muted }}>Ate:</label>
+                  <label style={{ fontSize: 12, color: T.muted }}>Até:</label>
                   <input
                     type="date"
                     value={dataFimRel}
@@ -4082,7 +4466,7 @@ function PainelAdmin() {
                   <div
                     style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}
                   >
-                    Total do Periodo
+                    Total do Período
                   </div>
                   <div
                     style={{
@@ -4103,7 +4487,7 @@ function PainelAdmin() {
                   <div
                     style={{ color: T.muted, fontSize: 13, padding: "20px 0" }}
                   >
-                    Nenhum dado no periodo.
+                    Nenhum dado no período.
                   </div>
                 ) : (
                   relatorio.dados.map((r, i) => (
@@ -4184,7 +4568,7 @@ function PainelAdmin() {
               style={{ marginBottom: 8 }}
             />
             <textarea
-              placeholder="Descricao"
+              placeholder="Descrição"
               value={editando.descricao || ""}
               onChange={(e) =>
                 setEditando((p) => ({ ...p, descricao: e.target.value }))
@@ -4192,7 +4576,7 @@ function PainelAdmin() {
               style={{ marginBottom: 8, resize: "vertical", minHeight: 60 }}
             />
             <input
-              placeholder="Preco (R$)"
+              placeholder="Preço (R$)"
               type="number"
               step="0.01"
               value={editando.preco}
@@ -4289,8 +4673,6 @@ function PainelAdmin() {
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 export default function App() {
-  const tema = useTema();
-  const css = gerarCSS(T);
   const path = window.location.pathname;
   const [usuarioLogado, setUsuarioLogado] = useState(() => {
     const salvo = sessionStorage.getItem("usuarioLogado");
@@ -4308,10 +4690,13 @@ export default function App() {
     sessionStorage.removeItem("autAdmin");
   }, []);
 
+  const logout = useCallback(() => setUsuarioLogado(undefined), []);
+
   const mesa_id = path.startsWith("/mesa/") ? path.split("/")[2] : null;
   if (mesa_id) return <PainelCliente mesa_id={mesa_id} />;
+  if (path === "/cliente") return <PainelCliente mesa_id="1" />;
 
-  // Cozinha — login com usuario+senha
+  // Cozinha — login com usuário e senha
   if (path === "/cozinha") {
     if (
       !usuarioLogado ||
@@ -4320,22 +4705,22 @@ export default function App() {
       return (
         <TelaLogin titulo="Cozinha" role="cozinha" onLogin={setUsuarioLogado} />
       );
-    return <PainelCozinha usuario={usuarioLogado} />;
+    return <PainelCozinha usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  // Garcom — login com usuario+senha
+  // Garçom — login com usuário e senha
   if (path === "/garcom") {
     if (
       !usuarioLogado ||
       (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin")
     )
       return (
-        <TelaLogin titulo="Garcom" role="garcom" onLogin={setUsuarioLogado} />
+        <TelaLogin titulo="Garçom" role="garcom" onLogin={setUsuarioLogado} />
       );
-    return <PainelGarcom usuario={usuarioLogado} />;
+    return <PainelGarcom usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  // Financeiro — login com usuario+senha
+  // Financeiro — login com usuário e senha
   if (path === "/financeiro") {
     if (
       !usuarioLogado ||
@@ -4348,7 +4733,7 @@ export default function App() {
           onLogin={setUsuarioLogado}
         />
       );
-    return <PainelFinanceiro usuario={usuarioLogado} />;
+    return <PainelFinanceiro usuario={usuarioLogado} onLogout={logout} />;
   }
 
   // Admin - login real no backend
@@ -4356,110 +4741,15 @@ export default function App() {
     if (!usuarioLogado || usuarioLogado.role !== "admin")
       return (
         <TelaLogin
-          titulo="Administracao"
+          titulo="Administração"
           role="admin"
           onLogin={setUsuarioLogado}
         />
       );
-    return <PainelAdmin />;
+    return <PainelAdmin usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  return (
-    <>
-      <style>{css}</style>
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 300,
-            background: `radial-gradient(ellipse at 50% 0%,${T.accentGlow} 0%,transparent 70%)`,
-            pointerEvents: "none",
-          }}
-        />
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            maxWidth: 400,
-            textAlign: "center",
-          }}
-        >
-          <Logo size="lg" center />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              marginTop: 6,
-              marginBottom: 20,
-            }}
-          ></div>
-          <div style={{ display: "grid", gap: 10 }}>
-            {[
-              {
-                href: "/mesa/1",
-                label: "Mesa 1",
-                desc: "Ver como o cliente ve",
-              },
-              {
-                href: "/garcom",
-                label: "Garcom",
-                desc: "Chamadas e fechamento de mesa",
-              },
-              {
-                href: "/cozinha",
-                label: "Cozinha",
-                desc: "Pedidos em tempo real",
-              },
-              { href: "/admin", label: "Admin", desc: "Produtos e categorias" },
-              {
-                href: "/financeiro",
-                label: "Financeiro",
-                desc: "Resumo financeiro e comandas",
-              },
-            ].map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                style={{ textDecoration: "none" }}
-              >
-                <Card
-                  style={{
-                    display: "flex",
-                    gap: 14,
-                    alignItems: "center",
-                    textAlign: "left",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>
-                      {item.label}
-                    </div>
-                    <div style={{ color: T.muted, fontSize: 12 }}>
-                      {item.desc}
-                    </div>
-                  </div>
-                </Card>
-              </a>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  );
+  return <AccessHub usuario={usuarioLogado} onLogout={logout} />;
 }
 
 // ─── PAINEL FINANCEIRO ────────────────────────────────────────────────────────
@@ -4492,7 +4782,7 @@ function gerarPDF({
     ] || periodo;
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-  <title>Relatorio ${nomeApp}</title>
+  <title>Relatório ${nomeApp}</title>
   <style>
     body{font-family:Georgia,serif;margin:40px;color:#222}
     h1{font-size:24px;margin-bottom:4px}
@@ -4503,16 +4793,16 @@ function gerarPDF({
     .footer{margin-top:32px;font-size:12px;color:#aaa;border-top:1px solid #eee;padding-top:12px}
     @media print{.no-print{display:none}}
   </style></head><body>
-  <h1>${nomeApp} — Relatorio Financeiro</h1>
+  <h1>${nomeApp} - Relatório Financeiro</h1>
   <div class="sub">
-    Periodo: <strong>${labelPeriodo}</strong>
+    Período: <strong>${labelPeriodo}</strong>
     ${dataInicio ? ` | De: <strong>${dataInicio}</strong>` : ""}
-    ${dataFim ? ` ate: <strong>${dataFim}</strong>` : ""}
+    ${dataFim ? ` até: <strong>${dataFim}</strong>` : ""}
     | Gerado em: <strong>${new Date().toLocaleString("pt-BR")}</strong>
   </div>
   <table>
     <thead><tr>
-      <th>Mesa</th><th>Cliente</th><th>Garcom</th><th>Pagamento</th><th>Itens</th><th>Horario</th><th style="text-align:right">Total</th>
+      <th>Mesa</th><th>Cliente</th><th>Garçom</th><th>Pagamento</th><th>Itens</th><th>Horário</th><th style="text-align:right">Total</th>
     </tr></thead>
     <tbody>${linhasItens}</tbody>
     <tfoot><tr class="total-row">
@@ -4520,7 +4810,7 @@ function gerarPDF({
       <td style="padding:10px 8px;border-top:2px solid #c8714a;text-align:right;color:#c8714a;font-size:16px">R$ ${totalPeriodo.toFixed(2)}</td>
     </tr></tfoot>
   </table>
-  <div class="footer">${nomeApp} · Sistema de Gestao de Restaurante · ${historico.length} atendimento(s) no periodo</div>
+  <div class="footer">${nomeApp} - Sistema de Gestão de Restaurante - ${historico.length} atendimento(s) no período</div>
   <script>window.onload=()=>{window.print()}</script>
   </body></html>`;
 
@@ -4529,7 +4819,7 @@ function gerarPDF({
   w.document.close();
 }
 
-function PainelFinanceiro() {
+function PainelFinanceiro({ usuario, onLogout }) {
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [historico, setHistorico] = useState([]);
@@ -4680,32 +4970,12 @@ function PainelFinanceiro() {
     <>
       <style>{css}</style>
       <div style={{ minHeight: "100vh", background: T.bg }}>
-        {/* Header */}
-        <div
-          style={{
-            background: T.bg2,
-            borderBottom: `1px solid ${T.border}`,
-            padding: "13px 16px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 8,
-          }}
-        >
-          <Logo />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                fontFamily: "'Playfair Display',serif",
-                fontWeight: 700,
-                fontSize: 16,
-              }}
-            >
-              Financeiro
-            </span>
-          </div>
-        </div>
+        <PanelHeader
+          title="Financeiro"
+          subtitle="Comandas, pagamentos e histórico"
+          usuario={usuario}
+          onLogout={onLogout}
+        />
 
         <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
           {/* Filtros de período */}
@@ -4772,7 +5042,7 @@ function PainelFinanceiro() {
                 <label
                   style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap" }}
                 >
-                  Ate:
+                  Até:
                 </label>
                 <input
                   type="date"
@@ -4816,7 +5086,7 @@ function PainelFinanceiro() {
           >
             <Card>
               <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>
-                Total do Periodo
+                Total do Período
               </div>
               <div
                 style={{
@@ -4951,7 +5221,7 @@ function PainelFinanceiro() {
             </div>
           )}
 
-          {/* Historico */}
+          {/* Histórico */}
           <div>
             <div
               style={{
@@ -4970,7 +5240,7 @@ function PainelFinanceiro() {
                   letterSpacing: 1,
                 }}
               >
-                Historico
+                Histórico
               </div>
               {historico.length > 0 && (
                 <Btn sm variant="ghost" onClick={exportarPDF}>
@@ -4984,7 +5254,7 @@ function PainelFinanceiro() {
               </div>
             ) : historico.length === 0 ? (
               <div style={{ color: T.muted, fontSize: 13, padding: "20px 0" }}>
-                Nenhum registro no periodo.
+                Nenhum registro no período.
               </div>
             ) : (
               historico.map((h, i) => (
@@ -5009,7 +5279,7 @@ function PainelFinanceiro() {
                       {h.garcom_nome && (
                         <span style={{ color: T.blue }}>
                           {" "}
-                          · Garcom: {h.garcom_nome}
+                          · Garçom: {h.garcom_nome}
                         </span>
                       )}
                       <div
@@ -5020,12 +5290,12 @@ function PainelFinanceiro() {
                         {h.garcom_nome && (
                           <span style={{ color: T.blue }}>
                             {" "}
-                            · Garcom: {h.garcom_nome}
+                            · Garçom: {h.garcom_nome}
                           </span>
                         )}
                       {h.forma_pagamento && (
                         <div style={{ fontSize: 12, color: T.green, marginTop: 2, fontWeight: 600 }}>
-                          {({credito:"Cartao Credito",debito:"Cartao Debito",dinheiro:"Dinheiro",pix:"PIX"})[h.forma_pagamento] || h.forma_pagamento}
+                          {({credito:"Cartão Crédito",debito:"Cartão Débito",dinheiro:"Dinheiro",pix:"PIX"})[h.forma_pagamento] || h.forma_pagamento}
                         </div>
                       )}
                       </div>
