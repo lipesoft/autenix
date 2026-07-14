@@ -1,0 +1,39 @@
+const fs = require("fs");
+const path = require("path");
+const { Pool } = require("pg");
+
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+require("dotenv").config();
+
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL nao configurada.");
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false,
+});
+
+async function main() {
+  const migrationsDir = path.join(__dirname, "migrations");
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((file) => file.endsWith(".sql"))
+    .sort();
+
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+    console.log(`Aplicando migration: ${file}`);
+    await pool.query(sql);
+  }
+
+  console.log("Migrations concluidas.");
+}
+
+main()
+  .catch((err) => {
+    console.error("Erro ao aplicar migrations:", err.message);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());
