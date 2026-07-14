@@ -8,9 +8,6 @@ const CONFIG = {
   logoCliente: null,
   corPrimaria: null,
   corSecundaria: null,
-  senhaAdmin: "admin123",
-  senhaGarcom: "garcom123",
-  senhaFinanceiro: "financeiro123",
 };
 
 let socket = null;
@@ -24,6 +21,26 @@ function getSocket() {
     });
   }
   return socket;
+}
+
+function getUsuarioSessao() {
+  try {
+    return JSON.parse(sessionStorage.getItem("usuarioLogado") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(headers = {}) {
+  const token = getUsuarioSessao()?.token;
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
+}
+
+function authFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  });
 }
 
 // ─── TEMA FIXO CLARO ─────────────────────────────────────────────────────────
@@ -1672,15 +1689,15 @@ function PainelGarcom({ usuario }) {
   }, []);
 
   const fetchChamadas = useCallback(async () => {
-    const r = await fetch(`${API}/api/chamadas`);
+    const r = await authFetch(`${API}/api/chamadas`);
     setChamadas(await r.json());
   }, []);
   const fetchMesas = useCallback(async () => {
-    const r = await fetch(`${API}/api/mesas`);
+    const r = await authFetch(`${API}/api/mesas`);
     setMesas(await r.json());
   }, []);
   const fetchPedidos = useCallback(async () => {
-    const r = await fetch(`${API}/api/pedidos`);
+    const r = await authFetch(`${API}/api/pedidos`);
     setPedidos(await r.json());
   }, []);
 
@@ -1794,12 +1811,12 @@ function PainelGarcom({ usuario }) {
   }, [fetchChamadas, fetchMesas, fetchPedidos, push]);
 
   const atenderChamada = async (id) => {
-    await fetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
+    await authFetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
     fetchChamadas();
   };
 
   const fecharMesa = async (mesa_id, forma_pagamento, obs_pagamento) => {
-    await fetch(`${API}/api/mesas/${mesa_id}/fechar`, {
+    await authFetch(`${API}/api/mesas/${mesa_id}/fechar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ forma_pagamento, obs_pagamento }),
@@ -1820,7 +1837,7 @@ function PainelGarcom({ usuario }) {
   };
 
   const confirmarRetirada = async (pedido_id) => {
-    await fetch(`${API}/api/pedidos/${pedido_id}/status`, {
+    await authFetch(`${API}/api/pedidos/${pedido_id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2634,15 +2651,15 @@ function PainelCozinha() {
 
   const fetchPedidos = useCallback(async () => {
     const [r1, r2, r3] = await Promise.all([
-      fetch(`${API}/api/pedidos?status=pendente`),
-      fetch(`${API}/api/pedidos?status=preparo`),
-      fetch(`${API}/api/pedidos?status=pronto`),
+      authFetch(`${API}/api/pedidos?status=pendente`),
+      authFetch(`${API}/api/pedidos?status=preparo`),
+      authFetch(`${API}/api/pedidos?status=pronto`),
     ]);
     const [d1, d2, d3] = await Promise.all([r1.json(), r2.json(), r3.json()]);
     setPedidos([...d1, ...d2, ...d3]);
   }, []);
   const fetchChamadas = useCallback(async () => {
-    const r = await fetch(`${API}/api/chamadas`);
+    const r = await authFetch(`${API}/api/chamadas`);
     setChamadas(await r.json());
   }, []);
 
@@ -2664,7 +2681,7 @@ function PainelCozinha() {
 
   // Item 8: moverItem aceita qualquer direção
   const moverItem = async (itemId, novoStatus) => {
-    await fetch(`${API}/api/itens/${itemId}/status`, {
+    await authFetch(`${API}/api/itens/${itemId}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: novoStatus }),
@@ -2680,7 +2697,7 @@ function PainelCozinha() {
       ) || [];
     await Promise.all(
       itensAlvo.map((i) =>
-        fetch(`${API}/api/itens/${i.id}/status`, {
+        authFetch(`${API}/api/itens/${i.id}/status`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: novoStatus }),
@@ -2697,7 +2714,7 @@ function PainelCozinha() {
   };
 
   const atenderChamada = async (id) => {
-    await fetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
+    await authFetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
     fetchChamadas();
   };
   const onDropColuna = async (novoStatus) => {
@@ -3091,11 +3108,11 @@ function PainelAdmin() {
     setCardapio(await r.json());
   }, []);
   const fetchMesas = useCallback(async () => {
-    const r = await fetch(`${API}/api/mesas`);
+    const r = await authFetch(`${API}/api/mesas`);
     setMesas(await r.json());
   }, []);
   const fetchUsuarios = useCallback(async () => {
-    const r = await fetch(`${API}/api/usuarios`);
+    const r = await authFetch(`${API}/api/usuarios`);
     setUsuarios(await r.json());
   }, []);
   const fetchRelatorio = useCallback(async (periodo, di, df) => {
@@ -3103,7 +3120,7 @@ function PainelAdmin() {
     let url = `${API}/api/relatorio?periodo=${periodo || "hoje"}`;
     if (di) url += `&dataInicio=${di}`;
     if (df) url += `&dataFim=${df}`;
-    const r = await fetch(url);
+    const r = await authFetch(url);
     const d = await r.json();
     setRelatorio({
       dados: d.rows || [],
@@ -3124,7 +3141,7 @@ function PainelAdmin() {
 
   const salvarProduto = async () => {
     if (!novoP.nome || !novoP.preco) return;
-    await fetch(`${API}/api/produtos`, {
+    await authFetch(`${API}/api/produtos`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(novoP),
@@ -3140,7 +3157,7 @@ function PainelAdmin() {
   };
   const salvarEdicao = async () => {
     if (!editando) return;
-    await fetch(`${API}/api/produtos/${editando.id}`, {
+    await authFetch(`${API}/api/produtos/${editando.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editando),
@@ -3150,11 +3167,11 @@ function PainelAdmin() {
   };
   const deletarProduto = async (id) => {
     if (!confirm("Deletar produto?")) return;
-    await fetch(`${API}/api/produtos/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/produtos/${id}`, { method: "DELETE" });
     fetchCardapio();
   };
   const toggleDisponivel = async (p) => {
-    await fetch(`${API}/api/produtos/${p.id}`, {
+    await authFetch(`${API}/api/produtos/${p.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...p, disponivel: p.disponivel ? 0 : 1 }),
@@ -3163,7 +3180,7 @@ function PainelAdmin() {
   };
   const salvarCategoria = async () => {
     if (!novaCategoria.trim()) return;
-    await fetch(`${API}/api/categorias`, {
+    await authFetch(`${API}/api/categorias`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nome: novaCategoria.trim() }),
@@ -3173,12 +3190,12 @@ function PainelAdmin() {
   };
   const deletarCategoria = async (id) => {
     if (!confirm("Deletar categoria?")) return;
-    await fetch(`${API}/api/categorias/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/categorias/${id}`, { method: "DELETE" });
     fetchCardapio();
   };
   const criarMesa = async () => {
     if (!novaMesa.trim()) return;
-    await fetch(`${API}/api/mesas`, {
+    await authFetch(`${API}/api/mesas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ numero: novaMesa.trim() }),
@@ -3188,7 +3205,7 @@ function PainelAdmin() {
   };
   const deletarMesa = async (id) => {
     if (!confirm("Deletar mesa?")) return;
-    await fetch(`${API}/api/mesas/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/mesas/${id}`, { method: "DELETE" });
     fetchMesas();
   };
   const verQR = async (mesa_id) => {
@@ -3208,7 +3225,7 @@ function PainelAdmin() {
       const loginFinal = (novoUsuario.login || novoUsuario.nome)
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "_");
-      const r = await fetch(`${API}/api/usuarios`, {
+      const r = await authFetch(`${API}/api/usuarios`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3233,7 +3250,7 @@ function PainelAdmin() {
   const salvarEdicaoUsuario = async () => {
     if (!editandoUsuario) return;
     try {
-      const r = await fetch(`${API}/api/usuarios/${editandoUsuario.id}`, {
+      const r = await authFetch(`${API}/api/usuarios/${editandoUsuario.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3259,7 +3276,7 @@ function PainelAdmin() {
   const deletarUsuario = async (id) => {
     if (!confirm("Remover usuario?")) return;
     try {
-      await fetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
+      await authFetch(`${API}/api/usuarios/${id}`, { method: "DELETE" });
       fetchUsuarios();
     } catch (e) {
       console.error("Erro:", e);
@@ -3651,7 +3668,7 @@ function PainelAdmin() {
                         )
                       )
                         return;
-                      await fetch(`${API}/api/pedidos/reiniciar-numeracao`, {
+                      await authFetch(`${API}/api/pedidos/reiniciar-numeracao`, {
                         method: "POST",
                       });
                       alert("Numeração reiniciada! Próximo pedido será #1.");
@@ -4275,9 +4292,6 @@ export default function App() {
   const tema = useTema();
   const css = gerarCSS(T);
   const path = window.location.pathname;
-  const [autAdmin, setAutAdmin] = useState(
-    () => sessionStorage.getItem("autAdmin") === "true",
-  );
   const [usuarioLogado, setUsuarioLogado] = useState(() => {
     const salvo = sessionStorage.getItem("usuarioLogado");
     return salvo ? JSON.parse(salvo) : undefined;
@@ -4291,6 +4305,7 @@ export default function App() {
 
   useEffect(() => {
     document.title = `Painel Principal - ${CONFIG.nomeApp}`;
+    sessionStorage.removeItem("autAdmin");
   }, []);
 
   const mesa_id = path.startsWith("/mesa/") ? path.split("/")[2] : null;
@@ -4336,15 +4351,14 @@ export default function App() {
     return <PainelFinanceiro usuario={usuarioLogado} />;
   }
 
-  // Admin — senha fixa do CONFIG
+  // Admin - login real no backend
   if (path === "/admin") {
-    if (!autAdmin)
+    if (!usuarioLogado || usuarioLogado.role !== "admin")
       return (
-        <TelaLoginSenha
+        <TelaLogin
           titulo="Administracao"
-          subtitulo="Acesso restrito"
-          senhaCorreta={CONFIG.senhaAdmin}
-          onLogin={() => setAutAdmin(true)}
+          role="admin"
+          onLogin={setUsuarioLogado}
         />
       );
     return <PainelAdmin />;
@@ -4534,11 +4548,11 @@ function PainelFinanceiro() {
   }, []);
 
   const fetchMesas = useCallback(async () => {
-    const r = await fetch(`${API}/api/mesas`);
+    const r = await authFetch(`${API}/api/mesas`);
     setMesas(await r.json());
   }, []);
   const fetchPedidos = useCallback(async () => {
-    const r = await fetch(`${API}/api/pedidos`);
+    const r = await authFetch(`${API}/api/pedidos`);
     setPedidos(await r.json());
   }, []);
 
@@ -4547,7 +4561,7 @@ function PainelFinanceiro() {
     let url = `${API}/api/relatorio?periodo=${p || "hoje"}`;
     if (di) url += `&dataInicio=${di}`;
     if (df) url += `&dataFim=${df}`;
-    const r = await fetch(url);
+    const r = await authFetch(url);
     const d = await r.json();
     setHistorico(d.rows || []);
     setTotalPeriodo(d.totalGeral || 0);

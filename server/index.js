@@ -1,20 +1,85 @@
-require('dotenv').config();
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const { Pool } = require("pg");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
 const path = require("path");
 const os = require("os");
 
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+require("dotenv").config();
+
+const isProduction = process.env.NODE_ENV === "production";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "8h";
+const JWT_SECRET = process.env.JWT_SECRET;
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
+
+if (!process.env.DATABASE_URL) {
+  const msg = "DATABASE_URL nao configurada.";
+  if (isProduction) throw new Error(msg);
+  console.warn(`AVISO: ${msg} Configure .env para conectar ao PostgreSQL/Supabase.`);
+}
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET e obrigatorio em producao.");
+}
+
+if (isProduction && !process.env.CORS_ORIGIN) {
+  throw new Error("CORS_ORIGIN e obrigatorio em producao.");
+}
+
+function parseOrigins(value) {
+  return String(value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+const devOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5173",
+];
+const configuredOrigins = parseOrigins(process.env.CORS_ORIGIN);
+const allowedOrigins = new Set(
+  isProduction ? configuredOrigins : [...configuredOrigins, ...devOrigins],
+);
+
+function validateCorsOrigin(origin, callback) {
+  if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+  return callback(new Error("Origem nao permitida pelo CORS."));
+}
+
+const corsOptions = {
+  origin: validateCorsOrigin,
+  credentials: true,
+};
+
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: corsOptions });
 
-app.use(cors());
+if (isProduction || process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
+
+app.use(helmet());
+app.use(cors(corsOptions));
 app.use(express.json());
+
+const loginRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: "Muitas tentativas de login. Tente novamente em 1 minuto." },
+});
 
 // ─── BANCO DE DADOS (PostgreSQL) ───────────────────────────────────────────
 const pool = new Pool({
@@ -31,6 +96,136 @@ async function query(sql, params = []) {
   } finally {
     client.release();
   }
+}
+
+function normalizarLogin(valor) {
+  return String(valor || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9._-]/g, "_");
+}
+
+function isBcryptHash(valor) {
+  return typeof valor === "string" && /^\$2[aby]\$\d{2}\$/.test(valor);
+}
+
+async function hashSenha(senha) {
+  return bcrypt.hash(String(senha), BCRYPT_ROUNDS);
+}
+
+async function senhaConfere(senhaInformada, senhaSalva) {
+  if (!senhaSalva) return false;
+  if (isBcryptHash(senhaSalva)) {
+    return bcrypt.compare(String(senhaInformada), senhaSalva);
+  }
+  return String(senhaInformada) === String(senhaSalva);
+}
+
+function gerarToken(usuario) {
+  return jwt.sign(
+    {
+      sub: String(usuario.id),
+      id: usuario.id,
+      role: usuario.role,
+      restaurante_id: usuario.restaurante_id || null,
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN },
+  );
+}
+
+function usuarioPublico(usuario) {
+  return {
+    id: usuario.id,
+    nome: usuario.nome,
+    role: usuario.role,
+    login: usuario.login,
+    restaurante_id: usuario.restaurante_id || null,
+  };
+}
+
+function autenticarJWT(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const [tipo, token] = authHeader.split(" ");
+  if (tipo !== "Bearer" || !token) {
+    return res.status(401).json({ erro: "Token de autenticacao ausente" });
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = {
+      id: Number(payload.sub || payload.id),
+      role: payload.role,
+      restaurante_id: payload.restaurante_id || null,
+    };
+    return next();
+  } catch (e) {
+    return res.status(401).json({ erro: "Token invalido ou expirado" });
+  }
+}
+
+function autorizarRoles(...rolesPermitidas) {
+  return (req, res, next) => {
+    if (!req.user?.role) return res.status(401).json({ erro: "Nao autenticado" });
+    if (req.user.role === "admin" || rolesPermitidas.includes(req.user.role)) {
+      return next();
+    }
+    return res.status(403).json({ erro: "Permissao insuficiente" });
+  };
+}
+
+function protegerListagemPedidos(req, res, next) {
+  if (req.query.mesa_id) return next();
+  return autenticarJWT(req, res, () =>
+    autorizarRoles("garcom", "cozinha", "financeiro")(req, res, next),
+  );
+}
+
+async function migrarSenhasLegadas() {
+  const { rows } = await query("SELECT id, senha FROM usuarios");
+  for (const usuario of rows) {
+    if (usuario.senha && !isBcryptHash(usuario.senha)) {
+      const senhaHash = await hashSenha(usuario.senha);
+      await query("UPDATE usuarios SET senha = $1 WHERE id = $2", [
+        senhaHash,
+        usuario.id,
+      ]);
+    }
+  }
+}
+
+async function criarAdminInicialSeNecessario() {
+  const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+  if (!adminPasswordHash) return;
+
+  if (!isBcryptHash(adminPasswordHash)) {
+    const msg = "ADMIN_PASSWORD_HASH deve ser um hash bcrypt valido.";
+    if (isProduction) throw new Error(msg);
+    console.warn(`AVISO: ${msg}`);
+    return;
+  }
+
+  const adminLogin = normalizarLogin(process.env.ADMIN_LOGIN || "admin");
+  const { rows: admins } = await query("SELECT id FROM usuarios WHERE role = 'admin' LIMIT 1");
+  if (admins[0]) return;
+
+  const { rows: porLogin } = await query("SELECT id FROM usuarios WHERE login = $1 LIMIT 1", [
+    adminLogin,
+  ]);
+
+  if (porLogin[0]) {
+    await query(
+      "UPDATE usuarios SET role = 'admin', senha = $1, ativo = 1 WHERE id = $2",
+      [adminPasswordHash, porLogin[0].id],
+    );
+    return;
+  }
+
+  await query(
+    "INSERT INTO usuarios (nome, login, senha, role, ativo) VALUES ($1, $2, $3, $4, 1)",
+    ["Administrador", adminLogin, adminPasswordHash, "admin"],
+  );
 }
 
 // ─── INICIALIZAÇÃO DO BANCO ────────────────────────────────────────────────
@@ -141,6 +336,8 @@ async function initDB() {
 
   // Garantir login único onde não existe
   await query("UPDATE usuarios SET login = lower(replace(nome,' ','_')) WHERE login IS NULL OR login = ''");
+  await migrarSenhasLegadas();
+  await criarAdminInicialSeNecessario();
 
   console.log("✅ Banco de dados inicializado!");
 }
@@ -196,7 +393,7 @@ app.get("/api/cardapio", async (req, res) => {
 });
 
 // Mesas
-app.get("/api/mesas", async (req, res) => {
+app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
   try {
     const { rows } = await query("SELECT * FROM mesas ORDER BY CAST(numero AS INTEGER)");
     res.json(rows);
@@ -215,7 +412,7 @@ app.get("/api/mesas/:id", async (req, res) => {
   }
 });
 
-app.post("/api/mesas", async (req, res) => {
+app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   const { numero } = req.body;
   if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
   try {
@@ -230,7 +427,7 @@ app.post("/api/mesas", async (req, res) => {
   }
 });
 
-app.delete("/api/mesas/:id", async (req, res) => {
+app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
     if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
@@ -280,7 +477,7 @@ app.post("/api/pedidos", async (req, res) => {
 });
 
 // Listar pedidos (cozinha/admin)
-app.get("/api/pedidos", async (req, res) => {
+app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
   try {
     const { mesa_id, status } = req.query;
     let sql = `SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE 1=1`;
@@ -315,7 +512,7 @@ app.get("/api/pedidos", async (req, res) => {
 });
 
 // Atualizar status do pedido
-app.patch("/api/pedidos/:id/status", async (req, res) => {
+app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
     const { status, garcom_id, garcom_nome } = req.body;
     if (garcom_id) {
@@ -335,7 +532,7 @@ app.patch("/api/pedidos/:id/status", async (req, res) => {
 });
 
 // Atualizar status do item
-app.patch("/api/itens/:id/status", async (req, res) => {
+app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), async (req, res) => {
   try {
     const { status } = req.body;
     if (!status) return res.status(400).json({ erro: "Status é obrigatório" });
@@ -370,7 +567,7 @@ app.patch("/api/itens/:id/cancelar", async (req, res) => {
 });
 
 // Fechar mesa
-app.post("/api/mesas/:id/fechar", async (req, res) => {
+app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
   try {
     const { forma_pagamento, obs_pagamento } = req.body || {};
     if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
@@ -416,7 +613,7 @@ app.post("/api/chamadas", async (req, res) => {
 });
 
 // Atender chamada
-app.patch("/api/chamadas/:id/atender", async (req, res) => {
+app.patch("/api/chamadas/:id/atender", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
     await query("UPDATE chamadas SET atendida = 1 WHERE id = $1", [req.params.id]);
     io.emit("chamada_atendida", { id: Number(req.params.id) });
@@ -427,7 +624,7 @@ app.patch("/api/chamadas/:id/atender", async (req, res) => {
 });
 
 // Chamadas pendentes
-app.get("/api/chamadas", async (req, res) => {
+app.get("/api/chamadas", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT ch.*, m.numero as mesa_numero FROM chamadas ch
@@ -453,7 +650,7 @@ app.get("/api/qrcode/:mesa_id", async (req, res) => {
 });
 
 // Categorias (admin)
-app.post("/api/categorias", async (req, res) => {
+app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome } = req.body;
     const { rows } = await query(
@@ -467,7 +664,7 @@ app.post("/api/categorias", async (req, res) => {
   }
 });
 
-app.delete("/api/categorias/:id", async (req, res) => {
+app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     await query("DELETE FROM categorias WHERE id = $1", [req.params.id]);
     io.emit("cardapio_atualizado");
@@ -478,7 +675,7 @@ app.delete("/api/categorias/:id", async (req, res) => {
 });
 
 // Produtos (admin)
-app.post("/api/produtos", async (req, res) => {
+app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { categoria_id, nome, descricao, preco } = req.body;
     const { rows } = await query(
@@ -492,7 +689,7 @@ app.post("/api/produtos", async (req, res) => {
   }
 });
 
-app.patch("/api/produtos/:id", async (req, res) => {
+app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome, descricao, preco, disponivel } = req.body;
     await query(
@@ -506,7 +703,7 @@ app.patch("/api/produtos/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/produtos/:id", async (req, res) => {
+app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     await query("DELETE FROM produtos WHERE id = $1", [req.params.id]);
     io.emit("cardapio_atualizado");
@@ -517,7 +714,7 @@ app.delete("/api/produtos/:id", async (req, res) => {
 });
 
 // Histórico do dia
-app.get("/api/historico", async (req, res) => {
+app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
     const { rows } = await query(
@@ -557,7 +754,7 @@ app.get("/api/historico", async (req, res) => {
 });
 
 // Reiniciar numeração
-app.post("/api/pedidos/reiniciar-numeracao", async (req, res) => {
+app.post("/api/pedidos/reiniciar-numeracao", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     await query(
       "INSERT INTO configuracoes (chave, valor) VALUES ('ultimo_reinicio', $1) ON CONFLICT (chave) DO UPDATE SET valor = $1",
@@ -570,7 +767,7 @@ app.post("/api/pedidos/reiniciar-numeracao", async (req, res) => {
 });
 
 // Relatório por período
-app.get("/api/relatorio", async (req, res) => {
+app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const { periodo, dataInicio: di, dataFim: df } = req.query;
     const agora = new Date();
@@ -628,7 +825,7 @@ app.get("/api/relatorio", async (req, res) => {
 });
 
 // Financeiro hoje
-app.get("/api/financeiro/hoje", async (req, res) => {
+app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
     const { rows } = await query(
@@ -658,24 +855,38 @@ app.get("/api/financeiro/hoje", async (req, res) => {
 
 // ─── USUARIOS ──────────────────────────────────────────────────────────────
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   const { login, senha } = req.body;
   if (!login || !senha) return res.status(400).json({ erro: "Dados incompletos" });
   try {
+    const loginNormalizado = normalizarLogin(login);
     const { rows } = await query(
-      "SELECT * FROM usuarios WHERE (login = $1 OR nome = $1) AND ativo = 1",
-      [login]
+      "SELECT * FROM usuarios WHERE (login = $1 OR nome = $2) AND ativo = 1",
+      [loginNormalizado, String(login).trim()]
     );
     const u = rows[0];
-    if (!u || u.senha !== senha)
+    if (!u || !(await senhaConfere(senha, u.senha)))
       return res.status(401).json({ erro: "Login ou senha incorretos" });
-    res.json({ id: u.id, nome: u.nome, role: u.role, login: u.login });
+
+    if (!isBcryptHash(u.senha)) {
+      await query("UPDATE usuarios SET senha = $1 WHERE id = $2", [
+        await hashSenha(senha),
+        u.id,
+      ]);
+    }
+
+    res.json({
+      ...usuarioPublico(u),
+      token: gerarToken(u),
+      token_type: "Bearer",
+      expires_in: JWT_EXPIRES_IN,
+    });
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
 });
 
-app.get("/api/usuarios", async (req, res) => {
+app.get("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { rows } = await query(
       "SELECT id, nome, login, role, ativo FROM usuarios ORDER BY role, nome"
@@ -686,13 +897,13 @@ app.get("/api/usuarios", async (req, res) => {
   }
 });
 
-app.post("/api/usuarios", async (req, res) => {
+app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   const { nome, login, senha, role } = req.body;
   if (!nome || !senha || !role) return res.status(400).json({ erro: "Dados incompletos" });
   if (!["garcom", "cozinha", "financeiro", "admin"].includes(role))
     return res.status(400).json({ erro: "Role invalido" });
 
-  const loginFinal = (login || nome).toLowerCase().replace(/\s+/g, "_");
+  const loginFinal = normalizarLogin(login || nome);
   try {
     const { rows: existing } = await query(
       "SELECT id FROM usuarios WHERE login = $1",
@@ -702,7 +913,7 @@ app.post("/api/usuarios", async (req, res) => {
 
     const { rows } = await query(
       "INSERT INTO usuarios (nome, login, senha, role) VALUES ($1, $2, $3, $4) RETURNING id",
-      [nome, loginFinal, senha, role]
+      [nome, loginFinal, await hashSenha(senha), role]
     );
     res.json({ id: rows[0].id, login: loginFinal });
   } catch (e) {
@@ -710,19 +921,20 @@ app.post("/api/usuarios", async (req, res) => {
   }
 });
 
-app.patch("/api/usuarios/:id", async (req, res) => {
+app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome, login, senha, ativo, role } = req.body;
     const { rows } = await query("SELECT * FROM usuarios WHERE id = $1", [req.params.id]);
     if (!rows[0]) return res.status(404).json({ erro: "Usuario nao encontrado" });
     const u = rows[0];
-    const novoLogin = login || u.login || u.nome?.toLowerCase().replace(/\s+/g, "_");
+    const novoLogin = normalizarLogin(login || u.login || u.nome);
+    const novaSenha = senha && senha.length > 0 ? await hashSenha(senha) : u.senha;
     await query(
       "UPDATE usuarios SET nome=$1, login=$2, senha=$3, ativo=$4, role=$5 WHERE id=$6",
       [
         nome ?? u.nome,
         novoLogin,
-        senha && senha.length > 0 ? senha : u.senha,
+        novaSenha,
         ativo ?? u.ativo,
         role ?? u.role,
         req.params.id,
@@ -734,7 +946,7 @@ app.patch("/api/usuarios/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/usuarios/:id", async (req, res) => {
+app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     await query("DELETE FROM usuarios WHERE id = $1", [req.params.id]);
     res.json({ sucesso: true });
