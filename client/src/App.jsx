@@ -107,9 +107,18 @@ const ACCESS_MODULES = [
 ];
 
 let socket = null;
+let socketToken = null;
 function getSocket() {
+  const token = getUsuarioSessao()?.token || null;
+  if (socket && socketToken !== token) {
+    socket.disconnect();
+    socket = null;
+  }
+
   if (!socket) {
+    socketToken = token;
     socket = io(API, {
+      auth: token ? { token } : {},
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,

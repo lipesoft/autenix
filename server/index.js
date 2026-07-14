@@ -165,6 +165,16 @@ function autenticarJWT(req, res, next) {
   }
 }
 
+function usuarioDoToken(token) {
+  if (!token) return null;
+  const payload = jwt.verify(token, JWT_SECRET);
+  return {
+    id: Number(payload.sub || payload.id),
+    role: payload.role,
+    restaurante_id: payload.restaurante_id || null,
+  };
+}
+
 function autorizarRoles(...rolesPermitidas) {
   return (req, res, next) => {
     if (!req.user?.role) return res.status(401).json({ erro: "Nao autenticado" });
@@ -956,21 +966,51 @@ app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (r
 });
 
 // ─── SOCKET.IO ─────────────────────────────────────────────────────────────
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    socket.user = null;
+    return next();
+  }
+
+  try {
+    socket.user = usuarioDoToken(token);
+    return next();
+  } catch (e) {
+    return next(new Error("Token Socket.IO invalido ou expirado"));
+  }
+});
+
+function socketTemRole(socket, ...rolesPermitidas) {
+  return socket.user?.role === "admin" || rolesPermitidas.includes(socket.user?.role);
+}
+
+function exigirSocketRole(socket, evento, ...rolesPermitidas) {
+  if (socketTemRole(socket, ...rolesPermitidas)) return true;
+  socket.emit("erro_autorizacao", {
+    evento,
+    erro: "Permissao insuficiente para emitir este evento.",
+  });
+  return false;
+}
+
 io.on("connection", (socket) => {
-  console.log("Cliente conectado:", socket.id);
+  console.log("Cliente conectado:", socket.id, socket.user?.role || "publico");
 
   socket.on("pedido_ficou_pronto", (data) => {
+    if (!exigirSocketRole(socket, "pedido_ficou_pronto", "cozinha")) return;
     io.emit("pedido_pronto", data);
   });
 
   socket.on("mesa_fechada_event", (mesa_id) => {
+    if (!exigirSocketRole(socket, "mesa_fechada_event", "garcom", "financeiro")) return;
     io.emit("mesa_fechada", mesa_id);
   });
 
   socket.on("disconnect", () => console.log("Cliente desconectado:", socket.id));
 });
 
-// ─── START ─────────────────────────────────────────────────────────────────
+// START
 const PORT = process.env.PORT || 3001;
 
 initDB()
