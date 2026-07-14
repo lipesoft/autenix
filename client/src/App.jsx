@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
+import LandingPage from "./components/landing/LandingPage.jsx";
+import { API_URL as API } from "./services/api.js";
+import { loginUsuario } from "./services/auth.js";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const CONFIG = {
   nomeApp: "Autenix",
   logoUrl: "/logoAutenix.png",
@@ -30,81 +32,6 @@ const ROLE_DETAILS = {
 };
 
 const ADMIN_TABS = ["produtos", "categorias", "mesas", "equipe", "relatorios"];
-
-const ACCESS_MODULES = [
-  {
-    area: "Operação",
-    title: "Garçom",
-    href: "/garcom",
-    desc: "Acompanhe mesas, chamadas, pedidos prontos e fechamento de conta.",
-    roles: ["garcom", "admin"],
-    meta: "Dispositivo de salão",
-  },
-  {
-    area: "Operação",
-    title: "Cozinha",
-    href: "/cozinha",
-    desc: "Organize pedidos em recebidos, preparando e prontos.",
-    roles: ["cozinha", "admin"],
-    meta: "Painel Kanban",
-  },
-  {
-    area: "Operação",
-    title: "Pedidos",
-    href: "/cozinha",
-    desc: "Veja o fluxo operacional de preparo em tempo real.",
-    roles: ["cozinha", "admin"],
-    meta: "Tempo real",
-  },
-  {
-    area: "Gestão",
-    title: "Administração",
-    href: "/admin",
-    desc: "Gerencie cardápio, categorias, mesas, equipe e configurações.",
-    roles: ["admin"],
-    meta: "Acesso gerencial",
-  },
-  {
-    area: "Gestão",
-    title: "Mesas e QR Codes",
-    href: "/admin?aba=mesas",
-    desc: "Crie mesas e acesse QR Codes para o cardápio do cliente.",
-    roles: ["admin"],
-    meta: "Cardápio por mesa",
-  },
-  {
-    area: "Gestão",
-    title: "Equipe e permissões",
-    href: "/admin?aba=equipe",
-    desc: "Cadastre usuários e distribua acesso por perfil.",
-    roles: ["admin"],
-    meta: "Roles",
-  },
-  {
-    area: "Análise",
-    title: "Financeiro",
-    href: "/financeiro",
-    desc: "Controle comandas abertas, pagamentos e histórico.",
-    roles: ["financeiro", "admin"],
-    meta: "Caixa",
-  },
-  {
-    area: "Análise",
-    title: "Relatórios",
-    href: "/admin?aba=relatorios",
-    desc: "Consulte vendas por período e acompanhe resultados.",
-    roles: ["admin"],
-    meta: "Indicadores",
-  },
-  {
-    area: "Cliente",
-    title: "Cardápio via QR Code",
-    href: "/mesa/1",
-    desc: "Simule a experiência pública do cliente na mesa 1.",
-    roles: [],
-    meta: "Público",
-  },
-];
 
 let socket = null;
 let socketToken = null;
@@ -378,47 +305,10 @@ function gerarCSS(t = T) {
     font-weight: 600;
     max-width: 220px;
   }
-  .access-page {
-    min-height: 100vh;
-    background:
-      radial-gradient(ellipse at 20% 0%, ${t.accentGlow} 0%, transparent 38%),
-      linear-gradient(180deg, ${t.bg2} 0%, ${t.bg} 38%);
-    padding: 22px;
-  }
-  .access-shell { width: 100%; max-width: 1120px; margin: 0 auto; }
-  .access-topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
-  .access-hero { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(280px,.8fr); gap: 16px; align-items: stretch; margin-bottom: 22px; }
-  .access-title { font-family: 'Playfair Display', serif; font-size: 34px; line-height: 1.08; font-weight: 700; color: ${t.text}; margin-bottom: 10px; }
-  .access-description { color: ${t.text2}; max-width: 620px; font-size: 15px; }
-  .access-kpis { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 22px; }
-  .access-kpi { background: ${t.card}; border: 1px solid ${t.border}; border-radius: 12px; padding: 12px; }
-  .access-kpi strong { display: block; font-size: 20px; color: ${t.accent}; line-height: 1; margin-bottom: 5px; }
-  .access-section-title { color: ${t.accent}; font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; margin: 24px 0 10px; }
-  .access-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
-  .access-card-link { display: block; height: 100%; text-decoration: none; }
-  .access-card-link:focus-visible { outline: 3px solid ${t.accentGlow}; outline-offset: 3px; border-radius: 14px; }
-  .access-card { height: 100%; display: flex; flex-direction: column; gap: 12px; min-height: 164px; }
-  .access-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .access-card-title { font-weight: 800; font-size: 16px; color: ${t.text}; }
-  .access-card-desc { color: ${t.text2}; font-size: 13px; line-height: 1.45; flex: 1; }
-  .access-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
-  .access-tag { border: 1px solid ${t.border}; background: ${t.card2}; border-radius: 999px; color: ${t.muted}; font-size: 11px; font-weight: 700; padding: 4px 8px; white-space: nowrap; }
-  .access-status { color: ${t.accent}; font-size: 12px; font-weight: 800; white-space: nowrap; }
-
   /* ─── RESPONSIVIDADE ─── */
   button { -webkit-tap-highlight-color: transparent; }
 
-  @media (max-width: 920px) {
-    .access-hero { grid-template-columns: 1fr; }
-    .access-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  }
-
   @media (max-width: 640px) {
-    .access-page { padding: 16px; }
-    .access-topbar { margin-bottom: 20px; }
-    .access-title { font-size: 28px; }
-    .access-kpis { grid-template-columns: 1fr; }
-    .access-grid { grid-template-columns: 1fr; }
     .panel-header { align-items: flex-start; }
     .panel-header-actions { justify-content: flex-start; width: 100%; }
     .panel-user-pill { max-width: 100%; }
@@ -680,18 +570,6 @@ function roleLabel(role) {
   return ROLE_DETAILS[role]?.label || role || "Equipe";
 }
 
-function canAccessModule(usuario, module) {
-  if (!module.roles?.length) return true;
-  if (!usuario) return false;
-  return usuario.role === "admin" || module.roles.includes(usuario.role);
-}
-
-function moduleAccessText(usuario, module) {
-  if (!module.roles?.length) return "Acesso público";
-  if (!usuario) return "Login necessário";
-  return canAccessModule(usuario, module) ? "Disponível" : "Trocar perfil";
-}
-
 function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
   return (
     <div className="panel-header">
@@ -732,181 +610,6 @@ function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
         )}
       </div>
     </div>
-  );
-}
-
-function AccessModuleCard({ module, usuario }) {
-  const disponivel = canAccessModule(usuario, module);
-  return (
-    <a href={module.href} className="access-card-link">
-      <Card
-        className="access-card"
-        style={{
-          borderColor: disponivel ? T.border : T.border2,
-          boxShadow: disponivel ? "0 10px 30px rgba(16,31,47,0.06)" : "none",
-        }}
-      >
-        <div className="access-card-top">
-          <div>
-            <div className="access-card-title">{module.title}</div>
-            <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>
-              {module.meta}
-            </div>
-          </div>
-          <span className="access-tag">
-            {module.roles?.length
-              ? module.roles.map(roleLabel).join(" / ")
-              : "Público"}
-          </span>
-        </div>
-        <div className="access-card-desc">{module.desc}</div>
-        <div className="access-card-meta">
-          <span className="access-status">
-            {moduleAccessText(usuario, module)}
-          </span>
-          <span style={{ color: T.text2, fontSize: 12, fontWeight: 800 }}>
-            Abrir
-          </span>
-        </div>
-      </Card>
-    </a>
-  );
-}
-
-function AccessHub({ usuario, onLogout }) {
-  const css = gerarCSS(T);
-  const areas = ["Operação", "Gestão", "Análise", "Cliente"];
-
-  useEffect(() => {
-    document.title = `Central - ${CONFIG.nomeApp}`;
-  }, []);
-
-  return (
-    <>
-      <style>{css}</style>
-      <div className="access-page">
-        <div className="access-shell">
-          <div className="access-topbar">
-            <Logo />
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span className="panel-user-pill truncate">
-                {usuario
-                  ? `${usuario.nome || usuario.login || "Usuário"} - ${roleLabel(usuario.role)}`
-                  : "Nenhuma sessão ativa"}
-              </span>
-              {usuario && (
-                <Btn sm variant="ghost" onClick={onLogout}>
-                  Sair
-                </Btn>
-              )}
-            </div>
-          </div>
-
-          <div className="access-hero">
-            <div>
-              <div className="access-title">Central do restaurante</div>
-              <div className="access-description">
-                Um ponto único para abrir a operação do salão, acompanhar a
-                cozinha, administrar cardápio, equipe, mesas, relatórios e
-                testar o cardápio público por QR Code.
-              </div>
-              <div className="access-kpis">
-                <div className="access-kpi">
-                  <strong>4</strong>
-                  <span style={{ color: T.muted, fontSize: 12 }}>
-                    Perfis operacionais
-                  </span>
-                </div>
-                <div className="access-kpi">
-                  <strong>9</strong>
-                  <span style={{ color: T.muted, fontSize: 12 }}>
-                    Áreas de acesso
-                  </span>
-                </div>
-                <div className="access-kpi">
-                  <strong>QR</strong>
-                  <span style={{ color: T.muted, fontSize: 12 }}>
-                    Cardápio público
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <Card
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                minHeight: 210,
-                boxShadow: "0 16px 40px rgba(16,31,47,0.08)",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    color: T.accent,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    letterSpacing: 0.8,
-                    textTransform: "uppercase",
-                    marginBottom: 8,
-                  }}
-                >
-                  Sessão atual
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'Playfair Display',serif",
-                    fontSize: 24,
-                    fontWeight: 700,
-                    lineHeight: 1.15,
-                  }}
-                >
-                  {usuario
-                    ? roleLabel(usuario.role)
-                    : "Escolha uma área para entrar"}
-                </div>
-                <div style={{ color: T.text2, fontSize: 13, marginTop: 10 }}>
-                  {usuario
-                    ? ROLE_DETAILS[usuario.role]?.hint ||
-                      "Perfil autenticado no sistema."
-                    : "Os painéis internos solicitam login antes de liberar dados protegidos."}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <a href="/admin" style={{ textDecoration: "none" }}>
-                  <Btn sm>Administração</Btn>
-                </a>
-                <a href="/mesa/1" style={{ textDecoration: "none" }}>
-                  <Btn sm variant="ghost">
-                    Ver mesa 1
-                  </Btn>
-                </a>
-              </div>
-            </Card>
-          </div>
-
-          {areas.map((area) => {
-            const modules = ACCESS_MODULES.filter((m) => m.area === area);
-            if (!modules.length) return null;
-            return (
-              <section key={area}>
-                <div className="access-section-title">{area}</div>
-                <div className="access-grid">
-                  {modules.map((module) => (
-                    <AccessModuleCard
-                      key={`${module.area}-${module.title}`}
-                      module={module}
-                      usuario={usuario}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -1018,25 +721,15 @@ function TelaLogin({ titulo, role, onLogin }) {
     setLoading(true);
     setErro("");
     try {
-      const r = await fetch(`${API}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: loginVal.trim(), senha: senha.trim() }),
-      });
-      const d = await r.json();
-      if (!r.ok) {
-        setErro(d.erro || "Login ou senha incorretos.");
-        setLoading(false);
-        return;
-      }
+      const d = await loginUsuario(loginVal.trim(), senha.trim());
       if (role && d.role !== role && d.role !== "admin") {
         setErro("Você não tem permissão para este painel.");
-        setLoading(false);
         return;
       }
       onLogin(d);
-    } catch (e) {
-      setErro("Erro de conexão com o servidor.");
+    } catch (error) {
+      setErro(error.message || "Erro de conexão com o servidor.");
+    } finally {
       setLoading(false);
     }
   };
@@ -4695,11 +4388,19 @@ export default function App() {
   }, [usuarioLogado]);
 
   useEffect(() => {
-    document.title = `Painel Principal - ${CONFIG.nomeApp}`;
+    if (path !== "/") document.title = `Painel Principal - ${CONFIG.nomeApp}`;
     sessionStorage.removeItem("autAdmin");
+  }, [path]);
+
+  const login = useCallback((usuario) => {
+    sessionStorage.setItem("usuarioLogado", JSON.stringify(usuario));
+    setUsuarioLogado(usuario);
   }, []);
 
-  const logout = useCallback(() => setUsuarioLogado(undefined), []);
+  const logout = useCallback(() => {
+    sessionStorage.removeItem("usuarioLogado");
+    setUsuarioLogado(undefined);
+  }, []);
 
   const mesa_id = path.startsWith("/mesa/") ? path.split("/")[2] : null;
   if (mesa_id) return <PainelCliente mesa_id={mesa_id} />;
@@ -4712,7 +4413,7 @@ export default function App() {
       (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin")
     )
       return (
-        <TelaLogin titulo="Cozinha" role="cozinha" onLogin={setUsuarioLogado} />
+        <TelaLogin titulo="Cozinha" role="cozinha" onLogin={login} />
       );
     return <PainelCozinha usuario={usuarioLogado} onLogout={logout} />;
   }
@@ -4724,7 +4425,7 @@ export default function App() {
       (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin")
     )
       return (
-        <TelaLogin titulo="Garçom" role="garcom" onLogin={setUsuarioLogado} />
+        <TelaLogin titulo="Garçom" role="garcom" onLogin={login} />
       );
     return <PainelGarcom usuario={usuarioLogado} onLogout={logout} />;
   }
@@ -4739,7 +4440,7 @@ export default function App() {
         <TelaLogin
           titulo="Financeiro"
           role="financeiro"
-          onLogin={setUsuarioLogado}
+          onLogin={login}
         />
       );
     return <PainelFinanceiro usuario={usuarioLogado} onLogout={logout} />;
@@ -4752,13 +4453,13 @@ export default function App() {
         <TelaLogin
           titulo="Administração"
           role="admin"
-          onLogin={setUsuarioLogado}
+          onLogin={login}
         />
       );
     return <PainelAdmin usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  return <AccessHub usuario={usuarioLogado} onLogout={logout} />;
+  return <LandingPage usuario={usuarioLogado} onLogin={login} />;
 }
 
 // ─── PAINEL FINANCEIRO ────────────────────────────────────────────────────────
