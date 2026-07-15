@@ -68,6 +68,9 @@ As migrations `005_multi_tenant_foundation.sql` e
 compostas e o init plan das policies. A senha da role nao faz parte das migrations
 e deve ser provisionada por canal seguro.
 
+A migration `011_optimize_tenant_policy_settings.sql` mantem a leitura de
+`app.restaurante_id` em um init plan reconhecido pelo advisor do Supabase.
+
 ## Producao
 
 - Frontend: `https://autenix.vercel.app`

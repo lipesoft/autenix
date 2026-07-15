@@ -112,6 +112,15 @@ npm run tenant:create -- --nome "Restaurante Exemplo" --slug restaurante-exemplo
 
 Fluxo completo e ordem segura de deploy: `docs/multi-tenant.md`.
 
+## Painel da plataforma
+
+O operador global acessa `/plataforma` com uma conta `platform_admin` separada.
+Nesse painel e possivel cadastrar restaurantes, criar o master de cada cliente,
+definir plano e limites, suspender, arquivar, redefinir acesso e configurar white
+label. O `master` de um restaurante continua limitado ao proprio `restaurante_id`.
+
+Fluxo e controles de seguranca: `docs/platform-admin.md`.
+
 ## Migrations
 
 As migrations PostgreSQL ficam em `server/migrations`.

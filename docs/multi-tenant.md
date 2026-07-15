@@ -6,6 +6,7 @@ URLs publicas e no login; o ID e usado como limite interno de dados.
 
 ## Rotas
 
+- `/plataforma`: administracao global, fora do escopo dos restaurantes
 - `/r/:slug`: landing e login do restaurante
 - `/r/:slug/central`: Central de Operacao
 - `/r/:slug/admin`: administracao
@@ -17,6 +18,12 @@ URLs publicas e no login; o ID e usado como limite interno de dados.
 As rotas antigas continuam apontando para o tenant `autenix` por compatibilidade.
 
 ## Criar restaurante e master
+
+O fluxo recomendado para producao e usar `/plataforma`. O operador global cria
+o cliente, define plano e limites e recebe as credenciais temporarias do master.
+O passo a passo esta em `docs/platform-admin.md`.
+
+O comando abaixo continua disponivel para provisionamento administrativo:
 
 Execute com uma conexao de banco autorizada. A senha pode ser informada ou gerada
 automaticamente e exibida uma unica vez no terminal.
@@ -50,6 +57,10 @@ O frontend nunca recebe `service_role`, `DATABASE_URL` ou qualquer segredo do
 banco. Cardapio publico, pedidos e chamadas passam pela API Express e exigem slug
 e mesa validos.
 
+O usuario global fica em `platform_usuarios` e recebe um JWT com escopo proprio.
+Ele nao e um usuario de restaurante e seu token nao pode acessar admin, garcom,
+cozinha, financeiro ou dados operacionais.
+
 ## Ordem de deploy
 
 1. Aplicar `005_multi_tenant_foundation.sql` para expandir e preencher o esquema.
@@ -59,5 +70,6 @@ e mesa validos.
 4. Aplicar `007_index_tenant_foreign_keys.sql` e
    `008_optimize_tenant_policies.sql`.
 5. Executar os testes de isolamento com dois restaurantes.
+6. Aplicar `009_restaurant_white_label.sql` e `010_platform_administration.sql`.
 
 Essa ordem evita indisponibilidade durante a transicao do esquema antigo.
