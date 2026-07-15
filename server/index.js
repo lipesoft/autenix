@@ -15,12 +15,20 @@ const {
   marcaPublica,
   normalizarWhiteLabel,
 } = require("./lib/branding");
+const {
+  TenantValidationError,
+  normalizarPlano,
+  normalizarSlug: normalizarSlugTenant,
+  provisionarRestaurante,
+  redefinirSenhaMaster,
+} = require("./lib/tenant-provisioning");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
 
 const isProduction = process.env.NODE_ENV === "production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "8h";
+const PLATFORM_JWT_EXPIRES_IN = process.env.PLATFORM_JWT_EXPIRES_IN || "2h";
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
 const PUBLIC_APP_URL = String(
@@ -245,6 +253,28 @@ function usuarioPublico(usuario) {
   };
 }
 
+function usuarioPlataformaPublico(usuario) {
+  return {
+    id: usuario.id,
+    nome: usuario.nome,
+    login: usuario.login,
+    role: usuario.role,
+  };
+}
+
+function gerarTokenPlataforma(usuario) {
+  return jwt.sign(
+    {
+      sub: String(usuario.id),
+      id: usuario.id,
+      role: "platform_admin",
+      scope: "platform",
+    },
+    JWT_SECRET,
+    { expiresIn: PLATFORM_JWT_EXPIRES_IN },
+  );
+}
+
 function autenticarJWT(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const [tipo, token] = authHeader.split(" ");
@@ -267,6 +297,35 @@ function autenticarJWT(req, res, next) {
     return next();
   } catch (e) {
     return res.status(401).json({ erro: "Token invalido ou expirado" });
+  }
+}
+
+async function autenticarPlataforma(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const [tipo, token] = authHeader.split(" ");
+  if (tipo !== "Bearer" || !token) {
+    return res.status(401).json({ erro: "Token da plataforma ausente" });
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.scope !== "platform" || payload.role !== "platform_admin") {
+      return res.status(403).json({ erro: "Acesso exclusivo da plataforma" });
+    }
+
+    const { rows } = await query(
+      `SELECT id, nome, login, role, ativo
+       FROM platform_usuarios
+       WHERE id = $1 AND role = 'platform_admin' AND ativo = TRUE`,
+      [Number(payload.sub || payload.id)],
+    );
+    if (!rows[0]) {
+      return res.status(401).json({ erro: "Acesso da plataforma revogado" });
+    }
+    req.platformUser = rows[0];
+    return next();
+  } catch {
+    return res.status(401).json({ erro: "Token da plataforma invalido ou expirado" });
   }
 }
 
@@ -1343,7 +1402,267 @@ app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), asy
   }
 });
 
-// ─── USUARIOS ──────────────────────────────────────────────────────────────
+// ─── ADMINISTRACAO DA PLATAFORMA ──────────────────────────────────────────
+
+function idPositivo(valor, campo = "ID") {
+  const numero = Number(valor);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new TenantValidationError(`${campo} invalido`);
+  }
+  return numero;
+}
+
+async function carregarResumoRestaurante(restaurante) {
+  const { rows } = await tenantQuery(
+    restaurante.id,
+    `SELECT
+       (SELECT COUNT(*)::int FROM mesas WHERE restaurante_id = $1) AS mesas_cadastradas,
+       (SELECT COUNT(*)::int FROM usuarios WHERE restaurante_id = $1 AND ativo = 1) AS usuarios_ativos,
+       (SELECT COUNT(*)::int FROM pedidos WHERE restaurante_id = $1) AS pedidos_total,
+       (
+         SELECT row_to_json(master)
+         FROM (
+           SELECT id, nome, login, ativo
+           FROM usuarios
+           WHERE restaurante_id = $1 AND role = 'admin'
+           ORDER BY id
+           LIMIT 1
+         ) AS master
+       ) AS master`,
+    [restaurante.id],
+  );
+  return { ...restaurante, ...rows[0] };
+}
+
+function responderErroPlataforma(res, error) {
+  if (error instanceof TenantValidationError || error instanceof BrandingValidationError) {
+    return res.status(error.statusCode || 400).json({ erro: error.message });
+  }
+  if (error.code === "23505") {
+    return res.status(409).json({ erro: "Slug ou login ja cadastrado" });
+  }
+  console.error("Falha na administracao da plataforma:", error.message);
+  return res.status(500).json({ erro: "Nao foi possivel concluir a operacao" });
+}
+
+app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
+  const login = normalizarLogin(req.body?.login);
+  const senha = String(req.body?.senha || "");
+  if (!login || !senha) {
+    return res.status(400).json({ erro: "Login e senha sao obrigatorios" });
+  }
+
+  try {
+    const { rows } = await query(
+      `SELECT id, nome, login, senha, role, ativo
+       FROM platform_usuarios
+       WHERE login = $1 AND role = 'platform_admin' AND ativo = TRUE
+       LIMIT 1`,
+      [login],
+    );
+    const usuario = rows[0];
+    if (!usuario || !(await senhaConfere(senha, usuario.senha))) {
+      return res.status(401).json({ erro: "Login ou senha incorretos" });
+    }
+
+    await query(
+      "UPDATE platform_usuarios SET ultimo_acesso_em = NOW() WHERE id = $1",
+      [usuario.id],
+    );
+    return res.json({
+      ...usuarioPlataformaPublico(usuario),
+      token: gerarTokenPlataforma(usuario),
+      token_type: "Bearer",
+      expires_in: PLATFORM_JWT_EXPIRES_IN,
+    });
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+              white_label_ativo, nome_exibicao, logo_url,
+              cor_primaria, cor_secundaria, criado_em, atualizado_em
+       FROM restaurantes
+       ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
+    );
+    const restaurantes = await Promise.all(rows.map(carregarResumoRestaurante));
+    return res.json(restaurantes);
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.post("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
+  try {
+    const resultado = await provisionarRestaurante(pool, req.body, BCRYPT_ROUNDS);
+    return res.status(201).json(resultado);
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, res) => {
+  try {
+    const restauranteId = idPositivo(req.params.id, "Restaurante");
+    const nome = String(req.body?.nome || "").trim();
+    const slug = normalizarSlugTenant(req.body?.slug || nome);
+    const plano = normalizarPlano(req.body?.plano);
+    const limiteMesas = idPositivo(req.body?.limite_mesas, "Limite de mesas");
+    const marca = normalizarWhiteLabel(req.body);
+
+    if (nome.length < 2 || nome.length > 120 || !slug || slug.length > 80) {
+      throw new TenantValidationError("Nome ou slug do restaurante invalido");
+    }
+    if (limiteMesas > 500) {
+      throw new TenantValidationError("Limite de mesas deve ser no maximo 500");
+    }
+
+    const { rows: contagem } = await tenantQuery(
+      restauranteId,
+      "SELECT COUNT(*)::int AS total FROM mesas WHERE restaurante_id = $1",
+      [restauranteId],
+    );
+    if ((contagem[0]?.total || 0) > limiteMesas) {
+      throw new TenantValidationError(
+        `O restaurante ja possui ${contagem[0].total} mesas cadastradas`,
+      );
+    }
+
+    const { rows } = await query(
+      `UPDATE restaurantes
+       SET nome = $1,
+           slug = $2,
+           plano = $3,
+           limite_mesas = $4,
+           white_label_ativo = $5,
+           nome_exibicao = $6,
+           logo_url = $7,
+           cor_primaria = $8,
+           cor_secundaria = $9,
+           atualizado_em = NOW()
+       WHERE id = $10
+       RETURNING id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+                 white_label_ativo, nome_exibicao, logo_url,
+                 cor_primaria, cor_secundaria, criado_em, atualizado_em`,
+      [
+        nome,
+        slug,
+        plano,
+        limiteMesas,
+        marca.white_label_ativo,
+        marca.nome_exibicao,
+        marca.logo_url,
+        marca.cor_primaria,
+        marca.cor_secundaria,
+        restauranteId,
+      ],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+    return res.json(await carregarResumoRestaurante(rows[0]));
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.patch(
+  "/api/platform/restaurantes/:id/status",
+  autenticarPlataforma,
+  async (req, res) => {
+    try {
+      const restauranteId = idPositivo(req.params.id, "Restaurante");
+      if (typeof req.body?.ativo !== "boolean") {
+        throw new TenantValidationError("Status do restaurante invalido");
+      }
+      const { rows } = await query(
+        `UPDATE restaurantes
+         SET ativo = CASE WHEN $1 THEN 1 ELSE 0 END,
+             excluido_em = CASE WHEN $1 THEN NULL ELSE excluido_em END,
+             atualizado_em = NOW()
+         WHERE id = $2
+         RETURNING id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+                   white_label_ativo, nome_exibicao, logo_url,
+                   cor_primaria, cor_secundaria, criado_em, atualizado_em`,
+        [req.body.ativo, restauranteId],
+      );
+      if (!rows[0]) {
+        return res.status(404).json({ erro: "Restaurante nao encontrado" });
+      }
+      return res.json(await carregarResumoRestaurante(rows[0]));
+    } catch (error) {
+      return responderErroPlataforma(res, error);
+    }
+  },
+);
+
+app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, res) => {
+  try {
+    const restauranteId = idPositivo(req.params.id, "Restaurante");
+    const { rows } = await query(
+      `UPDATE restaurantes
+       SET ativo = 0, excluido_em = NOW(), atualizado_em = NOW()
+       WHERE id = $1 AND excluido_em IS NULL
+       RETURNING id, nome, slug, excluido_em`,
+      [restauranteId],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado ou ja arquivado" });
+    }
+    return res.json({ ...rows[0], arquivado: true });
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.post(
+  "/api/platform/restaurantes/:id/redefinir-master",
+  autenticarPlataforma,
+  async (req, res) => {
+    try {
+      const resultado = await redefinirSenhaMaster(
+        pool,
+        req.params.id,
+        req.body?.senha,
+        BCRYPT_ROUNDS,
+      );
+      return res.json(resultado);
+    } catch (error) {
+      return responderErroPlataforma(res, error);
+    }
+  },
+);
+
+app.patch("/api/platform/minha-senha", autenticarPlataforma, async (req, res) => {
+  const senhaAtual = String(req.body?.senha_atual || "");
+  const novaSenha = String(req.body?.nova_senha || "");
+  if (novaSenha.length < 12) {
+    return res.status(400).json({ erro: "A nova senha deve ter pelo menos 12 caracteres" });
+  }
+
+  try {
+    const { rows } = await query(
+      "SELECT senha FROM platform_usuarios WHERE id = $1 AND ativo = TRUE",
+      [req.platformUser.id],
+    );
+    if (!rows[0] || !(await senhaConfere(senhaAtual, rows[0].senha))) {
+      return res.status(401).json({ erro: "Senha atual incorreta" });
+    }
+    await query("UPDATE platform_usuarios SET senha = $1 WHERE id = $2", [
+      await hashSenha(novaSenha),
+      req.platformUser.id,
+    ]);
+    return res.json({ sucesso: true });
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+// ─── USUARIOS DOS RESTAURANTES ────────────────────────────────────────────
 
 app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   const { login, senha, restaurante_slug } = req.body;
