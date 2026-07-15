@@ -73,6 +73,16 @@ app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json());
 
+app.get("/api/health", async (req, res) => {
+  try {
+    await query("SELECT 1");
+    res.json({ status: "ok" });
+  } catch (error) {
+    console.error("Falha no health check do banco:", error.message);
+    res.status(503).json({ status: "indisponivel" });
+  }
+});
+
 const loginRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
@@ -976,6 +986,16 @@ app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (r
 });
 
 // ─── SOCKET.IO ─────────────────────────────────────────────────────────────
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  if (error.message === "Origem nao permitida pelo CORS.") {
+    return res.status(403).json({ erro: "Origem nao permitida" });
+  }
+
+  console.error("Erro nao tratado na API:", error.message);
+  return res.status(500).json({ erro: "Erro interno do servidor" });
+});
+
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) {
@@ -1023,17 +1043,21 @@ io.on("connection", (socket) => {
 // START
 const PORT = process.env.PORT || 3001;
 
-initDB()
-  .then(() => {
-    server.listen(PORT, "0.0.0.0", () => {
-      const ip = getLocalIP();
-      console.log(`\n🍽️  Servidor rodando!`);
-      console.log(`   Local:    http://localhost:${PORT}`);
-      console.log(`   Rede:     http://${ip}:${PORT}`);
-      console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1\n`);
+module.exports = server;
+
+if (!process.env.VERCEL) {
+  initDB()
+    .then(() => {
+      server.listen(PORT, "0.0.0.0", () => {
+        const ip = getLocalIP();
+        console.log(`\n🍽️  Servidor rodando!`);
+        console.log(`   Local:    http://localhost:${PORT}`);
+        console.log(`   Rede:     http://${ip}:${PORT}`);
+        console.log(`   QR Code:  http://${ip}:${PORT}/api/qrcode/1\n`);
+      });
+    })
+    .catch((err) => {
+      console.error("❌ Erro ao conectar no banco:", err.message);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error("❌ Erro ao conectar no banco:", err.message);
-    process.exit(1);
-  });
+}
