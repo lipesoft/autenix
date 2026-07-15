@@ -5,13 +5,16 @@ const { Pool } = require("pg");
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
 
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL nao configurada.");
+const migrationDatabaseUrl =
+  process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!migrationDatabaseUrl) {
+  console.error("MIGRATION_DATABASE_URL ou DATABASE_URL nao configurada.");
   process.exit(1);
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: migrationDatabaseUrl,
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false,
 });
 
