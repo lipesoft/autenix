@@ -355,9 +355,37 @@ function gerarCSS(t = T) {
   .admin-tabs { display: flex; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
   .admin-tabs::-webkit-scrollbar { display: none; }
   .admin-tabs button { min-width: 80px; }
+  .admin-content { width: 100%; max-width: 860px; margin: 0 auto; padding: 14px; }
+  .admin-user-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .admin-user-copy { min-width: 0; }
+  .admin-user-actions { display: flex; flex-shrink: 0; gap: 6px; }
+  .admin-report-periods { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .admin-report-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 12px; }
+  .admin-report-date { min-width: 0; display: grid; gap: 5px; }
+  .admin-report-date span { color: ${t.muted}; font-size: 11px; font-weight: 700; }
+  .admin-report-date input { width: 100%; min-width: 0; }
+  .admin-report-actions { display: flex; align-items: center; gap: 8px; }
+  .admin-report-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .admin-report-copy { min-width: 0; }
+  .admin-report-value { flex-shrink: 0; text-align: right; }
   @media (max-width: 768px) {
     .admin-tabs button { font-size: 12px !important; min-width: 64px; }
     .admin-produto-acoes { flex-direction: column !important; }
+    .admin-report-filters { grid-template-columns: 1fr 1fr; }
+    .admin-report-actions { grid-column: 1 / -1; }
+  }
+  @media (max-width: 560px) {
+    .admin-content { padding: 12px; }
+    .admin-user-row { align-items: stretch; flex-direction: column; }
+    .admin-user-actions { width: 100%; }
+    .admin-user-actions .app-btn { flex: 1; }
+    .admin-report-periods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .admin-report-periods button { width: 100%; }
+    .admin-report-filters { grid-template-columns: 1fr; }
+    .admin-report-actions { grid-column: auto; display: grid; grid-template-columns: 1fr; width: 100%; }
+    .admin-report-actions .app-btn { width: 100%; }
+    .admin-report-row { align-items: flex-start; flex-direction: column; gap: 10px; }
+    .admin-report-value { width: 100%; padding-top: 9px; border-top: 1px solid ${t.border}; text-align: left; }
   }
 
   /* Financeiro — qualquer tela */
@@ -3540,7 +3568,7 @@ function PainelAdmin({ usuario, onLogout }) {
           ))}
         </div>
 
-        <div style={{ padding: 14, maxWidth: 860, margin: "0 auto" }}>
+        <div className="admin-content">
           {aba === "produtos" && (
             <div className="fade-up">
               <Card style={{ marginBottom: 18 }}>
@@ -3985,8 +4013,6 @@ function PainelAdmin({ usuario, onLogout }) {
               </Card>
             </div>
           )}
-        </div>
-
         {aba === "equipe" && (
           <div className="fade-up">
             <Card style={{ marginBottom: 16 }}>
@@ -4089,14 +4115,8 @@ function PainelAdmin({ usuario, onLogout }) {
                         key={u.id}
                         style={{ marginBottom: 8, opacity: u.ativo ? 1 : 0.5 }}
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                          }}
-                        >
-                          <div>
+                        <div className="admin-user-row">
+                          <div className="admin-user-copy">
                             <div style={{ fontWeight: 600 }}>{u.nome}</div>
                             <div
                               style={{
@@ -4107,7 +4127,7 @@ function PainelAdmin({ usuario, onLogout }) {
                               {u.ativo ? "Ativo" : "Inativo"}
                             </div>
                           </div>
-                          <div style={{ display: "flex", gap: 6 }}>
+                          <div className="admin-user-actions">
                             <Btn
                               sm
                               variant="ghost"
@@ -4212,14 +4232,7 @@ function PainelAdmin({ usuario, onLogout }) {
               >
                 Período
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  marginBottom: 12,
-                }}
-              >
+              <div className="admin-report-periods">
                 {[
                   ["hoje", "Hoje"],
                   ["semana", "7 dias"],
@@ -4228,6 +4241,8 @@ function PainelAdmin({ usuario, onLogout }) {
                 ].map(([val, label]) => (
                   <button
                     key={val}
+                    type="button"
+                    aria-pressed={periodoRel === val}
                     onClick={() => {
                       setPeriodoRel(val);
                       setDataInicioRel("");
@@ -4236,7 +4251,7 @@ function PainelAdmin({ usuario, onLogout }) {
                     }}
                     style={{
                       padding: "8px 16px",
-                      borderRadius: 99,
+                      borderRadius: 7,
                       border: `1px solid ${periodoRel === val ? T.accent : T.border}`,
                       background:
                         periodoRel === val ? T.accentGlow : "transparent",
@@ -4252,63 +4267,57 @@ function PainelAdmin({ usuario, onLogout }) {
                 ))}
               </div>
               {/* Filtro por data + PDF */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  marginTop: 12,
-                }}
-              >
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <label style={{ fontSize: 12, color: T.muted }}>De:</label>
+              <div className="admin-report-filters">
+                <label className="admin-report-date">
+                  <span>De</span>
                   <input
                     type="date"
                     value={dataInicioRel}
                     onChange={(e) => setDataInicioRel(e.target.value)}
-                    style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                    style={{ padding: "7px 10px", fontSize: 13 }}
                   />
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <label style={{ fontSize: 12, color: T.muted }}>Até:</label>
+                </label>
+                <label className="admin-report-date">
+                  <span>Até</span>
                   <input
                     type="date"
                     value={dataFimRel}
                     onChange={(e) => setDataFimRel(e.target.value)}
-                    style={{ width: 150, padding: "7px 10px", fontSize: 13 }}
+                    style={{ padding: "7px 10px", fontSize: 13 }}
                   />
-                </div>
-                <Btn
-                  sm
-                  onClick={() => {
-                    if (dataInicioRel) {
-                      setPeriodoRel("custom");
-                      fetchRelatorio("custom", dataInicioRel, dataFimRel);
-                    }
-                  }}
-                  disabled={!dataInicioRel}
-                >
-                  Filtrar
-                </Btn>
-                {relatorio.dados.length > 0 && (
+                </label>
+                <div className="admin-report-actions">
                   <Btn
                     sm
-                    variant="success"
-                    onClick={() =>
-                      gerarPDF({
-                        historico: relatorio.dados,
-                        totalPeriodo: relatorio.totalGeral,
-                        periodo: periodoRel,
-                        dataInicio: dataInicioRel,
-                        dataFim: dataFimRel,
-                        nomeApp: marca.nome,
-                      })
-                    }
+                    onClick={() => {
+                      if (dataInicioRel) {
+                        setPeriodoRel("custom");
+                        fetchRelatorio("custom", dataInicioRel, dataFimRel);
+                      }
+                    }}
+                    disabled={!dataInicioRel}
                   >
-                    Exportar PDF
+                    Filtrar
                   </Btn>
-                )}
+                  {relatorio.dados.length > 0 && (
+                    <Btn
+                      sm
+                      variant="success"
+                      onClick={() =>
+                        gerarPDF({
+                          historico: relatorio.dados,
+                          totalPeriodo: relatorio.totalGeral,
+                          periodo: periodoRel,
+                          dataInicio: dataInicioRel,
+                          dataFim: dataFimRel,
+                          nomeApp: marca.nome,
+                        })
+                      }
+                    >
+                      Exportar PDF
+                    </Btn>
+                  )}
+                </div>
               </div>
             </Card>
 
@@ -4354,14 +4363,8 @@ function PainelAdmin({ usuario, onLogout }) {
                 ) : (
                   relatorio.dados.map((r, i) => (
                     <Card key={i} style={{ marginBottom: 8 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <div>
+                      <div className="admin-report-row">
+                        <div className="admin-report-copy">
                           <div style={{ fontWeight: 600 }}>
                             Mesa {r.mesa_numero}
                           </div>
@@ -4377,6 +4380,7 @@ function PainelAdmin({ usuario, onLogout }) {
                           </div>
                         </div>
                         <div
+                          className="admin-report-value"
                           style={{
                             fontWeight: 800,
                             fontSize: 17,
@@ -4393,6 +4397,8 @@ function PainelAdmin({ usuario, onLogout }) {
             )}
           </div>
         )}
+
+        </div>
 
         {/* Modal editar produto */}
         {editando && (
