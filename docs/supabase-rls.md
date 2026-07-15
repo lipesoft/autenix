@@ -64,8 +64,9 @@ MIGRATION_DATABASE_URL=<conexao-proprietaria> npm run migrate
 
 As migrations `005_multi_tenant_foundation.sql` e
 `006_enforce_tenant_isolation.sql` seguem o fluxo expand/contract documentado em
-`docs/multi-tenant.md`. A senha da role nao faz parte das migrations e deve ser
-provisionada por canal seguro.
+`docs/multi-tenant.md`. As migrations `007` e `008` cobrem os indices das FKs
+compostas e o init plan das policies. A senha da role nao faz parte das migrations
+e deve ser provisionada por canal seguro.
 
 ## Producao
 

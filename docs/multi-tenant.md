@@ -56,6 +56,8 @@ e mesa validos.
 2. Publicar a API e o frontend tenant-aware.
 3. Aplicar `006_enforce_tenant_isolation.sql` para tornar IDs obrigatorios e
    restringir a role do backend por RLS.
-4. Executar os testes de isolamento com dois restaurantes.
+4. Aplicar `007_index_tenant_foreign_keys.sql` e
+   `008_optimize_tenant_policies.sql`.
+5. Executar os testes de isolamento com dois restaurantes.
 
 Essa ordem evita indisponibilidade durante a transicao do esquema antigo.
