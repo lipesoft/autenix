@@ -19,6 +19,7 @@ Obrigatorias em producao:
 - `DATABASE_SSL=true` para Supabase
 - `JWT_SECRET`
 - `CORS_ORIGIN`
+- `PUBLIC_APP_URL`, URL publica usada nos QR Codes
 - `VITE_API_URL`
 - `ADMIN_PASSWORD_HASH` no primeiro bootstrap do admin, se ainda nao existir admin no banco
 
@@ -70,7 +71,7 @@ Login:
 ```bash
 curl -X POST http://localhost:3001/api/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"login\":\"admin\",\"senha\":\"sua-senha\"}"
+  -d "{\"restaurante_slug\":\"autenix\",\"login\":\"admin\",\"senha\":\"sua-senha\"}"
 ```
 
 A resposta inclui `token`. Rotas protegidas exigem:
@@ -88,13 +89,28 @@ curl http://localhost:3001/api/usuarios \
 
 Rotas publicas mantidas para o cliente via QR:
 
-- `GET /api/cardapio`
-- `GET /api/mesas/:id`
-- `GET /api/pedidos?mesa_id=...`
+- `GET /api/cardapio?restaurante_slug=...`
+- `GET /api/mesas/:id?restaurante_slug=...`
+- `GET /api/pedidos?mesa_id=...&restaurante_slug=...`
 - `POST /api/pedidos`
 - `PATCH /api/itens/:id/cancelar`
 - `POST /api/chamadas`
-- `GET /api/qrcode/:mesa_id`
+
+`GET /api/qrcode/:mesa_id` exige JWT de administrador.
+
+## Multi-restaurante
+
+As URLs canonicas usam `/r/:slug`. O JWT, as consultas PostgreSQL, as policies
+RLS e as salas do Socket.IO carregam o mesmo `restaurante_id`.
+
+Para criar um restaurante, master, categorias e mesas:
+
+```bash
+cd server
+npm run tenant:create -- --nome "Restaurante Exemplo" --slug restaurante-exemplo --mesas 20
+```
+
+Fluxo completo e ordem segura de deploy: `docs/multi-tenant.md`.
 
 ## Migrations
 
@@ -105,7 +121,9 @@ cd server
 npm run migrate
 ```
 
-O backend tambem cria tabelas ausentes no startup por compatibilidade com o estado anterior do projeto. Senhas antigas em texto puro sao convertidas para bcrypt durante a inicializacao do backend.
+O backend mantem o bootstrap local por compatibilidade, mas as migrations devem
+ser executadas antes do primeiro startup. Senhas antigas em texto puro sao
+convertidas para bcrypt durante a inicializacao do tenant padrao.
 
 Detalhes de migracao SQLite/Supabase: `docs/postgres-migration.md`.
 
@@ -137,6 +155,7 @@ Variaveis:
 - `JWT_EXPIRES_IN=8h`
 - `CORS_ORIGIN=https://seu-frontend.vercel.app`
 - `TRUST_PROXY=true`
+- `PUBLIC_APP_URL=https://seu-frontend.vercel.app`
 - `ADMIN_LOGIN=admin`
 - `ADMIN_PASSWORD_HASH=<hash-bcrypt>` no primeiro bootstrap
 
