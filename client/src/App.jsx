@@ -46,6 +46,7 @@ function getSocket() {
     socketToken = token;
     socket = io(API, {
       auth: token ? { token } : {},
+      transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
