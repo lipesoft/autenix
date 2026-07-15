@@ -10,6 +10,11 @@ const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
 const path = require("path");
 const os = require("os");
+const {
+  BrandingValidationError,
+  marcaPublica,
+  normalizarWhiteLabel,
+} = require("./lib/branding");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -92,7 +97,7 @@ app.get("/api/restaurantes/:slug/publico", async (req, res) => {
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
-    return res.json(restaurante);
+    return res.json(marcaPublica(restaurante));
   } catch (error) {
     return res.status(500).json({ erro: error.message });
   }
@@ -174,7 +179,8 @@ async function buscarRestaurantePorSlug(slugInformado) {
   const slug = normalizarSlug(slugInformado || "autenix");
   if (!slug) return null;
   const { rows } = await query(
-    `SELECT id, nome, slug, ativo, logo_url, cor_primaria, cor_secundaria
+    `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+            logo_url, cor_primaria, cor_secundaria
      FROM restaurantes
      WHERE slug = $1 AND ativo = 1
      LIMIT 1`,
@@ -1389,7 +1395,8 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
 app.get("/api/restaurante", autenticarJWT, async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, nome, slug, ativo, logo_url, cor_primaria, cor_secundaria
+      `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+              logo_url, cor_primaria, cor_secundaria, atualizado_em
        FROM restaurantes WHERE id = $1 AND ativo = 1`,
       [req.user.restaurante_id],
     );
@@ -1399,6 +1406,47 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
     return res.status(500).json({ erro: error.message });
   }
 });
+
+app.patch(
+  "/api/restaurante/white-label",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const dados = normalizarWhiteLabel(req.body);
+      const { rows } = await query(
+        `UPDATE restaurantes
+         SET white_label_ativo = $1,
+             nome_exibicao = $2,
+             logo_url = $3,
+             cor_primaria = $4,
+             cor_secundaria = $5,
+             atualizado_em = NOW()
+         WHERE id = $6 AND ativo = 1
+         RETURNING id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+                   logo_url, cor_primaria, cor_secundaria, atualizado_em`,
+        [
+          dados.white_label_ativo,
+          dados.nome_exibicao,
+          dados.logo_url,
+          dados.cor_primaria,
+          dados.cor_secundaria,
+          req.user.restaurante_id,
+        ],
+      );
+
+      if (!rows[0]) {
+        return res.status(404).json({ erro: "Restaurante nao encontrado" });
+      }
+      return res.json(rows[0]);
+    } catch (error) {
+      if (error instanceof BrandingValidationError) {
+        return res.status(error.statusCode).json({ erro: error.message });
+      }
+      return res.status(500).json({ erro: "Nao foi possivel salvar o white label" });
+    }
+  },
+);
 
 app.get("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
