@@ -6,10 +6,13 @@ O frontend nao usa `supabase-js`, a Data API ou chaves do Supabase. Toda operaca
 passa pela API Express e pelo Socket.IO. O backend usa `pg` com `DATABASE_URL`,
 autenticacao JWT propria e consultas parametrizadas.
 
-A conexao atual e proprietaria das tabelas (`postgres`) e, por isso, nao e
-bloqueada por RLS enquanto `FORCE ROW LEVEL SECURITY` permanecer desativado. A
-chave `service_role` nao deve ser adicionada ao frontend. Caso seja usada no
-futuro, deve existir apenas no backend ou em funcoes server-side.
+A API de producao usa a role `autenix_backend`. Ela nao e superusuario, nao tem
+`BYPASSRLS`, nao cria objetos no schema e recebe apenas os privilegios e policies
+necessarios para operar as tabelas do sistema. A senha existe somente nas
+variaveis criptografadas da Vercel.
+
+A chave `service_role` nao e usada e nunca deve ser adicionada ao frontend. Caso
+seja adotada no futuro, deve existir apenas no backend ou em funcoes server-side.
 
 ## Matriz de acesso temporaria
 
@@ -47,17 +50,32 @@ total para `anon` e `authenticated`.
 4. Indexar `restaurante_id` em todas as tabelas usadas pelas policies.
 5. Trocar as policies temporarias por filtros de tenant e testar isolamento com
    pelo menos dois restaurantes.
-6. Criar um papel de banco dedicado ao backend com privilegios minimos, em vez
-   de manter a aplicacao conectada como proprietaria `postgres`.
+6. Restringir as policies da role `autenix_backend` por restaurante quando o
+   tenant estiver disponivel, em vez de permitir acesso a todas as linhas.
 
 ## Aplicacao
 
 ```bash
 cd server
-npm run migrate
+MIGRATION_DATABASE_URL=<conexao-proprietaria> npm run migrate
 ```
 
-As migrations `002_secure_public_rls.sql` e `003_index_foreign_keys.sql` sao
-idempotentes e podem ser reaplicadas pelo runner atual. Depois da aplicacao,
-execute os advisors de seguranca e os testes de acesso por papel antes de
-publicar o backend.
+`MIGRATION_DATABASE_URL` precisa usar uma conexao autorizada a executar DDL. A
+`DATABASE_URL` de runtime usa `autenix_backend` e nao deve receber esse poder.
+
+As migrations `002_secure_public_rls.sql`, `003_index_foreign_keys.sql` e
+`004_backend_runtime_role.sql` sao idempotentes e podem ser reaplicadas pelo
+runner atual. A senha da role nao faz parte das migrations e deve ser provisionada
+por canal seguro.
+
+## Producao
+
+- Frontend: `https://autenix.vercel.app`
+- API: `https://autenix-api.vercel.app`
+- Health check: `GET /api/health`
+- Variaveis da API: `DATABASE_URL`, `DATABASE_SSL`, `JWT_SECRET`,
+  `JWT_EXPIRES_IN`, `CORS_ORIGIN` e `TRUST_PROXY`
+- Variavel do frontend: `VITE_API_URL`
+
+Depois de cada migration ou deploy, execute os advisors do Supabase, valide o
+health check e teste os acessos com e sem JWT antes de promover a versao.
