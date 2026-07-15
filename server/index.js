@@ -18,6 +18,9 @@ const isProduction = process.env.NODE_ENV === "production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "8h";
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
+const PUBLIC_APP_URL = String(
+  process.env.PUBLIC_APP_URL || "https://autenix.vercel.app",
+).replace(/\/$/, "");
 
 if (!process.env.DATABASE_URL) {
   const msg = "DATABASE_URL nao configurada.";
@@ -83,6 +86,18 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+app.get("/api/restaurantes/:slug/publico", async (req, res) => {
+  try {
+    const restaurante = await buscarRestaurantePorSlug(req.params.slug);
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+    return res.json(restaurante);
+  } catch (error) {
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
 const loginRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
@@ -108,12 +123,78 @@ async function query(sql, params = []) {
   }
 }
 
+async function withTenantTransaction(restauranteId, callback) {
+  const tenantId = Number(restauranteId);
+  if (!Number.isInteger(tenantId) || tenantId <= 0) {
+    throw new Error("Restaurante invalido");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.restaurante_id', $1, true)", [
+      String(tenantId),
+    ]);
+    const result = await callback(client, tenantId);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function tenantQuery(restauranteId, sql, params = []) {
+  return withTenantTransaction(restauranteId, (client) =>
+    client.query(sql, params),
+  );
+}
+
 function normalizarLogin(valor) {
   return String(valor || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_")
     .replace(/[^a-z0-9._-]/g, "_");
+}
+
+function normalizarSlug(valor) {
+  return String(valor || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function buscarRestaurantePorSlug(slugInformado) {
+  const slug = normalizarSlug(slugInformado || "autenix");
+  if (!slug) return null;
+  const { rows } = await query(
+    `SELECT id, nome, slug, ativo, logo_url, cor_primaria, cor_secundaria
+     FROM restaurantes
+     WHERE slug = $1 AND ativo = 1
+     LIMIT 1`,
+    [slug],
+  );
+  return rows[0] || null;
+}
+
+async function buscarRestauranteDaMesa(mesaId, slugInformado) {
+  const restaurante = await buscarRestaurantePorSlug(slugInformado);
+  if (restaurante) {
+    const { rows } = await tenantQuery(
+      restaurante.id,
+      "SELECT id, numero, status, restaurante_id FROM mesas WHERE id = $1",
+      [mesaId],
+    );
+    return rows[0] ? { restaurante, mesa: rows[0] } : null;
+  }
+
+  return null;
 }
 
 function isBcryptHash(valor) {
@@ -138,7 +219,8 @@ function gerarToken(usuario) {
       sub: String(usuario.id),
       id: usuario.id,
       role: usuario.role,
-      restaurante_id: usuario.restaurante_id || null,
+      restaurante_id: usuario.restaurante_id,
+      restaurante_slug: usuario.restaurante_slug,
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN },
@@ -151,7 +233,9 @@ function usuarioPublico(usuario) {
     nome: usuario.nome,
     role: usuario.role,
     login: usuario.login,
-    restaurante_id: usuario.restaurante_id || null,
+    restaurante_id: usuario.restaurante_id,
+    restaurante_slug: usuario.restaurante_slug,
+    restaurante_nome: usuario.restaurante_nome,
   };
 }
 
@@ -164,10 +248,15 @@ function autenticarJWT(req, res, next) {
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
+    const restauranteId = Number(payload.restaurante_id);
+    if (!Number.isInteger(restauranteId) || restauranteId <= 0) {
+      return res.status(401).json({ erro: "Token sem contexto de restaurante" });
+    }
     req.user = {
       id: Number(payload.sub || payload.id),
       role: payload.role,
-      restaurante_id: payload.restaurante_id || null,
+      restaurante_id: restauranteId,
+      restaurante_slug: payload.restaurante_slug,
     };
     return next();
   } catch (e) {
@@ -178,10 +267,15 @@ function autenticarJWT(req, res, next) {
 function usuarioDoToken(token) {
   if (!token) return null;
   const payload = jwt.verify(token, JWT_SECRET);
+  const restauranteId = Number(payload.restaurante_id);
+  if (!Number.isInteger(restauranteId) || restauranteId <= 0) {
+    throw new Error("Token sem contexto de restaurante");
+  }
   return {
     id: Number(payload.sub || payload.id),
     role: payload.role,
-    restaurante_id: payload.restaurante_id || null,
+    restaurante_id: restauranteId,
+    restaurante_slug: payload.restaurante_slug,
   };
 }
 
@@ -202,20 +296,25 @@ function protegerListagemPedidos(req, res, next) {
   );
 }
 
-async function migrarSenhasLegadas() {
-  const { rows } = await query("SELECT id, senha FROM usuarios");
+async function migrarSenhasLegadas(restauranteId) {
+  const { rows } = await tenantQuery(
+    restauranteId,
+    "SELECT id, senha FROM usuarios WHERE restaurante_id = $1",
+    [restauranteId],
+  );
   for (const usuario of rows) {
     if (usuario.senha && !isBcryptHash(usuario.senha)) {
       const senhaHash = await hashSenha(usuario.senha);
-      await query("UPDATE usuarios SET senha = $1 WHERE id = $2", [
-        senhaHash,
-        usuario.id,
-      ]);
+      await tenantQuery(
+        restauranteId,
+        "UPDATE usuarios SET senha = $1 WHERE id = $2 AND restaurante_id = $3",
+        [senhaHash, usuario.id, restauranteId],
+      );
     }
   }
 }
 
-async function criarAdminInicialSeNecessario() {
+async function criarAdminInicialSeNecessario(restauranteId) {
   const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
   if (!adminPasswordHash) return;
 
@@ -227,24 +326,34 @@ async function criarAdminInicialSeNecessario() {
   }
 
   const adminLogin = normalizarLogin(process.env.ADMIN_LOGIN || "admin");
-  const { rows: admins } = await query("SELECT id FROM usuarios WHERE role = 'admin' LIMIT 1");
+  const { rows: admins } = await tenantQuery(
+    restauranteId,
+    "SELECT id FROM usuarios WHERE role = 'admin' AND restaurante_id = $1 LIMIT 1",
+    [restauranteId],
+  );
   if (admins[0]) return;
 
-  const { rows: porLogin } = await query("SELECT id FROM usuarios WHERE login = $1 LIMIT 1", [
-    adminLogin,
-  ]);
+  const { rows: porLogin } = await tenantQuery(
+    restauranteId,
+    "SELECT id FROM usuarios WHERE login = $1 AND restaurante_id = $2 LIMIT 1",
+    [adminLogin, restauranteId],
+  );
 
   if (porLogin[0]) {
-    await query(
-      "UPDATE usuarios SET role = 'admin', senha = $1, ativo = 1 WHERE id = $2",
-      [adminPasswordHash, porLogin[0].id],
+    await tenantQuery(
+      restauranteId,
+      `UPDATE usuarios SET role = 'admin', senha = $1, ativo = 1
+       WHERE id = $2 AND restaurante_id = $3`,
+      [adminPasswordHash, porLogin[0].id, restauranteId],
     );
     return;
   }
 
-  await query(
-    "INSERT INTO usuarios (nome, login, senha, role, ativo) VALUES ($1, $2, $3, $4, 1)",
-    ["Administrador", adminLogin, adminPasswordHash, "admin"],
+  await tenantQuery(
+    restauranteId,
+    `INSERT INTO usuarios (nome, login, senha, role, ativo, restaurante_id)
+     VALUES ($1, $2, $3, $4, 1, $5)`,
+    ["Administrador", adminLogin, adminPasswordHash, "admin", restauranteId],
   );
 }
 
@@ -328,19 +437,46 @@ async function initDB() {
       ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
   `);
 
-  // Seed dados de exemplo se vazio
-  const { rows: cats } = await query("SELECT COUNT(*) as c FROM categorias");
-  if (parseInt(cats[0].c) === 0) {
-    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Entradas", 1]);
-    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Pratos Principais", 2]);
-    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Bebidas", 3]);
-    await query("INSERT INTO categorias (nome, ordem) VALUES ($1, $2)", ["Sobremesas", 4]);
+  const restaurantePadrao = await buscarRestaurantePorSlug("autenix");
+  if (!restaurantePadrao) {
+    throw new Error("Execute npm run migrate antes de iniciar o backend");
+  }
+  const restauranteId = restaurantePadrao.id;
 
-    const { rows: catRows } = await query("SELECT id, nome FROM categorias ORDER BY ordem");
+  // Seed dados de exemplo se vazio
+  const { rows: cats } = await tenantQuery(
+    restauranteId,
+    "SELECT COUNT(*) as c FROM categorias WHERE restaurante_id = $1",
+    [restauranteId],
+  );
+  if (parseInt(cats[0].c) === 0) {
+    const inserirCategoria = (nome, ordem) => tenantQuery(
+      restauranteId,
+      `INSERT INTO categorias (nome, ordem, restaurante_id)
+       VALUES ($1, $2, $3)`,
+      [nome, ordem, restauranteId],
+    );
+    await inserirCategoria("Entradas", 1);
+    await inserirCategoria("Pratos Principais", 2);
+    await inserirCategoria("Bebidas", 3);
+    await inserirCategoria("Sobremesas", 4);
+
+    const { rows: catRows } = await tenantQuery(
+      restauranteId,
+      `SELECT id, nome FROM categorias
+       WHERE restaurante_id = $1 ORDER BY ordem`,
+      [restauranteId],
+    );
     const catId = (nome) => catRows.find((c) => c.nome === nome)?.id;
 
     const insP = (cat, nome, desc, preco) =>
-      query("INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES ($1, $2, $3, $4)", [catId(cat), nome, desc, preco]);
+      tenantQuery(
+        restauranteId,
+        `INSERT INTO produtos
+           (categoria_id, nome, descricao, preco, restaurante_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [catId(cat), nome, desc, preco, restauranteId],
+      );
 
     await insP("Entradas", "Pão de Alho", "Pão artesanal com alho e manteiga", 18.9);
     await insP("Entradas", "Bruschetta", "Tomate, manjericão e azeite", 22.0);
@@ -354,14 +490,23 @@ async function initDB() {
     await insP("Sobremesas", "Brownie", "Com sorvete de creme", 24.0);
 
     for (let i = 1; i <= 12; i++) {
-      await query("INSERT INTO mesas (numero) VALUES ($1)", [String(i)]);
+      await tenantQuery(
+        restauranteId,
+        "INSERT INTO mesas (numero, restaurante_id) VALUES ($1, $2)",
+        [String(i), restauranteId],
+      );
     }
   }
 
   // Garantir login único onde não existe
-  await query("UPDATE usuarios SET login = lower(replace(nome,' ','_')) WHERE login IS NULL OR login = ''");
-  await migrarSenhasLegadas();
-  await criarAdminInicialSeNecessario();
+  await tenantQuery(
+    restauranteId,
+    `UPDATE usuarios SET login = lower(replace(nome,' ','_'))
+     WHERE restaurante_id = $1 AND (login IS NULL OR login = '')`,
+    [restauranteId],
+  );
+  await migrarSenhasLegadas(restauranteId);
+  await criarAdminInicialSeNecessario(restauranteId);
 
   console.log("✅ Banco de dados inicializado!");
 }
@@ -377,30 +522,62 @@ function getLocalIP() {
   return "localhost";
 }
 
-async function proximoNumeroDia() {
-  const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'ultimo_reinicio'");
+async function proximoNumeroDia(client, restauranteId) {
+  const { rows: cfg } = await client.query(
+    "SELECT valor FROM configuracoes WHERE restaurante_id = $1 AND chave = 'ultimo_reinicio'",
+    [restauranteId],
+  );
   const desde = cfg[0]?.valor || new Date().toISOString().slice(0, 10);
-  const { rows: ultimo } = await query(
-    "SELECT MAX(numero_dia) as ultimo FROM pedidos WHERE criado_em >= $1",
-    [desde]
+  const { rows: ultimo } = await client.query(
+    `SELECT MAX(numero_dia) as ultimo
+     FROM pedidos
+     WHERE restaurante_id = $1 AND criado_em >= $2`,
+    [restauranteId, desde],
   );
   return (parseInt(ultimo[0]?.ultimo) || 0) + 1;
 }
 
-async function getPedidoCompleto(pedido_id) {
-  const { rows } = await query(
-    "SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE p.id = $1",
-    [pedido_id]
+async function getPedidoCompleto(restauranteId, pedidoId, client = null) {
+  const executor = client || {
+    query: (sql, params) => tenantQuery(restauranteId, sql, params),
+  };
+  const { rows } = await executor.query(
+    `SELECT p.*, m.numero as mesa_numero
+     FROM pedidos p
+     JOIN mesas m
+       ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
+     WHERE p.id = $1 AND p.restaurante_id = $2`,
+    [pedidoId, restauranteId],
   );
   const pedido = rows[0];
   if (!pedido) return null;
-  const { rows: itens } = await query(
-    `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-     JOIN produtos pr ON ip.produto_id = pr.id WHERE ip.pedido_id = $1`,
-    [pedido_id]
+  const { rows: itens } = await executor.query(
+    `SELECT ip.*, pr.nome, pr.preco
+     FROM itens_pedido ip
+     JOIN produtos pr
+       ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+     WHERE ip.pedido_id = $1 AND ip.restaurante_id = $2`,
+    [pedidoId, restauranteId],
   );
   pedido.itens = itens;
   return pedido;
+}
+
+const salaRestaurante = (restauranteId) => `restaurante:${restauranteId}`;
+const salaEquipe = (restauranteId) => `${salaRestaurante(restauranteId)}:equipe`;
+const salaMesa = (restauranteId, mesaId) =>
+  `${salaRestaurante(restauranteId)}:mesa:${mesaId}`;
+
+function emitirRestaurante(restauranteId, evento, dados) {
+  io.to(salaRestaurante(restauranteId)).emit(evento, dados);
+}
+
+function emitirEquipe(restauranteId, evento, dados) {
+  io.to(salaEquipe(restauranteId)).emit(evento, dados);
+}
+
+function emitirMesa(restauranteId, mesaId, evento, dados) {
+  io.to(salaMesa(restauranteId, mesaId)).emit(evento, dados);
 }
 
 // ─── ROTAS API ─────────────────────────────────────────────────────────────
@@ -408,15 +585,32 @@ async function getPedidoCompleto(pedido_id) {
 // Cardápio
 app.get("/api/cardapio", async (req, res) => {
   try {
-    const { rows: categorias } = await query(
-      "SELECT * FROM categorias WHERE ativo = 1 ORDER BY ordem"
+    const restaurante = await buscarRestaurantePorSlug(
+      req.query.restaurante_slug || "autenix",
     );
-    const { rows: produtos } = await query(
-      `SELECT p.* FROM produtos p
-       JOIN categorias c ON c.id = p.categoria_id
-       WHERE p.disponivel = 1 AND c.ativo = 1`
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+    const { rows: categorias } = await tenantQuery(
+      restaurante.id,
+      `SELECT id, nome, ordem, ativo, restaurante_id
+       FROM categorias
+       WHERE restaurante_id = $1 AND ativo = 1
+       ORDER BY ordem`,
+      [restaurante.id],
     );
-    res.json({ categorias, produtos });
+    const { rows: produtos } = await tenantQuery(
+      restaurante.id,
+      `SELECT p.*
+       FROM produtos p
+       JOIN categorias c
+         ON c.id = p.categoria_id AND c.restaurante_id = p.restaurante_id
+       WHERE p.restaurante_id = $1
+         AND p.disponivel = 1
+         AND c.ativo = 1`,
+      [restaurante.id],
+    );
+    res.json({ restaurante, categorias, produtos });
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
@@ -425,7 +619,14 @@ app.get("/api/cardapio", async (req, res) => {
 // Mesas
 app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
   try {
-    const { rows } = await query("SELECT * FROM mesas ORDER BY CAST(numero AS INTEGER)");
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `SELECT * FROM mesas
+       WHERE restaurante_id = $1
+       ORDER BY NULLIF(regexp_replace(numero, '[^0-9]', '', 'g'), '')::INTEGER NULLS LAST,
+                numero`,
+      [req.user.restaurante_id],
+    );
     res.json(rows);
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -434,9 +635,12 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
 
 app.get("/api/mesas/:id", async (req, res) => {
   try {
-    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
-    if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
-    res.json(rows[0]);
+    const contexto = await buscarRestauranteDaMesa(
+      req.params.id,
+      req.query.restaurante_slug || "autenix",
+    );
+    if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
+    res.json({ ...contexto.mesa, restaurante: contexto.restaurante });
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
@@ -446,11 +650,14 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
   const { numero } = req.body;
   if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
   try {
-    const { rows } = await query(
-      "INSERT INTO mesas (numero) VALUES ($1) RETURNING *",
-      [String(numero)]
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `INSERT INTO mesas (numero, restaurante_id)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [String(numero), req.user.restaurante_id],
     );
-    io.emit("mesa_atualizada", rows[0]);
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", rows[0]);
     res.json(rows[0]);
   } catch (e) {
     res.status(400).json({ erro: "Mesa já existe" });
@@ -459,10 +666,18 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
 
 app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      "SELECT * FROM mesas WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
     if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
     if (rows[0].status === "ocupada") return res.status(400).json({ erro: "Mesa ocupada" });
-    await query("DELETE FROM mesas WHERE id = $1", [req.params.id]);
+    await tenantQuery(
+      req.user.restaurante_id,
+      "DELETE FROM mesas WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -471,48 +686,120 @@ app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req,
 
 // Fazer pedido (cliente)
 app.post("/api/pedidos", async (req, res) => {
-  const { mesa_id, itens, nome_cliente } = req.body;
+  const { mesa_id, itens, nome_cliente, restaurante_slug } = req.body;
   if (!mesa_id || !itens?.length)
     return res.status(400).json({ erro: "Dados inválidos" });
 
   try {
-    const { rows: mesaRows } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
-    if (!mesaRows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
-
-    const numeroDia = await proximoNumeroDia();
-    const { rows: pedRows } = await query(
-      "INSERT INTO pedidos (mesa_id, status, nome_cliente, numero_dia) VALUES ($1, $2, $3, $4) RETURNING id",
-      [mesa_id, "pendente", nome_cliente || null, numeroDia]
+    const contexto = await buscarRestauranteDaMesa(
+      mesa_id,
+      restaurante_slug || "autenix",
     );
-    const pedido_id = pedRows[0].id;
+    if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
 
-    for (const item of itens) {
-      await query(
-        "INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, observacao) VALUES ($1, $2, $3, $4)",
-        [pedido_id, item.produto_id, item.quantidade, item.observacao || ""]
-      );
+    const restauranteId = contexto.restaurante.id;
+    const itensValidos = itens.every(
+      (item) =>
+        Number.isInteger(Number(item.produto_id)) &&
+        Number.isInteger(Number(item.quantidade)) &&
+        Number(item.quantidade) > 0,
+    );
+    if (!itensValidos) {
+      return res.status(400).json({ erro: "Itens do pedido invalidos" });
     }
 
-    await query("UPDATE mesas SET status = 'ocupada' WHERE id = $1", [mesa_id]);
+    const resultado = await withTenantTransaction(
+      restauranteId,
+      async (client) => {
+        const produtoIds = [...new Set(itens.map((item) => Number(item.produto_id)))];
+        const { rows: produtosValidos } = await client.query(
+          `SELECT id FROM produtos
+           WHERE restaurante_id = $1
+             AND disponivel = 1
+             AND id = ANY($2::INTEGER[])`,
+          [restauranteId, produtoIds],
+        );
+        if (produtosValidos.length !== produtoIds.length) {
+          const error = new Error("Produto indisponivel ou invalido");
+          error.statusCode = 400;
+          throw error;
+        }
 
-    const pedidoCompleto = await getPedidoCompleto(pedido_id);
-    io.emit("novo_pedido", pedidoCompleto);
-    const { rows: mesaAtual } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
-    io.emit("mesa_atualizada", mesaAtual[0]);
+        const numeroDia = await proximoNumeroDia(client, restauranteId);
+        const { rows: pedRows } = await client.query(
+          `INSERT INTO pedidos
+             (mesa_id, status, nome_cliente, numero_dia, restaurante_id)
+           VALUES ($1, 'pendente', $2, $3, $4)
+           RETURNING id`,
+          [mesa_id, nome_cliente || null, numeroDia, restauranteId],
+        );
+        const pedidoId = pedRows[0].id;
 
-    res.json({ sucesso: true, pedido_id });
+        for (const item of itens) {
+          await client.query(
+            `INSERT INTO itens_pedido
+               (pedido_id, produto_id, quantidade, observacao, restaurante_id)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              pedidoId,
+              Number(item.produto_id),
+              Number(item.quantidade),
+              item.observacao || "",
+              restauranteId,
+            ],
+          );
+        }
+
+        await client.query(
+          `UPDATE mesas SET status = 'ocupada'
+           WHERE id = $1 AND restaurante_id = $2`,
+          [mesa_id, restauranteId],
+        );
+        const pedido = await getPedidoCompleto(
+          restauranteId,
+          pedidoId,
+          client,
+        );
+        const { rows: mesaAtual } = await client.query(
+          "SELECT * FROM mesas WHERE id = $1 AND restaurante_id = $2",
+          [mesa_id, restauranteId],
+        );
+        return { pedido, mesa: mesaAtual[0] };
+      },
+    );
+
+    emitirEquipe(restauranteId, "novo_pedido", resultado.pedido);
+    emitirEquipe(restauranteId, "mesa_atualizada", resultado.mesa);
+    emitirMesa(restauranteId, mesa_id, "pedido_atualizado", resultado.pedido);
+    res.json({ sucesso: true, pedido_id: resultado.pedido.id });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
 // Listar pedidos (cozinha/admin)
 app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
   try {
-    const { mesa_id, status } = req.query;
-    let sql = `SELECT p.*, m.numero as mesa_numero FROM pedidos p JOIN mesas m ON p.mesa_id = m.id WHERE 1=1`;
-    const params = [];
-    let i = 1;
+    const { mesa_id, status, restaurante_slug } = req.query;
+    let restauranteId = req.user?.restaurante_id;
+    if (!restauranteId && mesa_id) {
+      const contexto = await buscarRestauranteDaMesa(
+        mesa_id,
+        restaurante_slug || "autenix",
+      );
+      restauranteId = contexto?.restaurante.id;
+    }
+    if (!restauranteId) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    let sql = `SELECT p.*, m.numero as mesa_numero
+               FROM pedidos p
+               JOIN mesas m
+                 ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
+               WHERE p.restaurante_id = $1`;
+    const params = [restauranteId];
+    let i = 2;
 
     if (mesa_id) {
       sql += ` AND p.mesa_id = $${i++}`;
@@ -524,13 +811,17 @@ app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
     }
     sql += " ORDER BY p.criado_em DESC";
 
-    const { rows: pedidos } = await query(sql, params);
+    const { rows: pedidos } = await tenantQuery(restauranteId, sql, params);
     const resultado = await Promise.all(
       pedidos.map(async (p) => {
-        const { rows: itens } = await query(
-          `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-           JOIN produtos pr ON ip.produto_id = pr.id WHERE ip.pedido_id = $1`,
-          [p.id]
+        const { rows: itens } = await tenantQuery(
+          restauranteId,
+          `SELECT ip.*, pr.nome, pr.preco
+           FROM itens_pedido ip
+           JOIN produtos pr
+             ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+           WHERE ip.pedido_id = $1 AND ip.restaurante_id = $2`,
+          [p.id, restauranteId],
         );
         return { ...p, itens };
       })
@@ -545,16 +836,31 @@ app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
 app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
     const { status, garcom_id, garcom_nome } = req.body;
+    if (!["pendente", "preparo", "pronto", "entregue", "finalizado"].includes(status)) {
+      return res.status(400).json({ erro: "Status de pedido invalido" });
+    }
     if (garcom_id) {
-      await query(
-        "UPDATE pedidos SET status = $1, garcom_id = $2, garcom_nome = $3 WHERE id = $4",
-        [status, garcom_id, garcom_nome, req.params.id]
+      await tenantQuery(
+        req.user.restaurante_id,
+        `UPDATE pedidos
+         SET status = $1, garcom_id = $2, garcom_nome = $3
+         WHERE id = $4 AND restaurante_id = $5`,
+        [status, req.user.id, garcom_nome, req.params.id, req.user.restaurante_id],
       );
     } else {
-      await query("UPDATE pedidos SET status = $1 WHERE id = $2", [status, req.params.id]);
+      await tenantQuery(
+        req.user.restaurante_id,
+        "UPDATE pedidos SET status = $1 WHERE id = $2 AND restaurante_id = $3",
+        [status, req.params.id, req.user.restaurante_id],
+      );
     }
-    const pedido = await getPedidoCompleto(Number(req.params.id));
-    io.emit("pedido_atualizado", pedido);
+    const pedido = await getPedidoCompleto(
+      req.user.restaurante_id,
+      Number(req.params.id),
+    );
+    if (!pedido) return res.status(404).json({ erro: "Pedido nao encontrado" });
+    emitirEquipe(req.user.restaurante_id, "pedido_atualizado", pedido);
+    emitirMesa(req.user.restaurante_id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -565,15 +871,30 @@ app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "co
 app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), async (req, res) => {
   try {
     const { status } = req.body;
-    if (!status) return res.status(400).json({ erro: "Status é obrigatório" });
+    if (!["pendente", "preparo", "pronto"].includes(status)) {
+      return res.status(400).json({ erro: "Status de item invalido" });
+    }
 
-    const { rows } = await query("SELECT * FROM itens_pedido WHERE id = $1", [req.params.id]);
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      "SELECT * FROM itens_pedido WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
     if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
 
-    await query("UPDATE itens_pedido SET status = $1 WHERE id = $2", [status, req.params.id]);
+    await tenantQuery(
+      req.user.restaurante_id,
+      `UPDATE itens_pedido SET status = $1
+       WHERE id = $2 AND restaurante_id = $3`,
+      [status, req.params.id, req.user.restaurante_id],
+    );
 
-    const pedido = await getPedidoCompleto(rows[0].pedido_id);
-    io.emit("pedido_atualizado", pedido);
+    const pedido = await getPedidoCompleto(
+      req.user.restaurante_id,
+      rows[0].pedido_id,
+    );
+    emitirEquipe(req.user.restaurante_id, "pedido_atualizado", pedido);
+    emitirMesa(req.user.restaurante_id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -583,13 +904,39 @@ app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), asy
 // Cancelar item
 app.patch("/api/itens/:id/cancelar", async (req, res) => {
   try {
-    const { rows } = await query("SELECT * FROM itens_pedido WHERE id = $1", [req.params.id]);
+    const mesaId = Number(req.body?.mesa_id);
+    if (!Number.isInteger(mesaId) || mesaId <= 0) {
+      return res.status(400).json({ erro: "Mesa invalida" });
+    }
+    const restaurante = await buscarRestaurantePorSlug(
+      req.body?.restaurante_slug || "autenix",
+    );
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+    const { rows } = await tenantQuery(
+      restaurante.id,
+      `SELECT ip.*
+       FROM itens_pedido ip
+       JOIN pedidos p
+         ON p.id = ip.pedido_id AND p.restaurante_id = ip.restaurante_id
+       WHERE ip.id = $1
+         AND ip.restaurante_id = $2
+         AND p.mesa_id = $3`,
+      [req.params.id, restaurante.id, mesaId],
+    );
     if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
     if (rows[0].status !== "pendente") return res.status(400).json({ erro: "Item ja em preparo" });
 
-    await query("UPDATE itens_pedido SET status = 'cancelado' WHERE id = $1", [req.params.id]);
-    const pedido = await getPedidoCompleto(rows[0].pedido_id);
-    io.emit("pedido_atualizado", pedido);
+    await tenantQuery(
+      restaurante.id,
+      `UPDATE itens_pedido SET status = 'cancelado'
+       WHERE id = $1 AND restaurante_id = $2`,
+      [req.params.id, restaurante.id],
+    );
+    const pedido = await getPedidoCompleto(restaurante.id, rows[0].pedido_id);
+    emitirEquipe(restaurante.id, "pedido_atualizado", pedido);
+    emitirMesa(restaurante.id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -602,37 +949,73 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
     const { forma_pagamento, obs_pagamento } = req.body || {};
     if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
 
-    await query(
-      "UPDATE mesas SET status = 'livre', forma_pagamento = $1, obs_pagamento = $2 WHERE id = $3",
-      [forma_pagamento, obs_pagamento || null, req.params.id]
-    );
-    await query(
-      "UPDATE pedidos SET status = 'finalizado', forma_pagamento = $1 WHERE mesa_id = $2 AND status != 'finalizado'",
-      [forma_pagamento, req.params.id]
+    const { rows } = await withTenantTransaction(
+      req.user.restaurante_id,
+      async (client) => {
+        const mesaAtualizada = await client.query(
+          `UPDATE mesas
+           SET status = 'livre', forma_pagamento = $1, obs_pagamento = $2
+           WHERE id = $3 AND restaurante_id = $4
+           RETURNING *`,
+          [
+            forma_pagamento,
+            obs_pagamento || null,
+            req.params.id,
+            req.user.restaurante_id,
+          ],
+        );
+        if (!mesaAtualizada.rows[0]) {
+          const error = new Error("Mesa nao encontrada");
+          error.statusCode = 404;
+          throw error;
+        }
+        await client.query(
+          `UPDATE pedidos
+           SET status = 'finalizado', forma_pagamento = $1
+           WHERE mesa_id = $2
+             AND restaurante_id = $3
+             AND status != 'finalizado'`,
+          [forma_pagamento, req.params.id, req.user.restaurante_id],
+        );
+        return mesaAtualizada;
+      },
     );
 
-    const { rows } = await query("SELECT * FROM mesas WHERE id = $1", [req.params.id]);
-    io.emit("mesa_atualizada", rows[0]);
-    io.emit("mesa_fechada", req.params.id);
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", rows[0]);
+    emitirEquipe(req.user.restaurante_id, "mesa_fechada", req.params.id);
+    emitirMesa(req.user.restaurante_id, req.params.id, "mesa_fechada", req.params.id);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
 // Chamar garçom
 app.post("/api/chamadas", async (req, res) => {
   try {
-    const { mesa_id, motivo, nome_cliente } = req.body;
-    const { rows } = await query(
-      "INSERT INTO chamadas (mesa_id, motivo, nome_cliente) VALUES ($1, $2, $3) RETURNING id",
-      [mesa_id, motivo || "garcom", nome_cliente || null]
+    const { mesa_id, motivo, nome_cliente, restaurante_slug } = req.body;
+    const contexto = await buscarRestauranteDaMesa(
+      mesa_id,
+      restaurante_slug || "autenix",
     );
-    const { rows: mesaRows } = await query("SELECT * FROM mesas WHERE id = $1", [mesa_id]);
-    io.emit("chamada_garcom", {
+    if (!contexto) return res.status(404).json({ erro: "Mesa nao encontrada" });
+    const { rows } = await tenantQuery(
+      contexto.restaurante.id,
+      `INSERT INTO chamadas
+         (mesa_id, motivo, nome_cliente, restaurante_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [
+        mesa_id,
+        motivo || "garcom",
+        nome_cliente || null,
+        contexto.restaurante.id,
+      ],
+    );
+    emitirEquipe(contexto.restaurante.id, "chamada_garcom", {
       id: rows[0].id,
       mesa_id,
-      mesa_numero: mesaRows[0].numero,
+      mesa_numero: contexto.mesa.numero,
       motivo: motivo || "garcom",
       nome_cliente,
     });
@@ -645,8 +1028,15 @@ app.post("/api/chamadas", async (req, res) => {
 // Atender chamada
 app.patch("/api/chamadas/:id/atender", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
-    await query("UPDATE chamadas SET atendida = 1 WHERE id = $1", [req.params.id]);
-    io.emit("chamada_atendida", { id: Number(req.params.id) });
+    await tenantQuery(
+      req.user.restaurante_id,
+      `UPDATE chamadas SET atendida = 1
+       WHERE id = $1 AND restaurante_id = $2`,
+      [req.params.id, req.user.restaurante_id],
+    );
+    emitirEquipe(req.user.restaurante_id, "chamada_atendida", {
+      id: Number(req.params.id),
+    });
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -656,10 +1046,15 @@ app.patch("/api/chamadas/:id/atender", autenticarJWT, autorizarRoles("garcom", "
 // Chamadas pendentes
 app.get("/api/chamadas", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
-    const { rows } = await query(
-      `SELECT ch.*, m.numero as mesa_numero FROM chamadas ch
-       JOIN mesas m ON ch.mesa_id = m.id
-       WHERE ch.atendida = 0 ORDER BY ch.criado_em DESC`
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `SELECT ch.*, m.numero as mesa_numero
+       FROM chamadas ch
+       JOIN mesas m
+         ON m.id = ch.mesa_id AND m.restaurante_id = ch.restaurante_id
+       WHERE ch.restaurante_id = $1 AND ch.atendida = 0
+       ORDER BY ch.criado_em DESC`,
+      [req.user.restaurante_id],
     );
     res.json(rows);
   } catch (e) {
@@ -668,10 +1063,15 @@ app.get("/api/chamadas", autenticarJWT, autorizarRoles("garcom", "cozinha"), asy
 });
 
 // QR Code por mesa
-app.get("/api/qrcode/:mesa_id", async (req, res) => {
+app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const ip = getLocalIP();
-    const url = `http://${ip}:3000/mesa/${req.params.mesa_id}`;
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      "SELECT id FROM mesas WHERE id = $1 AND restaurante_id = $2",
+      [req.params.mesa_id, req.user.restaurante_id],
+    );
+    if (!rows[0]) return res.status(404).json({ erro: "Mesa nao encontrada" });
+    const url = `${PUBLIC_APP_URL}/r/${req.user.restaurante_slug}/mesa/${req.params.mesa_id}`;
     const qr = await QRCode.toDataURL(url);
     res.json({ url, qr });
   } catch (e) {
@@ -683,11 +1083,14 @@ app.get("/api/qrcode/:mesa_id", async (req, res) => {
 app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome } = req.body;
-    const { rows } = await query(
-      "INSERT INTO categorias (nome, ordem) VALUES ($1, $2) RETURNING id",
-      [nome, 99]
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `INSERT INTO categorias (nome, ordem, restaurante_id)
+       VALUES ($1, $2, $3)
+       RETURNING id`,
+      [nome, 99, req.user.restaurante_id],
     );
-    io.emit("cardapio_atualizado");
+    emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -696,8 +1099,12 @@ app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, 
 
 app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    await query("DELETE FROM categorias WHERE id = $1", [req.params.id]);
-    io.emit("cardapio_atualizado");
+    await tenantQuery(
+      req.user.restaurante_id,
+      "DELETE FROM categorias WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
+    emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -707,12 +1114,23 @@ app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async 
 // Produtos (admin)
 app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { categoria_id, nome, descricao, preco } = req.body;
-    const { rows } = await query(
-      "INSERT INTO produtos (categoria_id, nome, descricao, preco) VALUES ($1, $2, $3, $4) RETURNING id",
-      [categoria_id, nome, descricao, preco]
+    const { categoria_id, nome, descricao, preco, imagem } = req.body;
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `INSERT INTO produtos
+         (categoria_id, nome, descricao, preco, imagem, restaurante_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        categoria_id,
+        nome,
+        descricao,
+        preco,
+        imagem || null,
+        req.user.restaurante_id,
+      ],
     );
-    io.emit("cardapio_atualizado");
+    emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -721,12 +1139,29 @@ app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, re
 
 app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { nome, descricao, preco, disponivel } = req.body;
-    await query(
-      "UPDATE produtos SET nome=$1, descricao=$2, preco=$3, disponivel=$4 WHERE id=$5",
-      [nome, descricao, preco, disponivel ? 1 : 0, req.params.id]
+    const { nome, descricao, preco, disponivel, imagem, categoria_id } = req.body;
+    await tenantQuery(
+      req.user.restaurante_id,
+      `UPDATE produtos
+       SET nome = $1,
+           descricao = $2,
+           preco = $3,
+           disponivel = $4,
+           imagem = $5,
+           categoria_id = COALESCE($6, categoria_id)
+       WHERE id = $7 AND restaurante_id = $8`,
+      [
+        nome,
+        descricao,
+        preco,
+        disponivel ? 1 : 0,
+        imagem || null,
+        categoria_id || null,
+        req.params.id,
+        req.user.restaurante_id,
+      ],
     );
-    io.emit("cardapio_atualizado");
+    emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -735,8 +1170,12 @@ app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (re
 
 app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    await query("DELETE FROM produtos WHERE id = $1", [req.params.id]);
-    io.emit("cardapio_atualizado");
+    await tenantQuery(
+      req.user.restaurante_id,
+      "DELETE FROM produtos WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
+    emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -747,7 +1186,8 @@ app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (r
 app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
-    const { rows } = await query(
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
       `SELECT
         p.id, p.numero_dia, p.mesa_id,
         m.numero as mesa_numero,
@@ -756,23 +1196,29 @@ app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (re
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
         COUNT(DISTINCT CASE WHEN ip.status != 'cancelado' THEN ip.id END) as total_itens
        FROM pedidos p
-       JOIN mesas m ON p.mesa_id = m.id
-       JOIN itens_pedido ip ON ip.pedido_id = p.id
-       JOIN produtos pr ON pr.id = ip.produto_id
-       WHERE p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $1
+       JOIN mesas m ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
+       JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+       WHERE p.restaurante_id = $1
+         AND p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $2
        GROUP BY p.id, m.numero
        ORDER BY p.criado_em DESC`,
-      [hoje]
+      [req.user.restaurante_id, hoje],
     );
 
     const resultado = await Promise.all(
       rows.map(async (r) => {
-        const { rows: itens } = await query(
-          `SELECT ip.*, pr.nome, pr.preco FROM itens_pedido ip
-           JOIN produtos pr ON pr.id = ip.produto_id
-           WHERE ip.pedido_id = $1 AND ip.status != 'cancelado'`,
-          [r.id]
+        const { rows: itens } = await tenantQuery(
+          req.user.restaurante_id,
+          `SELECT ip.*, pr.nome, pr.preco
+           FROM itens_pedido ip
+           JOIN produtos pr
+             ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+           WHERE ip.pedido_id = $1
+             AND ip.restaurante_id = $2
+             AND ip.status != 'cancelado'`,
+          [r.id, req.user.restaurante_id],
         );
         return { ...r, itens };
       })
@@ -786,9 +1232,13 @@ app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (re
 // Reiniciar numeração
 app.post("/api/pedidos/reiniciar-numeracao", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    await query(
-      "INSERT INTO configuracoes (chave, valor) VALUES ('ultimo_reinicio', $1) ON CONFLICT (chave) DO UPDATE SET valor = $1",
-      [new Date().toISOString()]
+    await tenantQuery(
+      req.user.restaurante_id,
+      `INSERT INTO configuracoes (restaurante_id, chave, valor)
+       VALUES ($1, 'ultimo_reinicio', $2)
+       ON CONFLICT (restaurante_id, chave)
+       DO UPDATE SET valor = EXCLUDED.valor`,
+      [req.user.restaurante_id, new Date().toISOString()],
     );
     res.json({ sucesso: true });
   } catch (e) {
@@ -825,7 +1275,8 @@ app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (re
       dataFim = hoje;
     }
 
-    const { rows } = await query(
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
       `SELECT
         p.mesa_id,
         m.numero as mesa_numero,
@@ -836,15 +1287,16 @@ app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (re
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
         to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'DD/MM HH24:MI') as fechado_em
        FROM pedidos p
-       JOIN mesas m ON p.mesa_id = m.id
-       JOIN itens_pedido ip ON ip.pedido_id = p.id
-       JOIN produtos pr ON pr.id = ip.produto_id
-       WHERE p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date >= $1
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date <= $2
+       JOIN mesas m ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
+       JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+       WHERE p.restaurante_id = $1
+         AND p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date >= $2
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date <= $3
        GROUP BY p.id, m.numero
        ORDER BY MAX(p.criado_em) DESC`,
-      [dataInicio, dataFim]
+      [req.user.restaurante_id, dataInicio, dataFim],
     );
 
     const totalGeral = rows.reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
@@ -858,7 +1310,8 @@ app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (re
 app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
-    const { rows } = await query(
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
       `SELECT
         p.mesa_id,
         m.numero as mesa_numero,
@@ -867,14 +1320,15 @@ app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), asy
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
         to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'HH24:MI') as fechado_em
        FROM pedidos p
-       JOIN mesas m ON p.mesa_id = m.id
-       JOIN itens_pedido ip ON ip.pedido_id = p.id
-       JOIN produtos pr ON pr.id = ip.produto_id
-       WHERE p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $1
+       JOIN mesas m ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
+       JOIN itens_pedido ip ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
+       JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+       WHERE p.restaurante_id = $1
+         AND p.status = 'finalizado'
+         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $2
        GROUP BY p.mesa_id, m.numero
        ORDER BY MAX(p.criado_em) DESC`,
-      [hoje]
+      [req.user.restaurante_id, hoje],
     );
     const totalDia = rows.reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
     res.json({ rows, totalDia, data: hoje });
@@ -886,23 +1340,39 @@ app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), asy
 // ─── USUARIOS ──────────────────────────────────────────────────────────────
 
 app.post("/api/auth/login", loginRateLimit, async (req, res) => {
-  const { login, senha } = req.body;
+  const { login, senha, restaurante_slug } = req.body;
   if (!login || !senha) return res.status(400).json({ erro: "Dados incompletos" });
   try {
+    const restaurante = await buscarRestaurantePorSlug(restaurante_slug || "autenix");
+    if (!restaurante) {
+      return res.status(401).json({ erro: "Restaurante, login ou senha incorretos" });
+    }
     const loginNormalizado = normalizarLogin(login);
-    const { rows } = await query(
-      "SELECT * FROM usuarios WHERE (login = $1 OR nome = $2) AND ativo = 1",
-      [loginNormalizado, String(login).trim()]
+    const { rows } = await tenantQuery(
+      restaurante.id,
+      `SELECT * FROM usuarios
+       WHERE restaurante_id = $1
+         AND (login = $2 OR nome = $3)
+         AND ativo = 1`,
+      [restaurante.id, loginNormalizado, String(login).trim()],
     );
-    const u = rows[0];
+    const u = rows[0]
+      ? {
+          ...rows[0],
+          restaurante_slug: restaurante.slug,
+          restaurante_nome: restaurante.nome,
+        }
+      : null;
     if (!u || !(await senhaConfere(senha, u.senha)))
       return res.status(401).json({ erro: "Login ou senha incorretos" });
 
     if (!isBcryptHash(u.senha)) {
-      await query("UPDATE usuarios SET senha = $1 WHERE id = $2", [
-        await hashSenha(senha),
-        u.id,
-      ]);
+      await tenantQuery(
+        restaurante.id,
+        `UPDATE usuarios SET senha = $1
+         WHERE id = $2 AND restaurante_id = $3`,
+        [await hashSenha(senha), u.id, restaurante.id],
+      );
     }
 
     res.json({
@@ -916,10 +1386,29 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
   }
 });
 
-app.get("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
+app.get("/api/restaurante", autenticarJWT, async (req, res) => {
   try {
     const { rows } = await query(
-      "SELECT id, nome, login, role, ativo FROM usuarios ORDER BY role, nome"
+      `SELECT id, nome, slug, ativo, logo_url, cor_primaria, cor_secundaria
+       FROM restaurantes WHERE id = $1 AND ativo = 1`,
+      [req.user.restaurante_id],
+    );
+    if (!rows[0]) return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    return res.json(rows[0]);
+  } catch (error) {
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+app.get("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
+  try {
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `SELECT id, nome, login, role, ativo, restaurante_id
+       FROM usuarios
+       WHERE restaurante_id = $1
+       ORDER BY role, nome`,
+      [req.user.restaurante_id],
     );
     res.json(rows);
   } catch (e) {
@@ -935,15 +1424,21 @@ app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, re
 
   const loginFinal = normalizarLogin(login || nome);
   try {
-    const { rows: existing } = await query(
-      "SELECT id FROM usuarios WHERE login = $1",
-      [loginFinal]
+    const { rows: existing } = await tenantQuery(
+      req.user.restaurante_id,
+      `SELECT id FROM usuarios
+       WHERE login = $1 AND restaurante_id = $2`,
+      [loginFinal, req.user.restaurante_id],
     );
     if (existing[0]) return res.status(400).json({ erro: "Login ja existe, escolha outro" });
 
-    const { rows } = await query(
-      "INSERT INTO usuarios (nome, login, senha, role) VALUES ($1, $2, $3, $4) RETURNING id",
-      [nome, loginFinal, await hashSenha(senha), role]
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      `INSERT INTO usuarios
+         (nome, login, senha, role, restaurante_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [nome, loginFinal, await hashSenha(senha), role, req.user.restaurante_id],
     );
     res.json({ id: rows[0].id, login: loginFinal });
   } catch (e) {
@@ -954,13 +1449,20 @@ app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, re
 app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome, login, senha, ativo, role } = req.body;
-    const { rows } = await query("SELECT * FROM usuarios WHERE id = $1", [req.params.id]);
+    const { rows } = await tenantQuery(
+      req.user.restaurante_id,
+      "SELECT * FROM usuarios WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
     if (!rows[0]) return res.status(404).json({ erro: "Usuario nao encontrado" });
     const u = rows[0];
     const novoLogin = normalizarLogin(login || u.login || u.nome);
     const novaSenha = senha && senha.length > 0 ? await hashSenha(senha) : u.senha;
-    await query(
-      "UPDATE usuarios SET nome=$1, login=$2, senha=$3, ativo=$4, role=$5 WHERE id=$6",
+    await tenantQuery(
+      req.user.restaurante_id,
+      `UPDATE usuarios
+       SET nome = $1, login = $2, senha = $3, ativo = $4, role = $5
+       WHERE id = $6 AND restaurante_id = $7`,
       [
         nome ?? u.nome,
         novoLogin,
@@ -968,7 +1470,8 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
         ativo ?? u.ativo,
         role ?? u.role,
         req.params.id,
-      ]
+        req.user.restaurante_id,
+      ],
     );
     res.json({ sucesso: true });
   } catch (e) {
@@ -978,7 +1481,14 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
 
 app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    await query("DELETE FROM usuarios WHERE id = $1", [req.params.id]);
+    if (Number(req.params.id) === req.user.id) {
+      return res.status(400).json({ erro: "Nao e possivel remover o usuario atual" });
+    }
+    await tenantQuery(
+      req.user.restaurante_id,
+      "DELETE FROM usuarios WHERE id = $1 AND restaurante_id = $2",
+      [req.params.id, req.user.restaurante_id],
+    );
     res.json({ sucesso: true });
   } catch (e) {
     res.status(500).json({ erro: e.message });
@@ -996,15 +1506,32 @@ app.use((error, req, res, next) => {
   return res.status(500).json({ erro: "Erro interno do servidor" });
 });
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
-  if (!token) {
-    socket.user = null;
-    return next();
-  }
-
   try {
-    socket.user = usuarioDoToken(token);
+    if (token) {
+      socket.user = usuarioDoToken(token);
+      socket.publicContext = null;
+      return next();
+    }
+
+    socket.user = null;
+    const mesaId = Number(socket.handshake.auth?.mesa_id);
+    const restauranteSlug = socket.handshake.auth?.restaurante_slug;
+    if (!Number.isInteger(mesaId) || mesaId <= 0 || !restauranteSlug) {
+      socket.publicContext = null;
+      return next();
+    }
+
+    const contexto = await buscarRestauranteDaMesa(mesaId, restauranteSlug);
+    if (!contexto) {
+      return next(new Error("Mesa ou restaurante invalido para o Socket.IO"));
+    }
+    socket.publicContext = {
+      restaurante_id: contexto.restaurante.id,
+      restaurante_slug: contexto.restaurante.slug,
+      mesa_id: contexto.mesa.id,
+    };
     return next();
   } catch (e) {
     return next(new Error("Token Socket.IO invalido ou expirado"));
@@ -1025,16 +1552,56 @@ function exigirSocketRole(socket, evento, ...rolesPermitidas) {
 }
 
 io.on("connection", (socket) => {
-  console.log("Cliente conectado:", socket.id, socket.user?.role || "publico");
+  const restauranteId =
+    socket.user?.restaurante_id || socket.publicContext?.restaurante_id;
+  const mesaId = socket.publicContext?.mesa_id;
 
-  socket.on("pedido_ficou_pronto", (data) => {
+  if (restauranteId) socket.join(salaRestaurante(restauranteId));
+  if (socket.user) socket.join(salaEquipe(restauranteId));
+  if (mesaId) socket.join(salaMesa(restauranteId, mesaId));
+
+  console.log(
+    "Cliente conectado:",
+    socket.id,
+    socket.user?.role || (mesaId ? `mesa:${mesaId}` : "publico"),
+  );
+
+  socket.on("pedido_ficou_pronto", async (data) => {
     if (!exigirSocketRole(socket, "pedido_ficou_pronto", "cozinha")) return;
-    io.emit("pedido_pronto", data);
+    try {
+      emitirEquipe(restauranteId, "pedido_pronto", data);
+
+      const mesaDoPedido = Number(data?.mesa_id);
+      if (!Number.isInteger(mesaDoPedido) || mesaDoPedido <= 0) return;
+      const { rows } = await tenantQuery(
+        restauranteId,
+        "SELECT id FROM mesas WHERE id = $1 AND restaurante_id = $2",
+        [mesaDoPedido, restauranteId],
+      );
+      if (rows[0]) emitirMesa(restauranteId, mesaDoPedido, "pedido_pronto", data);
+    } catch {
+      socket.emit("erro_operacao", { evento: "pedido_ficou_pronto" });
+    }
   });
 
-  socket.on("mesa_fechada_event", (mesa_id) => {
+  socket.on("mesa_fechada_event", async (mesa_id) => {
     if (!exigirSocketRole(socket, "mesa_fechada_event", "garcom", "financeiro")) return;
-    io.emit("mesa_fechada", mesa_id);
+    try {
+      const mesaIdFechada = Number(mesa_id);
+      if (!Number.isInteger(mesaIdFechada) || mesaIdFechada <= 0) return;
+
+      const { rows } = await tenantQuery(
+        restauranteId,
+        "SELECT id FROM mesas WHERE id = $1 AND restaurante_id = $2",
+        [mesaIdFechada, restauranteId],
+      );
+      if (!rows[0]) return;
+
+      emitirEquipe(restauranteId, "mesa_fechada", mesaIdFechada);
+      emitirMesa(restauranteId, mesaIdFechada, "mesa_fechada", mesaIdFechada);
+    } catch {
+      socket.emit("erro_operacao", { evento: "mesa_fechada_event" });
+    }
   });
 
   socket.on("disconnect", () => console.log("Cliente desconectado:", socket.id));
