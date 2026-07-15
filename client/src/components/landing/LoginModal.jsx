@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { loginUsuario, rotaDoPerfil } from "../../services/auth.js";
 
-export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug }) {
+export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, marca }) {
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
   const [slug, setSlug] = useState(restauranteSlug || "autenix");
@@ -95,7 +95,11 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug }
         </button>
 
         <aside className="lp-login-brand" aria-hidden="true">
-          <img src="/logoGuia.png" alt="" />
+          {(marca?.whiteLabelAtivo ? marca.logoUrl : "/logoGuia.png") ? (
+            <img src={marca?.whiteLabelAtivo ? marca.logoUrl : "/logoGuia.png"} alt="" />
+          ) : (
+            <span className="lp-login-brand-mark"><Building2 size={28} /></span>
+          )}
           <div>
             <span className="lp-login-brand-label">Acesso seguro</span>
             <h2>O restaurante inteiro continua daqui.</h2>
@@ -119,7 +123,7 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug }
             <span className="lp-login-kicker">
               <LockKeyhole size={15} /> Área do restaurante
             </span>
-            <h2 id="lp-login-title">Acesse o Autenix</h2>
+            <h2 id="lp-login-title">Acesse o {marca?.nome || "Autenix"}</h2>
             <p>Use suas credenciais para abrir o painel do seu perfil.</p>
           </div>
 

@@ -1,6 +1,8 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap");
+
 .central-page {
-  --central-primary: #0d293a;
-  --central-accent: #ef6f2e;
+  --central-primary: #0b2134;
+  --central-accent: #f2742d;
   --central-bg: #f4f6f7;
   --central-surface: #ffffff;
   --central-border: #dce2e5;
@@ -45,6 +47,19 @@
   max-height: 44px;
   object-fit: contain;
   object-position: left center;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.central-brand-name {
+  overflow: hidden;
+  color: #ffffff;
+  font-family: Manrope, sans-serif;
+  font-size: 16px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .central-header-actions,
@@ -162,6 +177,7 @@
   font-size: clamp(26px, 3vw, 38px);
   line-height: 1.08;
   letter-spacing: 0;
+  font-family: Manrope, sans-serif;
 }
 
 .central-identity {
@@ -210,6 +226,7 @@
   font-size: 21px;
   line-height: 1.2;
   letter-spacing: 0;
+  font-family: Manrope, sans-serif;
 }
 
 .central-access-link {

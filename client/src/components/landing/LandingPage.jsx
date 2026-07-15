@@ -31,6 +31,7 @@ import {
   Zap,
 } from "lucide-react";
 import { rotaDoPerfil } from "../../services/auth.js";
+import { useBranding } from "../branding/branding-context.js";
 import LoginModal from "./LoginModal.jsx";
 import "./LandingPage.css";
 
@@ -241,7 +242,13 @@ function Icone({ icon, ...props }) {
   return createElement(icon, props);
 }
 
-function Header({ usuario, onAccess }) {
+function MarcaLogo({ marca }) {
+  return marca.logoUrl
+    ? <img src={marca.logoUrl} alt={marca.nome} />
+    : <span className="lp-brand-text">{marca.nome}</span>;
+}
+
+function Header({ usuario, onAccess, marca }) {
   const [menuAberto, setMenuAberto] = useState(false);
   const [compacto, setCompacto] = useState(false);
 
@@ -263,8 +270,8 @@ function Header({ usuario, onAccess }) {
   return (
     <header className={`lp-header ${compacto ? "is-compact" : ""}`}>
       <div className="lp-container lp-header-inner">
-        <a className="lp-brand" href="#inicio" aria-label="Autenix - início">
-          <img src="/logoAutenix.png" alt="Autenix" />
+        <a className="lp-brand" href="#inicio" aria-label={`${marca.nome} - início`}>
+          <MarcaLogo marca={marca} />
         </a>
 
         <nav className="lp-nav" aria-label="Navegação principal">
@@ -317,7 +324,7 @@ function Header({ usuario, onAccess }) {
   );
 }
 
-function Hero({ usuario, onAccess }) {
+function Hero({ usuario, onAccess, marca }) {
   return (
     <section className="lp-hero" id="inicio">
       <div className="lp-hero-image" aria-hidden="true" />
@@ -327,7 +334,7 @@ function Hero({ usuario, onAccess }) {
           <span className="lp-live-label">
             <span /> Operação conectada em tempo real
           </span>
-          <h1>Autenix</h1>
+          <h1>{marca.nome}</h1>
           <p className="lp-hero-statement">Seu restaurante no ritmo certo.</p>
           <p className="lp-hero-description">
             Pedidos, mesas, cozinha, equipe e financeiro em um único fluxo,
@@ -575,13 +582,13 @@ function Fluxo() {
   );
 }
 
-function FinalCta({ usuario, onAccess }) {
+function FinalCta({ usuario, onAccess, marca }) {
   return (
     <section className="lp-final-cta">
       <div className="lp-container lp-final-cta-inner">
         <div>
           <span className="lp-eyebrow">Seu restaurante, conectado</span>
-          <h2>Entre no Autenix e continue a operação.</h2>
+          <h2>Entre no {marca.nome} e continue a operação.</h2>
           <p>
             Acesse com seu perfil e abra diretamente a área preparada para o seu trabalho.
           </p>
@@ -595,12 +602,12 @@ function FinalCta({ usuario, onAccess }) {
   );
 }
 
-function Footer() {
+function Footer({ marca }) {
   return (
     <footer className="lp-footer">
       <div className="lp-container lp-footer-inner">
-        <a className="lp-brand" href="#inicio" aria-label="Autenix - voltar ao início">
-          <img src="/logoAutenix.png" alt="Autenix" />
+        <a className="lp-brand" href="#inicio" aria-label={`${marca.nome} - voltar ao início`}>
+          <MarcaLogo marca={marca} />
         </a>
         <p>Gestão conectada para restaurantes que querem servir melhor.</p>
         <div>
@@ -610,7 +617,7 @@ function Footer() {
         </div>
       </div>
       <div className="lp-container lp-footer-bottom">
-        <span>© {new Date().getFullYear()} Autenix.</span>
+        <span>© {new Date().getFullYear()} {marca.nome}.</span>
         <span>Operação, equipe e resultados no mesmo fluxo.</span>
       </div>
     </footer>
@@ -619,10 +626,11 @@ function Footer() {
 
 export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
   const [loginAberto, setLoginAberto] = useState(false);
+  const marca = useBranding();
 
   useEffect(() => {
-    document.title = "Autenix | Gestão completa para restaurantes";
-  }, []);
+    document.title = `${marca.nome} | Gestão completa para restaurantes`;
+  }, [marca.nome]);
 
   const acessar = () => {
     if (usuario) {
@@ -636,21 +644,22 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
 
   return (
     <div className="lp-page">
-      <Header usuario={usuario} onAccess={acessar} />
+      <Header usuario={usuario} onAccess={acessar} marca={marca} />
       <main>
-        <Hero usuario={usuario} onAccess={acessar} />
+        <Hero usuario={usuario} onAccess={acessar} marca={marca} />
         <Beneficios />
         <AreasDoSistema />
         <CardapioVitrine />
         <Fluxo />
-        <FinalCta usuario={usuario} onAccess={acessar} />
+        <FinalCta usuario={usuario} onAccess={acessar} marca={marca} />
       </main>
-      <Footer />
+      <Footer marca={marca} />
       <LoginModal
         aberto={loginAberto}
         onClose={() => setLoginAberto(false)}
         onLogin={onLogin}
         restauranteSlug={restauranteSlug}
+        marca={marca}
       />
     </div>
   );

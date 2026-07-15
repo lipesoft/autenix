@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { API_URL } from "../../services/api.js";
 import { authFetch, rotaRestaurante } from "../../services/auth.js";
+import { useBranding } from "../branding/branding-context.js";
 import "./CentralOperacao.css";
 
 const SETORES = [
@@ -142,6 +143,7 @@ function LinkActions({ caminho, titulo, onFeedback }) {
 }
 
 export default function CentralOperacao({ usuario, onLogout }) {
+  const marca = useBranding();
   const slug = usuario.restaurante_slug || "autenix";
   const [restaurante, setRestaurante] = useState(null);
   const [mesas, setMesas] = useState([]);
@@ -211,13 +213,17 @@ export default function CentralOperacao({ usuario, onLogout }) {
     <div
       className="central-page"
       style={{
-        "--central-primary": restaurante?.cor_primaria || "#0d293a",
-        "--central-accent": restaurante?.cor_secundaria || "#ef6f2e",
+        "--central-primary": marca.corPrimaria,
+        "--central-accent": marca.corDestaque,
       }}
     >
       <header className="central-header">
-        <a className="central-brand" href={acessoRestaurante} aria-label="Autenix">
-          <img src="/logoAutenix.png" alt="Autenix" />
+        <a className="central-brand" href={acessoRestaurante} aria-label={marca.nome}>
+          {marca.logoUrl ? (
+            <img src={marca.logoUrl} alt={marca.nome} />
+          ) : (
+            <span className="central-brand-name">{marca.nome}</span>
+          )}
         </a>
         <div className="central-header-actions">
           <span className="central-user">
@@ -239,8 +245,8 @@ export default function CentralOperacao({ usuario, onLogout }) {
       <main className="central-main">
         <section className="central-intro">
           <div className="central-restaurant-mark">
-            {restaurante?.logo_url ? (
-              <img src={restaurante.logo_url} alt="" />
+            {marca.logoUrl ? (
+              <img src={marca.logoUrl} alt="" />
             ) : (
               <Building2 size={25} />
             )}

@@ -27,6 +27,10 @@ html {
 }
 
 .lp-page {
+  --lp-navy-950: color-mix(in srgb, var(--app-primary, #0b2134) 82%, #000000);
+  --lp-navy-900: var(--app-primary, #0b2134);
+  --lp-orange: var(--app-accent, #f2742d);
+  --lp-orange-dark: var(--app-accent-dark, #c9511c);
   min-height: 100vh;
   overflow: hidden;
   background: var(--lp-paper);
@@ -1287,6 +1291,28 @@ html {
 
 .lp-login-form input::placeholder {
   color: #98a4ab;
+}
+
+.lp-login-brand-mark {
+  width: 72px;
+  height: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--lp-orange);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.lp-brand-text {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--lp-navy-900);
+  font-family: "Manrope", sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lp-restaurant-field {
