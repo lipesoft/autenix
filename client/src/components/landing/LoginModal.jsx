@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
+  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -11,9 +12,10 @@ import {
 } from "lucide-react";
 import { loginUsuario, rotaDoPerfil } from "../../services/auth.js";
 
-export default function LoginModal({ aberto, onClose, onLogin }) {
+export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug }) {
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
+  const [slug, setSlug] = useState(restauranteSlug || "autenix");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [status, setStatus] = useState("idle");
   const [mensagem, setMensagem] = useState("");
@@ -22,11 +24,12 @@ export default function LoginModal({ aberto, onClose, onLogin }) {
   const fechar = useCallback(() => {
     setLogin("");
     setSenha("");
+    setSlug(restauranteSlug || "autenix");
     setMostrarSenha(false);
     setStatus("idle");
     setMensagem("");
     onClose();
-  }, [onClose]);
+  }, [onClose, restauranteSlug]);
 
   useEffect(() => {
     if (!aberto) return undefined;
@@ -50,9 +53,9 @@ export default function LoginModal({ aberto, onClose, onLogin }) {
 
   const entrar = async (event) => {
     event.preventDefault();
-    if (!login.trim() || !senha) {
+    if (!slug.trim() || !login.trim() || !senha) {
       setStatus("error");
-      setMensagem("Preencha o usuário e a senha para continuar.");
+      setMensagem("Preencha o restaurante, o usuário e a senha para continuar.");
       return;
     }
 
@@ -60,12 +63,12 @@ export default function LoginModal({ aberto, onClose, onLogin }) {
     setMensagem("");
 
     try {
-      const usuario = await loginUsuario(login.trim(), senha);
+      const usuario = await loginUsuario(login.trim(), senha, slug);
       onLogin(usuario);
       setStatus("success");
       setMensagem(`Bem-vindo, ${usuario.nome || usuario.login}. Abrindo seu painel...`);
       window.setTimeout(() => {
-        window.location.assign(rotaDoPerfil(usuario.role));
+        window.location.assign(rotaDoPerfil(usuario.role, usuario.restaurante_slug));
       }, 650);
     } catch (error) {
       setStatus("error");
@@ -121,6 +124,22 @@ export default function LoginModal({ aberto, onClose, onLogin }) {
           </div>
 
           <form className="lp-login-form" onSubmit={entrar} noValidate>
+            <label htmlFor="landing-restaurant">Restaurante</label>
+            <div className="lp-restaurant-field">
+              <Building2 size={18} aria-hidden="true" />
+              <input
+                id="landing-restaurant"
+                name="restaurant"
+                type="text"
+                autoComplete="organization"
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
+                placeholder="codigo-do-restaurante"
+                readOnly={Boolean(restauranteSlug)}
+                disabled={status === "loading" || status === "success"}
+              />
+            </div>
+
             <label htmlFor="landing-login">Usuário</label>
             <input
               ref={loginRef}

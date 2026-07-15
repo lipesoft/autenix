@@ -1289,6 +1289,27 @@ html {
   color: #98a4ab;
 }
 
+.lp-restaurant-field {
+  position: relative;
+}
+
+.lp-restaurant-field > svg {
+  position: absolute;
+  top: 15px;
+  left: 14px;
+  color: #6e7d87;
+  pointer-events: none;
+}
+
+.lp-restaurant-field input {
+  padding-left: 43px;
+}
+
+.lp-restaurant-field input[readonly] {
+  background: #f1f4f6;
+  color: #526774;
+}
+
 .lp-password-field {
   position: relative;
 }

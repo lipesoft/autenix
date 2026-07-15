@@ -617,7 +617,7 @@ function Footer() {
   );
 }
 
-export default function LandingPage({ usuario, onLogin }) {
+export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
   const [loginAberto, setLoginAberto] = useState(false);
 
   useEffect(() => {
@@ -626,7 +626,9 @@ export default function LandingPage({ usuario, onLogin }) {
 
   const acessar = () => {
     if (usuario) {
-      window.location.assign(rotaDoPerfil(usuario.role));
+      window.location.assign(
+        rotaDoPerfil(usuario.role, usuario.restaurante_slug || restauranteSlug),
+      );
       return;
     }
     setLoginAberto(true);
@@ -648,6 +650,7 @@ export default function LandingPage({ usuario, onLogin }) {
         aberto={loginAberto}
         onClose={() => setLoginAberto(false)}
         onLogin={onLogin}
+        restauranteSlug={restauranteSlug}
       />
     </div>
   );

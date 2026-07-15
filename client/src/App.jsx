@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
+import CentralOperacao from "./components/central/CentralOperacao.jsx";
 import LandingPage from "./components/landing/LandingPage.jsx";
 import { API_URL as API } from "./services/api.js";
-import { loginUsuario } from "./services/auth.js";
+import {
+  authFetch,
+  getUsuarioSessao,
+  loginUsuario,
+  normalizarSlugRestaurante,
+  rotaRestaurante,
+} from "./services/auth.js";
 
 const CONFIG = {
   nomeApp: "Autenix",
@@ -34,18 +41,26 @@ const ROLE_DETAILS = {
 const ADMIN_TABS = ["produtos", "categorias", "mesas", "equipe", "relatorios"];
 
 let socket = null;
-let socketToken = null;
-function getSocket() {
-  const token = getUsuarioSessao()?.token || null;
-  if (socket && socketToken !== token) {
+let socketIdentity = null;
+function getSocket({ mesaId = null, restauranteSlug = null } = {}) {
+  const sessao = getUsuarioSessao();
+  const token = sessao?.token || null;
+  const contextoPublico = !token && mesaId && restauranteSlug
+    ? { mesa_id: mesaId, restaurante_slug: restauranteSlug }
+    : {};
+  const identity = token
+    ? `token:${token}`
+    : `public:${restauranteSlug || "none"}:${mesaId || "none"}`;
+
+  if (socket && socketIdentity !== identity) {
     socket.disconnect();
     socket = null;
   }
 
   if (!socket) {
-    socketToken = token;
+    socketIdentity = identity;
     socket = io(API, {
-      auth: token ? { token } : {},
+      auth: token ? { token } : contextoPublico,
       transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: Infinity,
@@ -56,24 +71,10 @@ function getSocket() {
   return socket;
 }
 
-function getUsuarioSessao() {
-  try {
-    return JSON.parse(sessionStorage.getItem("usuarioLogado") || "null");
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(headers = {}) {
-  const token = getUsuarioSessao()?.token;
-  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
-}
-
-function authFetch(url, options = {}) {
-  return fetch(url, {
-    ...options,
-    headers: authHeaders(options.headers || {}),
-  });
+function apiComRestaurante(caminho, restauranteSlug) {
+  const url = new URL(`${API}${caminho}`);
+  url.searchParams.set("restaurante_slug", restauranteSlug || "autenix");
+  return url.toString();
 }
 
 // ─── TEMA FIXO CLARO ─────────────────────────────────────────────────────────
@@ -590,7 +591,7 @@ function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
           </span>
         )}
         <a
-          href="/"
+          href={rotaRestaurante(usuario?.restaurante_slug || "autenix", "central")}
           style={{
             textDecoration: "none",
             border: `1px solid ${T.border2}`,
@@ -706,7 +707,7 @@ function TelaLoginSenha({ titulo, subtitulo, onLogin, senhaCorreta }) {
 }
 
 // Login com usuário e senha (garçom, financeiro, cozinha)
-function TelaLogin({ titulo, role, onLogin }) {
+function TelaLogin({ titulo, role, onLogin, restauranteSlug = "autenix" }) {
   const css = gerarCSS(T);
   const [loginVal, setLoginVal] = useState("");
   const [senha, setSenha] = useState("");
@@ -722,7 +723,7 @@ function TelaLogin({ titulo, role, onLogin }) {
     setLoading(true);
     setErro("");
     try {
-      const d = await loginUsuario(loginVal.trim(), senha.trim());
+      const d = await loginUsuario(loginVal.trim(), senha.trim(), restauranteSlug);
       if (role && d.role !== role && d.role !== "admin") {
         setErro("Você não tem permissão para este painel.");
         return;
@@ -749,7 +750,7 @@ function TelaLogin({ titulo, role, onLogin }) {
     >
       <style>{css}</style>
       <a
-        href="/"
+        href={rotaRestaurante(restauranteSlug)}
         style={{
           position: "absolute",
           top: 18,
@@ -930,7 +931,7 @@ function TelaBoasVindas({ mesa_id, onContinuar }) {
 }
 
 // ─── PAINEL CLIENTE ───────────────────────────────────────────────────────────
-function PainelCliente({ mesa_id }) {
+function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
   const [nomeCliente, setNomeCliente] = useState(null);
   const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
   const [carrinho, setCarrinho] = useState([]);
@@ -954,19 +955,24 @@ function PainelCliente({ mesa_id }) {
   };
 
   const fetchCardapio = useCallback(async () => {
-    const r = await fetch(`${API}/api/cardapio`);
-    setCardapio(await r.json());
-  }, []);
+    const r = await fetch(apiComRestaurante("/api/cardapio", restauranteSlug));
+    const dados = await r.json();
+    if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar o cardapio");
+    setCardapio(dados);
+  }, [restauranteSlug]);
   const fetchPedidos = useCallback(async () => {
-    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa_id}`);
+    const r = await fetch(
+      apiComRestaurante(`/api/pedidos?mesa_id=${mesa_id}`, restauranteSlug),
+    );
     const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || "Nao foi possivel carregar os pedidos");
     setPedidos(d.filter((p) => p.status !== "finalizado"));
-  }, [mesa_id]);
+  }, [mesa_id, restauranteSlug]);
 
   useEffect(() => {
     fetchCardapio();
     fetchPedidos();
-    const s = getSocket();
+    const s = getSocket({ mesaId: mesa_id, restauranteSlug });
     s.on("cardapio_atualizado", fetchCardapio);
     s.on("pedido_atualizado", fetchPedidos);
     // Item 3: ao fechar mesa, reseta tudo para tela de boas-vindas
@@ -982,7 +988,7 @@ function PainelCliente({ mesa_id }) {
       s.off("pedido_atualizado");
       s.off("mesa_fechada");
     };
-  }, [fetchCardapio, fetchPedidos, mesa_id]);
+  }, [fetchCardapio, fetchPedidos, mesa_id, restauranteSlug]);
 
   const add = (p) =>
     setCarrinho((prev) => {
@@ -1019,11 +1025,22 @@ function PainelCliente({ mesa_id }) {
       ...i,
       observacao: obs[i.produto_id] || "",
     }));
-    await fetch(`${API}/api/pedidos`, {
+    const resposta = await fetch(`${API}/api/pedidos`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mesa_id, itens, nome_cliente: nomeCliente }),
+      body: JSON.stringify({
+        mesa_id,
+        itens,
+        nome_cliente: nomeCliente,
+        restaurante_slug: restauranteSlug,
+      }),
     });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) {
+      setEnviando(false);
+      showToast(dados.erro || "Nao foi possivel enviar o pedido.");
+      return;
+    }
     setCarrinho([]);
     setObs({});
     setEnviando(false);
@@ -1036,7 +1053,19 @@ function PainelCliente({ mesa_id }) {
   // Item 6: cancelar item — só se ainda pendente
   const cancelarItem = async (item) => {
     if (item.status !== "pendente") return;
-    await fetch(`${API}/api/itens/${item.id}/cancelar`, { method: "PATCH" });
+    const resposta = await fetch(`${API}/api/itens/${item.id}/cancelar`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mesa_id,
+        restaurante_slug: restauranteSlug,
+      }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) {
+      showToast(dados.erro || "Nao foi possivel cancelar o item.");
+      return;
+    }
     setCancelandoItem(null);
     fetchPedidos();
     showToast("Item cancelado.");
@@ -1830,9 +1859,11 @@ function PainelGarcom({ usuario, onLogout }) {
   }, []);
 
   const fetchCardapio = useCallback(async () => {
-    const r = await fetch(`${API}/api/cardapio`);
+    const r = await fetch(
+      apiComRestaurante("/api/cardapio", usuario.restaurante_slug),
+    );
     setCardapio(await r.json());
-  }, []);
+  }, [usuario.restaurante_slug]);
 
   const addCarrinho = (p) =>
     setCarrinhoPedido((prev) => {
@@ -1878,6 +1909,7 @@ function PainelGarcom({ usuario, onLogout }) {
         mesa_id: cardapioModal.id,
         itens: carrinhoPedido.map((i) => ({ ...i, observacao: "" })),
         nome_cliente: `Garçom: ${usuario?.nome || "Garçom"}`,
+        restaurante_slug: usuario.restaurante_slug,
       }),
     });
     setEnviandoPedido(false);
@@ -1949,7 +1981,6 @@ function PainelGarcom({ usuario, onLogout }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ forma_pagamento, obs_pagamento }),
     });
-    getSocket().emit("mesa_fechada_event", mesa_id);
     setContaModal(null);
     setFormaPagSel(null);
     setObsFormaPag("");
@@ -1958,9 +1989,14 @@ function PainelGarcom({ usuario, onLogout }) {
   };
 
   const verHistoricoMesa = async (mesa) => {
-    const r = await fetch(`${API}/api/pedidos?mesa_id=${mesa.id}&excluir_finalizados=true`);
+    const r = await fetch(
+      apiComRestaurante(
+        `/api/pedidos?mesa_id=${mesa.id}&excluir_finalizados=true`,
+        usuario.restaurante_slug,
+      ),
+    );
     const d = await r.json();
-    setHistoricoItens(d.filter(p => p.status !== "finalizados"));
+    setHistoricoItens(d.filter(p => p.status !== "finalizado"));
     setHistoricoModal(mesa);
   };
 
@@ -3208,9 +3244,11 @@ function PainelAdmin({ usuario, onLogout }) {
   }, []);
 
   const fetchCardapio = useCallback(async () => {
-    const r = await fetch(`${API}/api/cardapio`);
+    const r = await fetch(
+      apiComRestaurante("/api/cardapio", usuario.restaurante_slug),
+    );
     setCardapio(await r.json());
-  }, []);
+  }, [usuario.restaurante_slug]);
   const fetchMesas = useCallback(async () => {
     const r = await authFetch(`${API}/api/mesas`);
     setMesas(await r.json());
@@ -3313,7 +3351,7 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchMesas();
   };
   const verQR = async (mesa_id) => {
-    const r = await fetch(`${API}/api/qrcode/${mesa_id}`);
+    const r = await authFetch(`${API}/api/qrcode/${mesa_id}`);
     setQrModal(await r.json());
   };
 
@@ -4375,92 +4413,153 @@ function PainelAdmin({ usuario, onLogout }) {
 }
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+function analisarRota(path, usuario) {
+  const partes = path.split("/").filter(Boolean);
+  const escopada = partes[0] === "r" && Boolean(partes[1]);
+  const slug = escopada
+    ? normalizarSlugRestaurante(decodeURIComponent(partes[1]))
+    : normalizarSlugRestaurante(usuario?.restaurante_slug || "autenix");
+  const area = escopada ? partes[2] || "landing" : partes[0] || "landing";
+  const mesaId = area === "mesa"
+    ? (escopada ? partes[3] : partes[1])
+    : area === "cliente"
+      ? "1"
+      : null;
+
+  return { area, escopada, mesaId, slug };
+}
+
 export default function App() {
-  const path = window.location.pathname;
   const [usuarioLogado, setUsuarioLogado] = useState(() => {
     const salvo = sessionStorage.getItem("usuarioLogado");
     return salvo ? JSON.parse(salvo) : undefined;
-  }); // garcom/financeiro/cozinha
+  });
+  const rota = analisarRota(window.location.pathname, usuarioLogado);
+  const sessaoDaRota = Boolean(
+    usuarioLogado &&
+    normalizarSlugRestaurante(usuarioLogado.restaurante_slug) === rota.slug,
+  );
 
   useEffect(() => {
-    if (usuarioLogado)
+    if (usuarioLogado) {
       sessionStorage.setItem("usuarioLogado", JSON.stringify(usuarioLogado));
-    else sessionStorage.removeItem("usuarioLogado");
+    } else {
+      sessionStorage.removeItem("usuarioLogado");
+    }
   }, [usuarioLogado]);
 
   useEffect(() => {
-    if (path !== "/") document.title = `Painel Principal - ${CONFIG.nomeApp}`;
+    if (rota.area !== "landing") {
+      document.title = `Painel Principal - ${CONFIG.nomeApp}`;
+    }
     sessionStorage.removeItem("autAdmin");
-  }, [path]);
+  }, [rota.area]);
 
   const login = useCallback((usuario) => {
+    if (socket) socket.disconnect();
+    socket = null;
+    socketIdentity = null;
     sessionStorage.setItem("usuarioLogado", JSON.stringify(usuario));
     setUsuarioLogado(usuario);
   }, []);
 
   const logout = useCallback(() => {
+    if (socket) socket.disconnect();
+    socket = null;
+    socketIdentity = null;
     sessionStorage.removeItem("usuarioLogado");
     setUsuarioLogado(undefined);
   }, []);
 
-  const mesa_id = path.startsWith("/mesa/") ? path.split("/")[2] : null;
-  if (mesa_id) return <PainelCliente mesa_id={mesa_id} />;
-  if (path === "/cliente") return <PainelCliente mesa_id="1" />;
+  if (rota.mesaId) {
+    return <PainelCliente mesa_id={rota.mesaId} restauranteSlug={rota.slug} />;
+  }
 
-  // Cozinha — login com usuário e senha
-  if (path === "/cozinha") {
-    if (
-      !usuarioLogado ||
-      (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin")
-    )
+  if (rota.area === "central") {
+    if (!sessaoDaRota) {
       return (
-        <TelaLogin titulo="Cozinha" role="cozinha" onLogin={login} />
+        <TelaLogin
+          titulo="Central de Operação"
+          onLogin={login}
+          restauranteSlug={rota.slug}
+        />
       );
+    }
+    return <CentralOperacao usuario={usuarioLogado} onLogout={logout} />;
+  }
+
+  if (rota.area === "cozinha") {
+    if (
+      !sessaoDaRota ||
+      (usuarioLogado.role !== "cozinha" && usuarioLogado.role !== "admin")
+    ) {
+      return (
+        <TelaLogin
+          titulo="Cozinha"
+          role="cozinha"
+          onLogin={login}
+          restauranteSlug={rota.slug}
+        />
+      );
+    }
     return <PainelCozinha usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  // Garçom — login com usuário e senha
-  if (path === "/garcom") {
+  if (rota.area === "garcom") {
     if (
-      !usuarioLogado ||
+      !sessaoDaRota ||
       (usuarioLogado.role !== "garcom" && usuarioLogado.role !== "admin")
-    )
+    ) {
       return (
-        <TelaLogin titulo="Garçom" role="garcom" onLogin={login} />
+        <TelaLogin
+          titulo="Garçom"
+          role="garcom"
+          onLogin={login}
+          restauranteSlug={rota.slug}
+        />
       );
+    }
     return <PainelGarcom usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  // Financeiro — login com usuário e senha
-  if (path === "/financeiro") {
+  if (rota.area === "financeiro") {
     if (
-      !usuarioLogado ||
+      !sessaoDaRota ||
       (usuarioLogado.role !== "financeiro" && usuarioLogado.role !== "admin")
-    )
+    ) {
       return (
         <TelaLogin
           titulo="Financeiro"
           role="financeiro"
           onLogin={login}
+          restauranteSlug={rota.slug}
         />
       );
+    }
     return <PainelFinanceiro usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  // Admin - login real no backend
-  if (path === "/admin") {
-    if (!usuarioLogado || usuarioLogado.role !== "admin")
+  if (rota.area === "admin") {
+    if (!sessaoDaRota || usuarioLogado.role !== "admin") {
       return (
         <TelaLogin
           titulo="Administração"
           role="admin"
           onLogin={login}
+          restauranteSlug={rota.slug}
         />
       );
+    }
     return <PainelAdmin usuario={usuarioLogado} onLogout={logout} />;
   }
 
-  return <LandingPage usuario={usuarioLogado} onLogin={login} />;
+  return (
+    <LandingPage
+      usuario={rota.escopada && !sessaoDaRota ? null : usuarioLogado}
+      onLogin={login}
+      restauranteSlug={rota.escopada ? rota.slug : undefined}
+    />
+  );
 }
 
 // ─── PAINEL FINANCEIRO ────────────────────────────────────────────────────────
