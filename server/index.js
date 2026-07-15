@@ -253,7 +253,8 @@ async function initDB() {
     CREATE TABLE IF NOT EXISTS categorias (
       id SERIAL PRIMARY KEY,
       nome TEXT NOT NULL,
-      ordem INTEGER DEFAULT 0
+      ordem INTEGER DEFAULT 0,
+      ativo INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS produtos (
@@ -312,6 +313,9 @@ async function initDB() {
       chave TEXT PRIMARY KEY,
       valor TEXT
     );
+
+    ALTER TABLE categorias
+      ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
   `);
 
   // Seed dados de exemplo se vazio
@@ -394,8 +398,14 @@ async function getPedidoCompleto(pedido_id) {
 // Cardápio
 app.get("/api/cardapio", async (req, res) => {
   try {
-    const { rows: categorias } = await query("SELECT * FROM categorias ORDER BY ordem");
-    const { rows: produtos } = await query("SELECT * FROM produtos WHERE disponivel = 1");
+    const { rows: categorias } = await query(
+      "SELECT * FROM categorias WHERE ativo = 1 ORDER BY ordem"
+    );
+    const { rows: produtos } = await query(
+      `SELECT p.* FROM produtos p
+       JOIN categorias c ON c.id = p.categoria_id
+       WHERE p.disponivel = 1 AND c.ativo = 1`
+    );
     res.json({ categorias, produtos });
   } catch (e) {
     res.status(500).json({ erro: e.message });
