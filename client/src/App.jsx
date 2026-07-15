@@ -1,7 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
+import { LayoutGrid, LogOut, Palette, Save } from "lucide-react";
+import BrandingProvider from "./components/branding/BrandingProvider.jsx";
+import {
+  notificarMarcaAtualizada,
+  useBranding,
+} from "./components/branding/branding-context.js";
+import WhiteLabelFields from "./components/branding/WhiteLabelFields.jsx";
+import {
+  normalizarWhiteLabel,
+  WHITE_LABEL_PADRAO,
+} from "./components/branding/white-label-config.js";
 import CentralOperacao from "./components/central/CentralOperacao.jsx";
 import LandingPage from "./components/landing/LandingPage.jsx";
+import PlatformPortal from "./components/platform/PlatformPortal.jsx";
 import { API_URL as API } from "./services/api.js";
 import {
   authFetch,
@@ -10,14 +22,6 @@ import {
   normalizarSlugRestaurante,
   rotaRestaurante,
 } from "./services/auth.js";
-
-const CONFIG = {
-  nomeApp: "Autenix",
-  logoUrl: "/logoAutenix.png",
-  logoCliente: null,
-  corPrimaria: null,
-  corSecundaria: null,
-};
 
 const ROLE_DETAILS = {
   admin: {
@@ -38,7 +42,14 @@ const ROLE_DETAILS = {
   },
 };
 
-const ADMIN_TABS = ["produtos", "categorias", "mesas", "equipe", "relatorios"];
+const ADMIN_TABS = [
+  "produtos",
+  "categorias",
+  "mesas",
+  "equipe",
+  "relatorios",
+  "marca",
+];
 
 let socket = null;
 let socketIdentity = null;
@@ -77,38 +88,36 @@ function apiComRestaurante(caminho, restauranteSlug) {
   return url.toString();
 }
 
-// ─── TEMA FIXO CLARO ─────────────────────────────────────────────────────────
-// Cores baseadas na logo: #101f2f (azul-marinho) + #b1582e (terracota)
-// Psicologia: azul-marinho = confiança, sofisticação, seriedade
-//             terracota    = apetite, aconchego, calor, hospitalidade
+// ─── IDENTIDADE VISUAL ────────────────────────────────────────────────────────
+// Base compartilhada com a landing page e cores de marca aplicadas por tenant.
 
 let T = {
   // Backgrounds
-  bg: "#f4f6f8",
+  bg: "#f4f6f7",
   bg2: "#ffffff",
   card: "#ffffff",
-  card2: "#f0f3f6",
+  card2: "#f7f8f6",
   // Bordas
   border: "#dde3ea",
   border2: "#c8d0da",
   // Textos
-  text: "#101f2f",
-  text2: "#3a4f63",
-  muted: "#7a8fa3",
+  text: "#132331",
+  text2: "#4f6070",
+  muted: "#778592",
   // Cores da logo
-  accent: "#b1582e",
-  accent2: "#8f3f1a",
-  navy: "#101f2f",
+  accent: "var(--app-accent, #f2742d)",
+  accent2: "var(--app-accent-dark, #c9511c)",
+  navy: "var(--app-primary, #0b2134)",
   // Status
-  green: "#2e8b57",
-  red: "#c0392b",
-  blue: "#2471a3",
-  amber: "#b7770d",
+  green: "#218c72",
+  red: "#b84234",
+  blue: "#327ca4",
+  amber: "#b66a18",
   // Efeitos
-  accentGlow: "rgba(177,88,46,0.10)",
-  navyGlow: "rgba(16,31,47,0.08)",
-  shadow: "rgba(16,31,47,0.10)",
-  inputBg: "#f8fafc",
+  accentGlow: "color-mix(in srgb, var(--app-accent, #f2742d) 12%, transparent)",
+  navyGlow: "rgba(11,33,52,0.08)",
+  shadow: "rgba(6,19,31,0.10)",
+  inputBg: "#f8f9f8",
 };
 
 // Stub para compatibilidade (tema fixo, sem alternância)
@@ -175,8 +184,8 @@ function NotifBanner({ notifs, onDismiss }) {
           className="notif-in"
           style={{
             background: cores[n.type] || T.accent,
-            color: "#0d0f0e",
-            borderRadius: 14,
+            color: "#ffffff",
+            borderRadius: 8,
             padding: "13px 16px",
             display: "flex",
             justifyContent: "space-between",
@@ -204,7 +213,7 @@ function NotifBanner({ notifs, onDismiss }) {
               background: "rgba(0,0,0,.18)",
               border: "none",
               borderRadius: 8,
-              color: "#0d0f0e",
+              color: "#ffffff",
               cursor: "pointer",
               padding: "3px 10px",
               fontWeight: 700,
@@ -242,7 +251,7 @@ function useNotifs() {
 // ─── CSS GLOBAL (reativo ao tema) ────────────────────────────────────────────
 function gerarCSS(t = T) {
   return `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { -webkit-text-size-adjust: 100%; }
   body { background: ${t.bg}; color: ${t.text}; font-family: 'Inter', sans-serif; font-size: 16px; line-height: 1.5; min-height: 100vh; overflow-x: hidden; }
@@ -271,9 +280,12 @@ function gerarCSS(t = T) {
   .float-up { animation: floatUp .4s cubic-bezier(.175,.885,.32,1.275) both; }
   .notif-in { animation: notifIn .35s cubic-bezier(.175,.885,.32,1.275) both; }
   .drag-over { outline: 2px dashed ${t.accent} !important; background: ${t.accentGlow} !important; }
+  .app-btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.03); }
+  .app-btn:focus-visible { outline: 3px solid ${t.accentGlow}; outline-offset: 2px; }
+  .app-card { box-shadow: 0 5px 16px rgba(6,19,31,.045); }
   input, select, textarea {
     background: ${t.inputBg}; border: 1px solid ${t.border2};
-    border-radius: 10px; color: ${t.text}; font-family: 'Inter',sans-serif;
+    border-radius: 7px; color: ${t.text}; font-family: 'Inter',sans-serif;
     font-size: 14px; padding: 10px 14px; width: 100%; outline: none; transition: border-color .2s;
     box-shadow: inset 0 1px 3px rgba(16,31,47,0.06);
   }
@@ -284,7 +296,8 @@ function gerarCSS(t = T) {
   .panel-header {
     background: ${t.bg2};
     border-bottom: 1px solid ${t.border};
-    padding: 12px 16px;
+    border-top: 3px solid ${t.accent};
+    padding: 10px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -294,14 +307,14 @@ function gerarCSS(t = T) {
   }
   .panel-header-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .panel-header-copy { min-width: 0; }
-  .panel-header-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 16px; color: ${t.text}; line-height: 1.2; }
+  .panel-header-title { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 15px; color: ${t.text}; line-height: 1.2; }
   .panel-header-subtitle { color: ${t.muted}; font-size: 12px; margin-top: 2px; }
   .panel-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
   .panel-user-pill {
     border: 1px solid ${t.border};
     background: ${t.card};
     color: ${t.text2};
-    border-radius: 999px;
+    border-radius: 6px;
     padding: 5px 10px;
     font-size: 12px;
     font-weight: 600;
@@ -390,7 +403,7 @@ function Btn({
     gap: 5,
     border: "none",
     cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: 10,
+    borderRadius: 8,
     fontFamily: "'Inter',sans-serif",
     fontWeight: 600,
     transition: "all .18s",
@@ -402,9 +415,9 @@ function Btn({
   };
   const v = {
     primary: {
-      background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
+      background: T.accent,
       color: "#fff",
-      boxShadow: "0 2px 8px rgba(177,88,46,0.2)",
+      boxShadow: "0 5px 14px rgba(242,116,45,0.18)",
     },
     navy: { background: T.navy, color: "#fff" },
     ghost: {
@@ -435,6 +448,7 @@ function Btn({
   };
   return (
     <button
+      className={`app-btn app-btn-${variant}`}
       style={{ ...base, ...v[variant], ...style }}
       onClick={onClick}
       disabled={disabled}
@@ -457,7 +471,7 @@ function Card({
   useTema();
   return (
     <div
-      className={className}
+      className={["app-card", className].filter(Boolean).join(" ")}
       draggable={draggable}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -466,7 +480,7 @@ function Card({
       style={{
         background: T.card,
         border: `1px solid ${T.border}`,
-        borderRadius: 14,
+        borderRadius: 8,
         padding: 16,
         transition: "background .3s, border-color .3s",
         ...style,
@@ -511,7 +525,7 @@ function Modal({ children, onClose }) {
         style={{
           background: T.card,
           border: `1px solid ${T.border2}`,
-          borderRadius: 18,
+          borderRadius: 8,
           padding: 24,
           width: "100%",
           maxWidth: 420,
@@ -527,7 +541,8 @@ function Modal({ children, onClose }) {
 }
 
 function Logo({ size = "md", center = false }) {
-  const logo = CONFIG.logoCliente || CONFIG.logoUrl;
+  const marca = useBranding();
+  const logo = marca.logoUrl;
   const h = size === "lg" ? 140 : size === "sm" ? 28 : 36;
   const fs = size === "lg" ? 26 : size === "sm" ? 15 : 19;
   if (logo)
@@ -542,27 +557,22 @@ function Logo({ size = "md", center = false }) {
       >
         <img
           src={logo}
-          alt="Logo"
+          alt={marca.nome}
           style={{ height: h, objectFit: "contain", display: "block" }}
         />
-        {CONFIG.logoCliente && CONFIG.logoUrl && (
-          <span style={{ color: T.muted, fontSize: 10 }}>
-            powered by Autenix
-          </span>
-        )}
       </div>
     );
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
       <span
         style={{
-          fontFamily: "'Playfair Display',serif",
-          fontWeight: 700,
+          fontFamily: "'Manrope',sans-serif",
+          fontWeight: 800,
           fontSize: fs,
           color: T.navy,
         }}
       >
-        Autenix
+        {marca.nome}
       </span>
     </div>
   );
@@ -600,7 +610,7 @@ function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
           style={{
             textDecoration: "none",
             border: `1px solid ${T.border2}`,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: "5px 13px",
             fontSize: 12,
             fontWeight: 700,
@@ -608,11 +618,13 @@ function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
             background: T.card,
           }}
         >
-          Central
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <LayoutGrid size={14} /> Central
+          </span>
         </a>
         {onLogout && (
           <Btn sm variant="ghost" onClick={onLogout}>
-            Sair
+            <LogOut size={14} /> Sair
           </Btn>
         )}
       </div>
@@ -665,14 +677,14 @@ function TelaLoginSenha({ titulo, subtitulo, onLogin, senhaCorreta }) {
           maxWidth: 360,
           background: T.card,
           border: `1px solid ${T.border}`,
-          borderRadius: 20,
+          borderRadius: 8,
           padding: 32,
           boxShadow: "0 4px 24px rgba(16,31,47,0.10)",
         }}
       >
         <div
           style={{
-            fontFamily: "'Playfair Display',serif",
+            fontFamily: "'Manrope',sans-serif",
             fontSize: 20,
             fontWeight: 700,
             marginBottom: 4,
@@ -774,7 +786,7 @@ function TelaLogin({ titulo, role, onLogin, restauranteSlug = "autenix" }) {
           maxWidth: 430,
           background: T.card,
           border: `1px solid ${T.border}`,
-          borderRadius: 18,
+          borderRadius: 8,
           padding: 28,
           boxShadow: "0 18px 50px rgba(16,31,47,0.10)",
         }}
@@ -782,7 +794,7 @@ function TelaLogin({ titulo, role, onLogin, restauranteSlug = "autenix" }) {
         <Logo size="md" />
         <div
           style={{
-            fontFamily: "'Playfair Display',serif",
+            fontFamily: "'Manrope',sans-serif",
             fontSize: 24,
             fontWeight: 700,
             marginTop: 22,
@@ -880,7 +892,7 @@ function TelaBoasVindas({ mesaNumero, onContinuar }) {
         <div
           style={{
             marginTop: 28,
-            fontFamily: "'Playfair Display',serif",
+            fontFamily: "'Manrope',sans-serif",
             fontSize: 24,
             fontWeight: 700,
             lineHeight: 1.25,
@@ -937,6 +949,7 @@ function TelaBoasVindas({ mesaNumero, onContinuar }) {
 
 // ─── PAINEL CLIENTE ───────────────────────────────────────────────────────────
 function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
+  const marca = useBranding();
   const [nomeCliente, setNomeCliente] = useState(null);
   const [mesa, setMesa] = useState(null);
   const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
@@ -954,8 +967,8 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
   const css = gerarCSS(T);
   const mesaNumero = mesa?.numero || mesa_id;
   useEffect(() => {
-    document.title = `${rotuloMesa(mesaNumero)} - ${CONFIG.nomeApp}`;
-  }, [mesaNumero]);
+    document.title = `${rotuloMesa(mesaNumero)} - ${marca.nome}`;
+  }, [marca.nome, mesaNumero]);
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3200);
@@ -1181,7 +1194,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
               transform: "translateX(-50%)",
               background: T.card2,
               border: `1px solid ${T.border2}`,
-              borderRadius: 12,
+              borderRadius: 8,
               padding: "10px 18px",
               fontSize: 13,
               fontWeight: 500,
@@ -1281,7 +1294,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
                         animationDelay: `${i * 0.03}s`,
                         background: T.card,
                         border: `1px solid ${q > 0 ? T.accent : T.border}`,
-                        borderRadius: 14,
+                        borderRadius: 8,
                         overflow: "hidden",
                         display: "flex",
                         flexDirection: "column",
@@ -1481,7 +1494,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
                       marginBottom: 12,
                       background: T.card,
                       border: `1px solid ${T.border}`,
-                      borderRadius: 14,
+                      borderRadius: 8,
                       padding: 16,
                       width: "100%",
                     }}
@@ -1517,7 +1530,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
                     >
                       <div
                         style={{
-                          fontFamily: "'Playfair Display',serif",
+                          fontFamily: "'Manrope',sans-serif",
                           fontWeight: 700,
                         }}
                       >
@@ -1627,7 +1640,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
                 padding: "14px 20px",
                 background: `linear-gradient(135deg,${T.accent},${T.accent2})`,
                 border: "none",
-                borderRadius: 14,
+                borderRadius: 8,
                 color: "#0d0f0e",
                 display: "flex",
                 justifyContent: "space-between",
@@ -1704,7 +1717,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
           <Modal onClose={() => setCarrinhoModal(false)}>
             <div
               style={{
-                fontFamily: "'Playfair Display',serif",
+                fontFamily: "'Manrope',sans-serif",
                 fontSize: 20,
                 fontWeight: 700,
                 marginBottom: 16,
@@ -1836,6 +1849,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
 
 // ─── PAINEL GARÇOM ────────────────────────────────────────────────────────────
 function PainelGarcom({ usuario, onLogout }) {
+  const marca = useBranding();
   const [chamadas, setChamadas] = useState([]);
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
@@ -1858,8 +1872,8 @@ function PainelGarcom({ usuario, onLogout }) {
   const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Garçom - ${CONFIG.nomeApp}`;
-  }, []);
+    document.title = `Garçom - ${marca.nome}`;
+  }, [marca.nome]);
 
   const fetchChamadas = useCallback(async () => {
     const r = await authFetch(`${API}/api/chamadas`);
@@ -2252,7 +2266,7 @@ function PainelGarcom({ usuario, onLogout }) {
               >
                 <div
                   style={{
-                    fontFamily: "'Playfair Display',serif",
+                    fontFamily: "'Manrope',sans-serif",
                     fontSize: 26,
                     fontWeight: 700,
                   }}
@@ -2337,7 +2351,7 @@ function PainelGarcom({ usuario, onLogout }) {
           <Modal onClose={() => setPedidosModal(null)}>
             <div
               style={{
-                fontFamily: "'Playfair Display',serif",
+                fontFamily: "'Manrope',sans-serif",
                 fontSize: 20,
                 fontWeight: 700,
                 marginBottom: 16,
@@ -2422,7 +2436,7 @@ function PainelGarcom({ usuario, onLogout }) {
           <Modal onClose={() => setHistoricoModal(null)}>
             <div
               style={{
-                fontFamily: "'Playfair Display',serif",
+                fontFamily: "'Manrope',sans-serif",
                 fontSize: 18,
                 fontWeight: 700,
                 marginBottom: 16,
@@ -2532,7 +2546,7 @@ function PainelGarcom({ usuario, onLogout }) {
         {/* Modal fechar conta */}
         {contaModal && (
           <Modal onClose={() => { setContaModal(null); setFormaPagSel(null); setObsFormaPag(""); }}>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
+            <div style={{ fontFamily: "'Manrope',sans-serif", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
               Fechar Mesa {contaModal.numero}
             </div>
 
@@ -2563,7 +2577,7 @@ function PainelGarcom({ usuario, onLogout }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {[["credito","Cartão Crédito"],["debito","Cartão Débito"],["dinheiro","Dinheiro"],["pix","PIX"]].map(([val, label]) => (
                   <div key={val} onClick={() => setFormaPagSel(val)} style={{
-                    padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center",
+                    padding: "10px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
                     border: `1.5px solid ${formaPagSel === val ? T.accent : T.border}`,
                     background: formaPagSel === val ? T.accentGlow : T.card2,
                     color: formaPagSel === val ? T.accent : T.text2,
@@ -2596,7 +2610,7 @@ function PainelGarcom({ usuario, onLogout }) {
         <Modal onClose={() => setCardapioModal(null)}>
           <div
             style={{
-              fontFamily: "'Playfair Display',serif",
+              fontFamily: "'Manrope',sans-serif",
               fontSize: 18,
               fontWeight: 700,
               marginBottom: 4,
@@ -2805,6 +2819,7 @@ function PainelGarcom({ usuario, onLogout }) {
 
 // ─── PAINEL COZINHA ───────────────────────────────────────────────────────────
 function PainelCozinha({ usuario, onLogout }) {
+  const marca = useBranding();
   const [pedidos, setPedidos] = useState([]);
   const [chamadas, setChamadas] = useState([]);
   const [dragging, setDragging] = useState(null);
@@ -2812,8 +2827,8 @@ function PainelCozinha({ usuario, onLogout }) {
   const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Cozinha - ${CONFIG.nomeApp}`;
-  }, []);
+    document.title = `Cozinha - ${marca.nome}`;
+  }, [marca.nome]);
 
   const fetchPedidos = useCallback(async () => {
     const [r1, r2, r3] = await Promise.all([
@@ -2993,7 +3008,7 @@ function PainelCozinha({ usuario, onLogout }) {
                   gap: 8,
                   background: T.card,
                   border: `1px solid ${T.border}`,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   padding: "5px 10px",
                 }}
               >
@@ -3096,7 +3111,7 @@ function PainelCozinha({ usuario, onLogout }) {
                   <div
                     style={{
                       border: `1.5px dashed ${T.border}`,
-                      borderRadius: 12,
+                      borderRadius: 8,
                       padding: "24px 8px",
                       textAlign: "center",
                       color: T.muted,
@@ -3117,7 +3132,7 @@ function PainelCozinha({ usuario, onLogout }) {
                         background: T.card,
                         border: `1px solid ${T.border}`,
                         borderLeft: `3px solid ${col.cor}`,
-                        borderRadius: 12,
+                        borderRadius: 8,
                         padding: 10,
                         marginBottom: 8,
                         cursor: "grab",
@@ -3135,7 +3150,7 @@ function PainelCozinha({ usuario, onLogout }) {
                         <div>
                           <div
                             style={{
-                              fontFamily: "'Playfair Display',serif",
+                              fontFamily: "'Manrope',sans-serif",
                               fontWeight: 700,
                               fontSize: 14,
                             }}
@@ -3218,6 +3233,7 @@ function PainelCozinha({ usuario, onLogout }) {
 
 // ─── PAINEL ADMIN ─────────────────────────────────────────────────────────────
 function PainelAdmin({ usuario, onLogout }) {
+  const marca = useBranding();
   const [aba, setAba] = useState(() => {
     const abaInicial = new URLSearchParams(window.location.search).get("aba");
     return ADMIN_TABS.includes(abaInicial) ? abaInicial : "produtos";
@@ -3252,12 +3268,14 @@ function PainelAdmin({ usuario, onLogout }) {
   const [periodoRel, setPeriodoRel] = useState("hoje");
   const [dataInicioRel, setDataInicioRel] = useState("");
   const [dataFimRel, setDataFimRel] = useState("");
+  const [marcaConfig, setMarcaConfig] = useState(WHITE_LABEL_PADRAO);
+  const [marcaStatus, setMarcaStatus] = useState({ tipo: "idle", mensagem: "" });
 
   const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
-    document.title = `Admin - ${CONFIG.nomeApp}`;
-  }, []);
+    document.title = `Admin - ${marca.nome}`;
+  }, [marca.nome]);
 
   const fetchCardapio = useCallback(async () => {
     const r = await fetch(
@@ -3272,6 +3290,12 @@ function PainelAdmin({ usuario, onLogout }) {
   const fetchUsuarios = useCallback(async () => {
     const r = await authFetch(`${API}/api/usuarios`);
     setUsuarios(await r.json());
+  }, []);
+  const fetchRestaurante = useCallback(async () => {
+    const r = await authFetch(`${API}/api/restaurante`);
+    const dados = await r.json();
+    if (!r.ok) throw new Error(dados.erro || "Não foi possível carregar a marca");
+    setMarcaConfig(normalizarWhiteLabel(dados));
   }, []);
   const fetchRelatorio = useCallback(async (periodo, di, df) => {
     setRelatorio((prev) => ({ ...prev, carregando: true }));
@@ -3296,6 +3320,30 @@ function PainelAdmin({ usuario, onLogout }) {
     s.on("cardapio_atualizado", fetchCardapio);
     return () => s.off("cardapio_atualizado");
   }, [fetchCardapio, fetchMesas, fetchUsuarios, fetchRelatorio]);
+
+  useEffect(() => {
+    fetchRestaurante().catch((error) => {
+      setMarcaStatus({ tipo: "error", mensagem: error.message });
+    });
+  }, [fetchRestaurante]);
+
+  const salvarMarca = async () => {
+    setMarcaStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/restaurante/white-label`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(marcaConfig),
+      });
+      const dados = await r.json();
+      if (!r.ok) throw new Error(dados.erro || "Não foi possível salvar a marca");
+      setMarcaConfig((atual) => normalizarWhiteLabel({ ...atual, ...dados }));
+      notificarMarcaAtualizada(dados);
+      setMarcaStatus({ tipo: "success", mensagem: "Marca atualizada em todas as áreas." });
+    } catch (error) {
+      setMarcaStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
 
   const salvarProduto = async () => {
     if (!novoP.nome || !novoP.preco) return;
@@ -3466,6 +3514,7 @@ function PainelAdmin({ usuario, onLogout }) {
             ["mesas", "Mesas"],
             ["equipe", "Equipe"],
             ["relatorios", "Relatórios"],
+            ["marca", "Marca"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -3497,7 +3546,7 @@ function PainelAdmin({ usuario, onLogout }) {
               <Card style={{ marginBottom: 18 }}>
                 <div
                   style={{
-                    fontFamily: "'Playfair Display',serif",
+                    fontFamily: "'Manrope',sans-serif",
                     fontSize: 17,
                     fontWeight: 700,
                     marginBottom: 12,
@@ -3625,7 +3674,7 @@ function PainelAdmin({ usuario, onLogout }) {
                             style={{
                               width: 46,
                               height: 46,
-                              borderRadius: 10,
+                              borderRadius: 8,
                               background: T.card2,
                               flexShrink: 0,
                               display: "flex",
@@ -3722,7 +3771,7 @@ function PainelAdmin({ usuario, onLogout }) {
               <Card style={{ marginBottom: 16 }}>
                 <div
                   style={{
-                    fontFamily: "'Playfair Display',serif",
+                    fontFamily: "'Manrope',sans-serif",
                     fontSize: 17,
                     fontWeight: 700,
                     marginBottom: 12,
@@ -3778,7 +3827,7 @@ function PainelAdmin({ usuario, onLogout }) {
               <Card style={{ marginBottom: 16 }}>
                 <div
                   style={{
-                    fontFamily: "'Playfair Display',serif",
+                    fontFamily: "'Manrope',sans-serif",
                     fontSize: 17,
                     fontWeight: 700,
                     marginBottom: 12,
@@ -3837,7 +3886,7 @@ function PainelAdmin({ usuario, onLogout }) {
                   >
                     <div
                       style={{
-                        fontFamily: "'Playfair Display',serif",
+                        fontFamily: "'Manrope',sans-serif",
                         fontSize: 22,
                         fontWeight: 700,
                         marginBottom: 4,
@@ -3880,6 +3929,62 @@ function PainelAdmin({ usuario, onLogout }) {
               </div>
             </div>
           )}
+
+          {aba === "marca" && (
+            <div className="fade-up">
+              <Card>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 9,
+                    marginBottom: 18,
+                    color: T.navy,
+                    fontFamily: "'Manrope',sans-serif",
+                    fontSize: 17,
+                    fontWeight: 800,
+                  }}
+                >
+                  <Palette size={19} color={T.accent} /> Identidade do restaurante
+                </div>
+                <WhiteLabelFields value={marcaConfig} onChange={setMarcaConfig} />
+                <div
+                  role="status"
+                  style={{
+                    minHeight: 36,
+                    paddingTop: 10,
+                    color:
+                      marcaStatus.tipo === "error"
+                        ? T.red
+                        : marcaStatus.tipo === "success"
+                          ? T.green
+                          : T.muted,
+                    fontSize: 12,
+                    fontWeight: marcaStatus.tipo === "success" ? 700 : 500,
+                  }}
+                >
+                  {marcaStatus.mensagem}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn
+                    variant="ghost"
+                    onClick={() =>
+                      setMarcaConfig((atual) => ({
+                        ...atual,
+                        ...WHITE_LABEL_PADRAO,
+                      }))
+                    }
+                  >
+                    Restaurar padrão Autenix
+                  </Btn>
+                  <Btn onClick={salvarMarca} disabled={marcaStatus.tipo === "loading"}>
+                    <Save size={16} />
+                    {marcaStatus.tipo === "loading" ? "Salvando" : "Salvar marca"}
+                  </Btn>
+                </div>
+              </Card>
+            </div>
+          )}
         </div>
 
         {aba === "equipe" && (
@@ -3887,7 +3992,7 @@ function PainelAdmin({ usuario, onLogout }) {
             <Card style={{ marginBottom: 16 }}>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 17,
                   fontWeight: 700,
                   marginBottom: 12,
@@ -4031,7 +4136,7 @@ function PainelAdmin({ usuario, onLogout }) {
               <Modal onClose={() => setEditandoUsuario(null)}>
                 <div
                   style={{
-                    fontFamily: "'Playfair Display',serif",
+                    fontFamily: "'Manrope',sans-serif",
                     fontSize: 18,
                     fontWeight: 700,
                     marginBottom: 14,
@@ -4099,7 +4204,7 @@ function PainelAdmin({ usuario, onLogout }) {
             <Card style={{ marginBottom: 16 }}>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 17,
                   fontWeight: 700,
                   marginBottom: 12,
@@ -4197,7 +4302,7 @@ function PainelAdmin({ usuario, onLogout }) {
                         periodo: periodoRel,
                         dataInicio: dataInicioRel,
                         dataFim: dataFimRel,
-                        nomeApp: CONFIG.nomeApp || "Autenix",
+                        nomeApp: marca.nome,
                       })
                     }
                   >
@@ -4227,7 +4332,7 @@ function PainelAdmin({ usuario, onLogout }) {
                   </div>
                   <div
                     style={{
-                      fontFamily: "'Playfair Display',serif",
+                      fontFamily: "'Manrope',sans-serif",
                       fontSize: 32,
                       fontWeight: 700,
                       color: T.accent,
@@ -4294,7 +4399,7 @@ function PainelAdmin({ usuario, onLogout }) {
           <Modal onClose={() => setEditando(null)}>
             <div
               style={{
-                fontFamily: "'Playfair Display',serif",
+                fontFamily: "'Manrope',sans-serif",
                 fontSize: 18,
                 fontWeight: 700,
                 marginBottom: 14,
@@ -4358,7 +4463,7 @@ function PainelAdmin({ usuario, onLogout }) {
                   width: "100%",
                   height: 120,
                   objectFit: "cover",
-                  borderRadius: 10,
+                  borderRadius: 8,
                   marginBottom: 12,
                 }}
                 onError={(e) => (e.target.style.display = "none")}
@@ -4385,7 +4490,7 @@ function PainelAdmin({ usuario, onLogout }) {
             <div style={{ textAlign: "center" }}>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 18,
                   fontWeight: 700,
                   marginBottom: 14,
@@ -4399,7 +4504,7 @@ function PainelAdmin({ usuario, onLogout }) {
                 style={{
                   width: 200,
                   height: 200,
-                  borderRadius: 12,
+                  borderRadius: 8,
                   border: `1px solid ${T.border}`,
                 }}
               />
@@ -4445,7 +4550,8 @@ function analisarRota(path, usuario) {
   return { area, escopada, mesaId, slug };
 }
 
-export default function App() {
+function AppContent() {
+  const marca = useBranding();
   const [usuarioLogado, setUsuarioLogado] = useState(() => {
     const salvo = sessionStorage.getItem("usuarioLogado");
     return salvo ? JSON.parse(salvo) : undefined;
@@ -4466,10 +4572,10 @@ export default function App() {
 
   useEffect(() => {
     if (rota.area !== "landing") {
-      document.title = `Painel Principal - ${CONFIG.nomeApp}`;
+      document.title = `Painel Principal - ${marca.nome}`;
     }
     sessionStorage.removeItem("autAdmin");
-  }, [rota.area]);
+  }, [marca.nome, rota.area]);
 
   const login = useCallback((usuario) => {
     if (socket) socket.disconnect();
@@ -4486,6 +4592,10 @@ export default function App() {
     sessionStorage.removeItem("usuarioLogado");
     setUsuarioLogado(undefined);
   }, []);
+
+  if (rota.area === "plataforma") {
+    return <PlatformPortal />;
+  }
 
   if (rota.mesaId) {
     return <PainelCliente mesa_id={rota.mesaId} restauranteSlug={rota.slug} />;
@@ -4578,6 +4688,30 @@ export default function App() {
   );
 }
 
+export default function App() {
+  const partes = window.location.pathname.split("/").filter(Boolean);
+  const escopada = partes[0] === "r" && Boolean(partes[1]);
+  const areasRestaurante = new Set([
+    "admin",
+    "central",
+    "cliente",
+    "cozinha",
+    "financeiro",
+    "garcom",
+    "mesa",
+  ]);
+  const slug = escopada
+    ? normalizarSlugRestaurante(decodeURIComponent(partes[1]))
+    : "autenix";
+  const marcaAtiva = escopada || areasRestaurante.has(partes[0]);
+
+  return (
+    <BrandingProvider slug={slug} ativo={marcaAtiva}>
+      <AppContent />
+    </BrandingProvider>
+  );
+}
+
 // ─── PAINEL FINANCEIRO ────────────────────────────────────────────────────────
 function gerarPDF({
   historico,
@@ -4597,7 +4731,7 @@ function gerarPDF({
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${({credito:"Cred",debito:"Deb",dinheiro:"Dinheiro",pix:"PIX"})[h.forma_pagamento] || "-"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${h.total_itens}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${h.fechado_em || "-"}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#b1582e">R$ ${(h.total || 0).toFixed(2)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#f2742d">R$ ${(h.total || 0).toFixed(2)}</td>
     </tr>`,
     )
     .join("");
@@ -4646,6 +4780,7 @@ function gerarPDF({
 }
 
 function PainelFinanceiro({ usuario, onLogout }) {
+  const marca = useBranding();
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [historico, setHistorico] = useState([]);
@@ -4660,8 +4795,8 @@ function PainelFinanceiro({ usuario, onLogout }) {
   const css = gerarCSS(T);
 
   useEffect(() => {
-    document.title = `Financeiro - ${CONFIG.nomeApp || "Autenix"}`;
-  }, []);
+    document.title = `Financeiro - ${marca.nome}`;
+  }, [marca.nome]);
 
   const fetchMesas = useCallback(async () => {
     const r = await authFetch(`${API}/api/mesas`);
@@ -4726,7 +4861,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
       periodo,
       dataInicio,
       dataFim,
-      nomeApp: CONFIG.nomeApp || "Autenix",
+      nomeApp: marca.nome,
     });
 
   {
@@ -4734,7 +4869,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
       <Modal onClose={() => setComandaHistModal(null)}>
         <div
           style={{
-            fontFamily: "'Playfair Display',serif",
+            fontFamily: "'Manrope',sans-serif",
             fontSize: 18,
             fontWeight: 700,
             marginBottom: 4,
@@ -4916,7 +5051,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
               </div>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 26,
                   fontWeight: 700,
                   color: T.accent,
@@ -4931,7 +5066,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
               </div>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 26,
                   fontWeight: 700,
                   color: T.blue,
@@ -4946,7 +5081,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
               </div>
               <div
                 style={{
-                  fontFamily: "'Playfair Display',serif",
+                  fontFamily: "'Manrope',sans-serif",
                   fontSize: 26,
                   fontWeight: 700,
                   color: T.green,
@@ -4988,13 +5123,13 @@ function PainelFinanceiro({ usuario, onLogout }) {
                       cursor: "pointer",
                       background: T.card,
                       border: `1px solid ${T.accent}`,
-                      borderRadius: 14,
+                      borderRadius: 8,
                       padding: 14,
                     }}
                   >
                     <div
                       style={{
-                        fontFamily: "'Playfair Display',serif",
+                        fontFamily: "'Manrope',sans-serif",
                         fontSize: 18,
                         fontWeight: 700,
                       }}
@@ -5143,7 +5278,7 @@ function PainelFinanceiro({ usuario, onLogout }) {
           <Modal onClose={() => setComandaModal(null)}>
             <div
               style={{
-                fontFamily: "'Playfair Display',serif",
+                fontFamily: "'Manrope',sans-serif",
                 fontSize: 20,
                 fontWeight: 700,
                 marginBottom: 4,
