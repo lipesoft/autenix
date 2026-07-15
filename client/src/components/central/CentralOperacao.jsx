@@ -61,6 +61,11 @@ function urlCompleta(caminho) {
   return new URL(caminho, window.location.origin).toString();
 }
 
+function rotuloMesa(numero) {
+  const valor = String(numero || "").trim();
+  return /^mesa\b/i.test(valor) ? valor : `Mesa ${valor}`;
+}
+
 async function copiarTexto(texto) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(texto);
@@ -246,7 +251,7 @@ export default function CentralOperacao({ usuario, onLogout }) {
             <div className="central-identity">
               <span>ID {usuario.restaurante_id}</span>
               <span>{slug}</span>
-              <span className="is-online">Operacao ativa</span>
+              <span className="is-online">Operação ativa</span>
             </div>
           </div>
         </section>
@@ -323,11 +328,12 @@ export default function CentralOperacao({ usuario, onLogout }) {
               <div className="central-table-list">
                 {mesasFiltradas.map((mesa) => {
                   const caminho = rotaRestaurante(slug, `mesa/${mesa.id}`);
+                  const nomeMesa = rotuloMesa(mesa.numero);
                   return (
                     <article className="central-table-row" key={mesa.id}>
                       <div className="central-table-icon"><Table2 size={20} /></div>
                       <div className="central-table-copy">
-                        <h3>Mesa {mesa.numero}</h3>
+                        <h3>{nomeMesa}</h3>
                         <span className={`central-table-status is-${mesa.status || "livre"}`}>
                           {mesa.status || "livre"}
                         </span>
@@ -335,7 +341,7 @@ export default function CentralOperacao({ usuario, onLogout }) {
                       <code>{urlCompleta(caminho)}</code>
                       <LinkActions
                         caminho={caminho}
-                        titulo={`cardápio da mesa ${mesa.numero}`}
+                        titulo={`cardápio da ${nomeMesa.toLowerCase()}`}
                         onFeedback={mostrarFeedback}
                       />
                     </article>

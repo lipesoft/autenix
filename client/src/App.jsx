@@ -572,6 +572,11 @@ function roleLabel(role) {
   return ROLE_DETAILS[role]?.label || role || "Equipe";
 }
 
+function rotuloMesa(numero) {
+  const valor = String(numero || "").trim();
+  return /^mesa\b/i.test(valor) ? valor : `Mesa ${valor}`;
+}
+
 function PanelHeader({ title, subtitle, usuario, onLogout, actions }) {
   return (
     <div className="panel-header">
@@ -830,7 +835,7 @@ function TelaLogin({ titulo, role, onLogin, restauranteSlug = "autenix" }) {
 }
 
 // ─── BOAS-VINDAS MESA ─────────────────────────────────────────────────────────
-function TelaBoasVindas({ mesa_id, onContinuar }) {
+function TelaBoasVindas({ mesaNumero, onContinuar }) {
   const tema = useTema();
   const css = gerarCSS(T);
   const [nome, setNome] = useState("");
@@ -882,7 +887,7 @@ function TelaBoasVindas({ mesa_id, onContinuar }) {
           }}
         >
           Bem-vindo à<br />
-          <span style={{ color: T.accent }}>Mesa {mesa_id}</span>
+          <span style={{ color: T.accent }}>{rotuloMesa(mesaNumero)}</span>
         </div>
         <div
           style={{
@@ -933,6 +938,7 @@ function TelaBoasVindas({ mesa_id, onContinuar }) {
 // ─── PAINEL CLIENTE ───────────────────────────────────────────────────────────
 function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
   const [nomeCliente, setNomeCliente] = useState(null);
+  const [mesa, setMesa] = useState(null);
   const [cardapio, setCardapio] = useState({ categorias: [], produtos: [] });
   const [carrinho, setCarrinho] = useState([]);
   const [pedidos, setPedidos] = useState([]);
@@ -946,9 +952,10 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
 
   const tema = useTema();
   const css = gerarCSS(T);
+  const mesaNumero = mesa?.numero || mesa_id;
   useEffect(() => {
-    document.title = `Mesa ${mesa_id} - ${CONFIG.nomeApp}`;
-  }, [mesa_id]);
+    document.title = `${rotuloMesa(mesaNumero)} - ${CONFIG.nomeApp}`;
+  }, [mesaNumero]);
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3200);
@@ -968,8 +975,17 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
     if (!r.ok) throw new Error(d.erro || "Nao foi possivel carregar os pedidos");
     setPedidos(d.filter((p) => p.status !== "finalizado"));
   }, [mesa_id, restauranteSlug]);
+  const fetchMesa = useCallback(async () => {
+    const r = await fetch(
+      apiComRestaurante(`/api/mesas/${mesa_id}`, restauranteSlug),
+    );
+    const dados = await r.json();
+    if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar a mesa");
+    setMesa(dados);
+  }, [mesa_id, restauranteSlug]);
 
   useEffect(() => {
+    fetchMesa();
     fetchCardapio();
     fetchPedidos();
     const s = getSocket({ mesaId: mesa_id, restauranteSlug });
@@ -988,7 +1004,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
       s.off("pedido_atualizado");
       s.off("mesa_fechada");
     };
-  }, [fetchCardapio, fetchPedidos, mesa_id, restauranteSlug]);
+  }, [fetchCardapio, fetchMesa, fetchPedidos, mesa_id, restauranteSlug]);
 
   const add = (p) =>
     setCarrinho((prev) => {
@@ -1080,7 +1096,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
     return (
       <>
         <style>{css}</style>
-        <TelaBoasVindas mesa_id={mesa_id} onContinuar={setNomeCliente} />
+        <TelaBoasVindas mesaNumero={mesaNumero} onContinuar={setNomeCliente} />
       </>
     );
 
@@ -1119,7 +1135,7 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
             <Logo size="sm" />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ fontSize: 12, color: T.muted }}>
-                {nomeCliente} · Mesa {mesa_id}
+                {nomeCliente} · {rotuloMesa(mesaNumero)}
               </div>
             </div>
           </div>
