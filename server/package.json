@@ -8,6 +8,7 @@
     "migrate": "node migrate.js",
     "hash:password": "node scripts/hash-password.js",
     "tenant:create": "node scripts/create-restaurant.js",
+    "test:rls": "node scripts/verify-tenant-rls.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
