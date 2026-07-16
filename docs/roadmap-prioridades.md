@@ -10,6 +10,15 @@ e identidade visual.
 - Aplicar limites do plano na operacao: mesas, usuarios e produtos.
 - Preparar a base para upgrades, downgrades e cobranca futura.
 
+## Prioridade 1.1 - Importacao de dados
+
+- Implementado: importacao CSV de categorias, produtos, mesas e usuarios pelo
+  painel administrativo do restaurante.
+- Implementado: validacao previa, preview de acoes, modelos CSV e respeito aos
+  limites do plano.
+- Pendente: importacao direta de `.xlsx`, importadores especificos por sistema,
+  historico de importacoes e rollback.
+
 ## Prioridade 2 - Onboarding de restaurante
 
 - Criar um fluxo guiado para cadastrar restaurante, master, mesas, categorias,
