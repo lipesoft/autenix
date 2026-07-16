@@ -26,8 +26,14 @@ import {
   X,
 } from "lucide-react";
 import WhiteLabelFields from "../branding/WhiteLabelFields.jsx";
-import { normalizarWhiteLabel } from "../branding/white-label-config.js";
-import { rotaRestaurante } from "../../services/auth.js";
+import {
+  normalizarWhiteLabel,
+  WHITE_LABEL_PADRAO,
+} from "../branding/white-label-config.js";
+import {
+  normalizarSlugRestaurante,
+  rotaRestaurante,
+} from "../../services/auth.js";
 import {
   getPlatformSession,
   loginPlataforma,
@@ -121,6 +127,7 @@ function aplicarPlanoAoForm(planoId, atual = {}) {
 const NOVO_RESTAURANTE = {
   nome: "",
   slug: "",
+  ...WHITE_LABEL_PADRAO,
   plano: "essencial",
   limite_mesas: 20,
   limite_usuarios: 5,
@@ -136,6 +143,55 @@ const NOVO_RESTAURANTE = {
   login: "master",
   senha: "",
 };
+
+const ONBOARDING_STEPS = [
+  { id: "identidade", label: "Identidade", icon: Building2 },
+  { id: "plano", label: "Plano", icon: BadgeDollarSign },
+  { id: "operacao", label: "Operacao", icon: Table2 },
+  { id: "master", label: "Master", icon: UsersRound },
+  { id: "marca", label: "Marca", icon: Settings2 },
+];
+
+const LOGO_INICIAL_MAX_MB = 3;
+const LOGO_INICIAL_MAX_BYTES = LOGO_INICIAL_MAX_MB * 1024 * 1024;
+const LOGO_INICIAL_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+function linkAbsoluto(href) {
+  return new URL(href, window.location.origin).toString();
+}
+
+function gerarLinksRestaurante(restaurante, mesaInicial = 1) {
+  const slug = restaurante?.slug || "autenix";
+  const links = [
+    ["central", "Central de operacao", "Entrada principal da equipe", rotaRestaurante(slug, "central")],
+    ["admin", "Administracao", "Cardapio, equipe, mesas e marca", rotaRestaurante(slug, "admin")],
+    ["garcom", "Garcom", "Atendimento e comandas", rotaRestaurante(slug, "garcom")],
+    ["cozinha", "Cozinha", "Painel de preparo", rotaRestaurante(slug, "cozinha")],
+    ["financeiro", "Financeiro", "Fechamento e historico", rotaRestaurante(slug, "financeiro")],
+    ["importacao", "Importacao inicial", "Admin com aba de importacao aberta", rotaRestaurante(slug, "admin?aba=importacao")],
+  ];
+
+  if (mesaInicial) {
+    links.push([
+      "cardapio",
+      "Cardapio do cliente",
+      `Mesa ${mesaInicial}`,
+      rotaRestaurante(slug, `mesa/${mesaInicial}`),
+    ]);
+  }
+
+  return links.map(([id, label, descricao, href]) => ({
+    id,
+    label,
+    descricao,
+    href: linkAbsoluto(href),
+  }));
+}
+
+function numeroInteiro(valor, fallback = 0) {
+  const numero = Number(valor);
+  return Number.isInteger(numero) ? numero : fallback;
+}
 
 function Modal({ titulo, onClose, children, largura = "760px" }) {
   return (
@@ -302,12 +358,17 @@ function PlatformLogin({ onLogin }) {
 }
 
 function Credenciais({ dados, onClose }) {
-  const acesso = new URL(rotaRestaurante(dados.restaurante.slug), window.location.origin).toString();
+  const mesaInicial = dados.onboarding?.mesa_inicial || 1;
+  const acesso = linkAbsoluto(rotaRestaurante(dados.restaurante.slug));
+  const links = gerarLinksRestaurante(dados.restaurante, mesaInicial);
   const texto = [
     `Restaurante: ${dados.restaurante.nome}`,
     `Acesso: ${acesso}`,
-    `Usuário: ${dados.master.login}`,
-    `Senha temporária: ${dados.senha_temporaria}`,
+    `Usuario master: ${dados.master.login}`,
+    `Senha temporaria: ${dados.senha_temporaria}`,
+    "",
+    "Links principais:",
+    ...links.map((link) => `${link.label}: ${link.href}`),
   ].join("\n");
   const [copiado, setCopiado] = useState(false);
 
@@ -317,20 +378,35 @@ function Credenciais({ dados, onClose }) {
   };
 
   return (
-    <Modal titulo="Credencial do master" onClose={onClose} largura="560px">
+    <Modal titulo="Onboarding concluido" onClose={onClose} largura="760px">
       <div className="pf-credential-box">
         <div><span>Restaurante</span><strong>{dados.restaurante.nome}</strong></div>
         <div><span>Link</span><code>{acesso}</code></div>
-        <div><span>Usuário</span><code>{dados.master.login}</code></div>
-        <div><span>Senha temporária</span><code>{dados.senha_temporaria}</code></div>
+        <div><span>Usuario</span><code>{dados.master.login}</code></div>
+        <div><span>Senha temporaria</span><code>{dados.senha_temporaria}</code></div>
+      </div>
+      {dados.aviso && <div className="pf-onboarding-warning" role="status">{dados.aviso}</div>}
+      <div className="pf-onboarding-links">
+        {links.map((link) => (
+          <a key={link.id} href={link.href} target="_blank" rel="noreferrer">
+            <strong>{link.label}</strong>
+            <small>{link.descricao}</small>
+            <ExternalLink size={15} />
+          </a>
+        ))}
       </div>
       <div className="pf-modal-actions">
         <button className="pf-button pf-button-secondary" type="button" onClick={copiar}>
           {copiado ? <Check size={17} /> : <Copy size={17} />}
-          {copiado ? "Copiado" : "Copiar credencial"}
+          {copiado ? "Copiado" : "Copiar credenciais e links"}
         </button>
-        <a className="pf-button pf-button-primary" href={acesso} target="_blank" rel="noreferrer">
-          <ExternalLink size={17} /> Abrir restaurante
+        <a
+          className="pf-button pf-button-primary"
+          href={links.find((link) => link.id === "central")?.href || acesso}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <ExternalLink size={17} /> Abrir central
         </a>
       </div>
     </Modal>
@@ -338,30 +414,155 @@ function Credenciais({ dados, onClose }) {
 }
 
 function NovoRestaurante({ onClose, onCreated, request }) {
-  const [form, setForm] = useState(NOVO_RESTAURANTE);
+  const [form, setForm] = useState(() => ({ ...NOVO_RESTAURANTE }));
+  const [etapa, setEtapa] = useState(0);
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
-  const alterar = (campo, valor) => setForm((atual) => ({ ...atual, [campo]: valor }));
-  const alterarPlano = (plano) => setForm((atual) => aplicarPlanoAoForm(plano, atual));
+  const etapaAtual = ONBOARDING_STEPS[etapa];
+  const slugPreview = normalizarSlugRestaurante(form.slug || form.nome || "novo-restaurante");
+  const mesasIniciais = numeroInteiro(Number(form.mesas), 0);
+  const limiteMesas = numeroInteiro(Number(form.limite_mesas), 0);
+  const marca = normalizarWhiteLabel(form);
+  const corPrimariaSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_primaria)
+    ? marca.cor_primaria
+    : WHITE_LABEL_PADRAO.cor_primaria;
+  const corDestaqueSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_secundaria)
+    ? marca.cor_secundaria
+    : WHITE_LABEL_PADRAO.cor_secundaria;
+
+  useEffect(() => () => {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
+  const alterar = (campo, valor) => {
+    setErro("");
+    setForm((atual) => ({ ...atual, [campo]: valor }));
+  };
+  const alterarPlano = (plano) => {
+    setErro("");
+    setForm((atual) => aplicarPlanoAoForm(plano, atual));
+  };
+
+  const etapaValida = () => {
+    if (etapaAtual.id === "identidade") return form.nome.trim().length >= 2 && slugPreview.length > 0;
+    if (etapaAtual.id === "plano") {
+      return Number(form.limite_mesas) >= 1
+        && Number(form.limite_usuarios) >= 1
+        && Number(form.limite_produtos) >= 1
+        && campoParaCentavos(form.mensalidade) >= 0;
+    }
+    if (etapaAtual.id === "operacao") return mesasIniciais >= 0 && mesasIniciais <= limiteMesas;
+    if (etapaAtual.id === "master") {
+      return form.nome_master.trim().length >= 2
+        && form.login.trim().length >= 3
+        && (!form.senha || form.senha.length >= 12);
+    }
+    return /^#[0-9a-f]{6}$/i.test(marca.cor_primaria)
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_secundaria);
+  };
+
+  const avancar = () => {
+    if (!etapaValida()) {
+      setErro("Revise os campos desta etapa antes de continuar.");
+      return;
+    }
+    setErro("");
+    setEtapa((atual) => Math.min(atual + 1, ONBOARDING_STEPS.length - 1));
+  };
+
+  const selecionarLogo = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!LOGO_INICIAL_MIMES.has(file.type)) {
+      setErro("Use uma logo JPG, PNG, WEBP ou GIF.");
+      return;
+    }
+    if (file.size > LOGO_INICIAL_MAX_BYTES) {
+      setErro(`Logo acima de ${LOGO_INICIAL_MAX_MB}MB.`);
+      return;
+    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+    setForm((atual) => ({ ...atual, white_label_ativo: true, logo_url: "" }));
+    setErro("");
+  };
+
+  const removerLogo = () => {
+    setLogoFile(null);
+    setLogoPreview("");
+  };
+
+  const montarPayload = (extras = {}) => ({
+    ...form,
+    ...extras,
+    slug: extras.slug ?? form.slug,
+    senha: form.senha || undefined,
+    limite_mesas: Number(form.limite_mesas),
+    limite_usuarios: Number(form.limite_usuarios),
+    limite_produtos: Number(form.limite_produtos),
+    mensalidade_centavos: campoParaCentavos(form.mensalidade),
+    mesas: Number(form.mesas),
+  });
+
+  const enviarLogoInicial = async (restauranteId) => {
+    if (!logoFile) return null;
+    const dadosLogo = new FormData();
+    dadosLogo.append("imagem", logoFile);
+    dadosLogo.append("tipo", "logo");
+    dadosLogo.append("restaurante_id", String(restauranteId));
+    return request("/api/platform/uploads/imagem", {
+      method: "POST",
+      body: dadosLogo,
+    });
+  };
 
   const salvar = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
+    if (etapa < ONBOARDING_STEPS.length - 1) {
+      avancar();
+      return;
+    }
+    if (!etapaValida()) {
+      setErro("Revise os campos desta etapa antes de cadastrar.");
+      return;
+    }
+
     setSalvando(true);
     setErro("");
     try {
-      const dados = await request("/api/platform/restaurantes", {
+      let dados = await request("/api/platform/restaurantes", {
         method: "POST",
-        body: JSON.stringify({
-          ...form,
-          senha: form.senha || undefined,
-          limite_mesas: Number(form.limite_mesas),
-          limite_usuarios: Number(form.limite_usuarios),
-          limite_produtos: Number(form.limite_produtos),
-          mensalidade_centavos: campoParaCentavos(form.mensalidade),
-          mesas: Number(form.mesas),
-        }),
+        body: JSON.stringify(montarPayload()),
       });
-      onCreated(dados);
+
+      let aviso = "";
+      if (logoFile) {
+        try {
+          const logo = await enviarLogoInicial(dados.restaurante.id);
+          const restauranteAtualizado = await request(`/api/platform/restaurantes/${dados.restaurante.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(montarPayload({
+              nome: dados.restaurante.nome,
+              slug: dados.restaurante.slug,
+              white_label_ativo: true,
+              nome_exibicao: form.nome_exibicao || form.nome,
+              logo_url: logo.url,
+            })),
+          });
+          dados = { ...dados, restaurante: restauranteAtualizado };
+        } catch (error) {
+          aviso = `Restaurante criado, mas a logo inicial nao foi enviada: ${error.message}`;
+        }
+      }
+
+      onCreated({
+        ...dados,
+        aviso,
+        onboarding: { mesa_inicial: Number(form.mesas) > 0 ? 1 : null },
+      });
     } catch (error) {
       setErro(error.message);
     } finally {
@@ -369,9 +570,9 @@ function NovoRestaurante({ onClose, onCreated, request }) {
     }
   };
 
-  return (
-    <Modal titulo="Cadastrar restaurante" onClose={onClose} largura="920px">
-      <form onSubmit={salvar}>
+  const renderEtapa = () => {
+    if (etapaAtual.id === "identidade") {
+      return (
         <div className="pf-form-grid">
           <Campo label="Nome do restaurante" wide>
             <input required value={form.nome} onChange={(event) => alterar("nome", event.target.value)} />
@@ -379,71 +580,202 @@ function NovoRestaurante({ onClose, onCreated, request }) {
           <Campo label="Slug de acesso">
             <input value={form.slug} onChange={(event) => alterar("slug", event.target.value)} placeholder="gerado-pelo-nome" />
           </Campo>
+          <div className="pf-onboarding-preview is-wide">
+            <span>URL principal</span>
+            <code>{linkAbsoluto(rotaRestaurante(slugPreview))}</code>
+          </div>
         </div>
+      );
+    }
 
-        <div className="pf-form-section-title"><BadgeDollarSign size={16} /> Plano comercial</div>
-        <PlanoCards value={form.plano} onChange={alterarPlano} />
-        <PlanoResumo form={form} />
+    if (etapaAtual.id === "plano") {
+      return (
+        <>
+          <PlanoCards value={form.plano} onChange={alterarPlano} />
+          <PlanoResumo form={form} />
+          <div className="pf-form-grid">
+            <Campo label="Limite de mesas">
+              <input type="number" min="1" max="500" required value={form.limite_mesas} onChange={(event) => alterar("limite_mesas", event.target.value)} />
+            </Campo>
+            <Campo label="Limite de usuarios">
+              <input type="number" min="1" max="500" required value={form.limite_usuarios} onChange={(event) => alterar("limite_usuarios", event.target.value)} />
+            </Campo>
+            <Campo label="Limite de produtos">
+              <input type="number" min="1" max="10000" required value={form.limite_produtos} onChange={(event) => alterar("limite_produtos", event.target.value)} />
+            </Campo>
+            <Campo label="Mensalidade (R$)">
+              <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
+            </Campo>
+            <Campo label="Status comercial">
+              <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
+                {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Ciclo">
+              <select value={form.ciclo_cobranca} onChange={(event) => alterar("ciclo_cobranca", event.target.value)}>
+                {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Fim do teste">
+              <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
+            </Campo>
+            <Campo label="Proxima cobranca">
+              <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
+            </Campo>
+            <Campo label="Observacoes comerciais" wide>
+              <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
+            </Campo>
+          </div>
+        </>
+      );
+    }
 
-        <div className="pf-form-grid">
-          <Campo label="Limite de mesas">
-            <input type="number" min="1" max="500" required value={form.limite_mesas} onChange={(event) => alterar("limite_mesas", event.target.value)} />
-          </Campo>
-          <Campo label="Limite de usuarios">
-            <input type="number" min="1" max="500" required value={form.limite_usuarios} onChange={(event) => alterar("limite_usuarios", event.target.value)} />
-          </Campo>
-          <Campo label="Limite de produtos">
-            <input type="number" min="1" max="10000" required value={form.limite_produtos} onChange={(event) => alterar("limite_produtos", event.target.value)} />
-          </Campo>
-          <Campo label="Mensalidade (R$)">
-            <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
-          </Campo>
-          <Campo label="Status comercial">
-            <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
-              {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </Campo>
-          <Campo label="Ciclo">
-            <select value={form.ciclo_cobranca} onChange={(event) => alterar("ciclo_cobranca", event.target.value)}>
-              {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </Campo>
-          <Campo label="Fim do teste">
-            <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
-          </Campo>
-          <Campo label="Proxima cobranca">
-            <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
-          </Campo>
-          <Campo label="Mesas iniciais">
-            <input type="number" min="0" max={form.limite_mesas} required value={form.mesas} onChange={(event) => alterar("mesas", event.target.value)} />
-          </Campo>
-          <Campo label="Observacoes comerciais" wide>
-            <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
-          </Campo>
+    if (etapaAtual.id === "operacao") {
+      return (
+        <div className="pf-onboarding-split">
+          <div className="pf-form-grid">
+            <Campo label="Mesas iniciais" wide>
+              <input type="number" min="0" max={form.limite_mesas} required value={form.mesas} onChange={(event) => alterar("mesas", event.target.value)} />
+            </Campo>
+          </div>
+          <div className="pf-onboarding-checklist">
+            <strong>Base criada automaticamente</strong>
+            <span><Check size={15} /> Categorias iniciais do cardapio</span>
+            <span><Check size={15} /> Mesas livres numeradas</span>
+            <span><Check size={15} /> Link de cardapio por mesa</span>
+            <span><Check size={15} /> Atalho para importacao CSV</span>
+          </div>
         </div>
+      );
+    }
 
-        <div className="pf-form-section-title"><UsersRound size={16} /> Master do restaurante</div>
+    if (etapaAtual.id === "master") {
+      return (
         <div className="pf-form-grid">
-          <Campo label="Nome">
+          <Campo label="Nome do master">
             <input required value={form.nome_master} onChange={(event) => alterar("nome_master", event.target.value)} />
           </Campo>
-          <Campo label="Usuário">
+          <Campo label="Usuario">
             <input required value={form.login} onChange={(event) => alterar("login", event.target.value)} />
           </Campo>
-          <Campo label="Senha temporária" wide>
+          <Campo label="Senha temporaria" wide>
             <input type="password" minLength={12} value={form.senha} onChange={(event) => alterar("senha", event.target.value)} placeholder="Gerada automaticamente" />
           </Campo>
+          <div className="pf-onboarding-preview is-wide">
+            <span>Acesso do master</span>
+            <code>{form.login || "master"} / {form.senha ? "senha definida" : "senha gerada automaticamente"}</code>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="pf-brand-onboarding">
+        <label className="pf-onboarding-toggle">
+          <span>
+            <strong>Ativar white label</strong>
+            <small>Nome, cores e logo do cliente nas areas do restaurante.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={Boolean(form.white_label_ativo)}
+            onChange={(event) => alterar("white_label_ativo", event.target.checked)}
+          />
+        </label>
+        <div className="pf-form-grid">
+          <Campo label="Nome exibido" wide>
+            <input value={form.nome_exibicao} maxLength={80} onChange={(event) => alterar("nome_exibicao", event.target.value)} placeholder={form.nome || "Nome do restaurante"} />
+          </Campo>
+          <Campo label="Cor principal">
+            <div className="pf-color-row">
+              <input type="color" value={corPrimariaSegura} onChange={(event) => alterar("cor_primaria", event.target.value)} />
+              <input value={form.cor_primaria} maxLength={7} onChange={(event) => alterar("cor_primaria", event.target.value)} />
+            </div>
+          </Campo>
+          <Campo label="Cor de destaque">
+            <div className="pf-color-row">
+              <input type="color" value={corDestaqueSegura} onChange={(event) => alterar("cor_secundaria", event.target.value)} />
+              <input value={form.cor_secundaria} maxLength={7} onChange={(event) => alterar("cor_secundaria", event.target.value)} />
+            </div>
+          </Campo>
+        </div>
+        <div className="pf-logo-picker">
+          <div className="pf-logo-preview">
+            {logoPreview ? <img src={logoPreview} alt="Previa da logo" /> : <Building2 size={26} />}
+          </div>
+          <div>
+            <strong>Logo inicial</strong>
+            <small>PNG, JPG, WEBP ou GIF ate {LOGO_INICIAL_MAX_MB}MB.</small>
+            <div className="pf-logo-actions">
+              <label className="pf-button pf-button-secondary">
+                Selecionar logo
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={selecionarLogo} />
+              </label>
+              {logoFile && (
+                <button className="pf-icon-button" type="button" onClick={removerLogo} title="Remover logo">
+                  <X size={17} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Modal titulo="Onboarding de restaurante" onClose={onClose} largura="960px">
+      <div>
+        <div className="pf-onboarding-progress">
+          {ONBOARDING_STEPS.map((item, indice) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`${indice === etapa ? "is-active" : ""} ${indice < etapa ? "is-done" : ""}`}
+                onClick={() => indice <= etapa && setEtapa(indice)}
+              >
+                <Icon size={16} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="pf-onboarding-panel">
+          <div className="pf-form-section-title">
+            {(() => {
+              const Icon = etapaAtual.icon;
+              return <Icon size={16} />;
+            })()}
+            {etapaAtual.label}
+          </div>
+          {renderEtapa()}
         </div>
 
         <div className="pf-form-error" role="status">{erro}</div>
-        <div className="pf-modal-actions">
+        <div className="pf-modal-actions pf-onboarding-actions">
           <button className="pf-button pf-button-secondary" type="button" onClick={onClose}>Cancelar</button>
-          <button className="pf-button pf-button-primary" type="submit" disabled={salvando}>
-            {salvando ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />}
-            Cadastrar
-          </button>
+          <div>
+            {etapa > 0 && (
+              <button className="pf-button pf-button-secondary" type="button" onClick={() => setEtapa((atual) => atual - 1)}>
+                Voltar
+              </button>
+            )}
+            {etapa < ONBOARDING_STEPS.length - 1 ? (
+              <button className="pf-button pf-button-primary" type="button" onClick={avancar} disabled={!etapaValida()}>
+                Continuar
+              </button>
+            ) : (
+              <button className="pf-button pf-button-primary" type="button" onClick={salvar} disabled={salvando || !etapaValida()}>
+                {salvando ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />}
+                Criar restaurante
+              </button>
+            )}
+          </div>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }
