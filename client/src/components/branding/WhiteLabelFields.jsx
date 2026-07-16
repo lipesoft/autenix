@@ -1,11 +1,18 @@
-import { Building2, CheckCircle2, Image, Palette } from "lucide-react";
+import { Building2, CheckCircle2, Palette } from "lucide-react";
+import ImageUploadField from "../upload/ImageUploadField.jsx";
 import {
   normalizarWhiteLabel,
   WHITE_LABEL_PADRAO,
 } from "./white-label-config.js";
 import "./WhiteLabelFields.css";
 
-export default function WhiteLabelFields({ value, onChange }) {
+export default function WhiteLabelFields({
+  value,
+  onChange,
+  uploadPath,
+  uploadFields,
+  uploadHeaders,
+}) {
   const dados = normalizarWhiteLabel(value);
   const corPrincipalSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_primaria)
     ? dados.cor_primaria
@@ -41,16 +48,18 @@ export default function WhiteLabelFields({ value, onChange }) {
           />
         </label>
 
-        <label className="wl-field wl-field-wide">
-          <span><Image size={15} /> URL pública da logo</span>
-          <input
-            type="url"
+        <div className="wl-field wl-field-wide">
+          <ImageUploadField
+            label="Logo do restaurante"
             value={dados.logo_url}
-            onChange={(event) => alterar("logo_url", event.target.value)}
-            placeholder="https://.../logo.png"
+            onChange={(logoUrl) => alterar("logo_url", logoUrl)}
+            uploadPath={uploadPath}
+            uploadFields={uploadFields}
+            headers={uploadHeaders}
+            hint="Use uma logo PNG, WEBP, JPG ou GIF ate 3MB."
+            previewAlt="Previa da logo"
           />
-          <small>Use uma imagem HTTPS com fundo transparente.</small>
-        </label>
+        </div>
 
         <label className="wl-field">
           <span><Palette size={15} /> Cor principal</span>

@@ -35,10 +35,11 @@ export async function loginPlataforma(login, senha) {
 
 export async function platformFetch(caminho, options = {}) {
   const session = getPlatformSession();
+  const bodyEhFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const resposta = await fetch(`${API_URL}${caminho}`, {
     ...options,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !bodyEhFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
       ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
     },

@@ -14,9 +14,11 @@ import {
 import CentralOperacao from "./components/central/CentralOperacao.jsx";
 import LandingPage from "./components/landing/LandingPage.jsx";
 import PlatformPortal from "./components/platform/PlatformPortal.jsx";
+import ImageUploadField from "./components/upload/ImageUploadField.jsx";
 import { API_URL as API } from "./services/api.js";
 import {
   authFetch,
+  authHeaders,
   getUsuarioSessao,
   loginUsuario,
   normalizarSlugRestaurante,
@@ -3615,7 +3617,7 @@ function PainelAdmin({ usuario, onLogout }) {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    gridTemplateColumns: "1fr",
                     gap: 8,
                     marginBottom: 10,
                   }}
@@ -3629,28 +3631,20 @@ function PainelAdmin({ usuario, onLogout }) {
                       setNovoP((p) => ({ ...p, preco: e.target.value }))
                     }
                   />
-                  <input
-                    placeholder="URL da foto (opcional)"
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <ImageUploadField
+                    label="Imagem do produto"
                     value={novoP.imagem}
-                    onChange={(e) =>
-                      setNovoP((p) => ({ ...p, imagem: e.target.value }))
+                    onChange={(imagem) =>
+                      setNovoP((p) => ({ ...p, imagem }))
                     }
+                    uploadPath="/api/uploads/imagem"
+                    uploadFields={{ tipo: "produto" }}
+                    headers={authHeaders}
+                    previewAlt="Previa do produto"
                   />
                 </div>
-                {novoP.imagem && (
-                  <img
-                    src={novoP.imagem}
-                    alt="preview"
-                    style={{
-                      width: "100%",
-                      height: 100,
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      marginBottom: 10,
-                    }}
-                    onError={(e) => (e.target.style.display = "none")}
-                  />
-                )}
                 <Btn
                   onClick={salvarProduto}
                   disabled={!novoP.nome || !novoP.preco}
@@ -3664,7 +3658,7 @@ function PainelAdmin({ usuario, onLogout }) {
                 onChange={(e) => setBusca(e.target.value)}
                 style={{ marginBottom: 14 }}
               />
-              {cardapio.categorias.map((cat, ci) => {
+              {cardapio.categorias.map((cat) => {
                 const prods = produtosFiltrados.filter(
                   (p) => p.categoria_id === cat.id,
                 );
@@ -3975,7 +3969,13 @@ function PainelAdmin({ usuario, onLogout }) {
                 >
                   <Palette size={19} color={T.accent} /> Identidade do restaurante
                 </div>
-                <WhiteLabelFields value={marcaConfig} onChange={setMarcaConfig} />
+                <WhiteLabelFields
+                  value={marcaConfig}
+                  onChange={setMarcaConfig}
+                  uploadPath="/api/uploads/imagem"
+                  uploadFields={{ tipo: "logo" }}
+                  uploadHeaders={authHeaders}
+                />
                 <div
                   role="status"
                   style={{
@@ -4453,28 +4453,19 @@ function PainelAdmin({ usuario, onLogout }) {
               }
               style={{ marginBottom: 8 }}
             />
-            <input
-              placeholder="URL da foto"
-              value={editando.imagem || ""}
-              onChange={(e) =>
-                setEditando((p) => ({ ...p, imagem: e.target.value }))
-              }
-              style={{ marginBottom: 10 }}
-            />
-            {editando.imagem && (
-              <img
-                src={editando.imagem}
-                alt="preview"
-                style={{
-                  width: "100%",
-                  height: 120,
-                  objectFit: "cover",
-                  borderRadius: 8,
-                  marginBottom: 12,
-                }}
-                onError={(e) => (e.target.style.display = "none")}
+            <div style={{ marginBottom: 12 }}>
+              <ImageUploadField
+                label="Imagem do produto"
+                value={editando.imagem || ""}
+                onChange={(imagem) =>
+                  setEditando((p) => ({ ...p, imagem }))
+                }
+                uploadPath="/api/uploads/imagem"
+                uploadFields={{ tipo: "produto" }}
+                headers={authHeaders}
+                previewAlt="Previa do produto"
               />
-            )}
+            </div>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn
                 variant="ghost"

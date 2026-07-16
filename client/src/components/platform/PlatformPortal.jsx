@@ -544,7 +544,16 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
         </div>
 
         <div className="pf-form-section-title"><Settings2 size={16} /> White label</div>
-        <WhiteLabelFields value={form} onChange={setForm} />
+        <WhiteLabelFields
+          value={form}
+          onChange={setForm}
+          uploadPath="/api/platform/uploads/imagem"
+          uploadFields={{ tipo: "logo", restaurante_id: restaurante.id }}
+          uploadHeaders={() => {
+            const token = getPlatformSession()?.token;
+            return token ? { Authorization: `Bearer ${token}` } : {};
+          }}
+        />
 
         <div className="pf-form-error" role="status">{erro}</div>
         <div className="pf-modal-actions">
