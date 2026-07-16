@@ -16,10 +16,12 @@ token de um restaurante possui `restaurante_id` e nao abre rotas da plataforma.
 
 1. Acesse `/plataforma` com o usuario global.
 2. Selecione `Novo restaurante`.
-3. Informe nome, slug, plano, limite e quantidade inicial de mesas.
-4. Informe o nome e login do master do restaurante.
-5. Deixe a senha vazia para gerar uma senha temporaria segura.
-6. Entregue ao cliente o link, login e senha mostrados uma unica vez.
+3. Siga o onboarding por etapas: identidade, plano, operacao, master e marca.
+4. Informe nome, slug, plano, limites comerciais e quantidade inicial de mesas.
+5. Informe o nome e login do master do restaurante.
+6. Deixe a senha vazia para gerar uma senha temporaria segura.
+7. Configure white label inicial quando o cliente ja tiver nome, cores ou logo.
+8. Entregue ao cliente as credenciais e links mostrados uma unica vez.
 
 O cadastro cria, em uma unica transacao:
 
@@ -28,6 +30,10 @@ O cadastro cria, em uma unica transacao:
 - as categorias iniciais;
 - as mesas iniciais;
 - o vinculo de todos os dados ao novo restaurante.
+- a marca inicial, quando informada no onboarding.
+
+A tela final exibe links para central, administracao, garcom, cozinha,
+financeiro, cardapio do cliente e importacao inicial de dados.
 
 ## Acoes disponiveis
 
@@ -43,14 +49,15 @@ O arquivamento e logico. A exclusao nao remove pedidos, usuarios ou historico.
 
 ## White label
 
-O operador global pode configurar a marca durante a edicao do restaurante. O
-master do restaurante tambem possui a aba `Marca` no painel administrativo.
+O operador global pode configurar a marca no onboarding ou durante a edicao do
+restaurante. O master do restaurante tambem possui a aba `Marca` no painel
+administrativo.
 
 Campos disponiveis:
 
 - ativacao da marca propria;
 - nome exibido;
-- URL HTTPS da logo;
+- upload de logo;
 - cor principal;
 - cor de destaque.
 

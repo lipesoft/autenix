@@ -21,11 +21,14 @@ e identidade visual.
 
 ## Prioridade 2 - Onboarding de restaurante
 
-- Criar um fluxo guiado para cadastrar restaurante, master, mesas, categorias,
-  cardapio inicial e identidade visual.
-- Manter o onboarding inicial com login e senha proprios do Autenix.
-- Exibir credenciais e links principais depois da criacao.
-- Deixar o cadastro pronto para virar autoatendimento no futuro.
+- Implementado: fluxo guiado no painel da plataforma para identidade, plano,
+  operacao inicial, master e marca.
+- Implementado: onboarding com login e senha proprios do Autenix, sem Google Auth
+  nesta fase.
+- Implementado: credenciais e links principais exibidos depois da criacao,
+  incluindo central, admin, setores, cardapio e importacao inicial.
+- Pendente: transformar o cadastro em autoatendimento publico no futuro.
+- Pendente: convite automatico por email/WhatsApp com credenciais e links.
 
 ## Prioridade 3 - Reservas
 
@@ -62,3 +65,4 @@ e identidade visual.
 - Monitoramento de erros.
 - Backup automatico revisado no Supabase.
 - Token de sessao por mesa via QR Code.
+- Resolver lint antigo do `client/src/App.jsx`.
