@@ -12,6 +12,12 @@ test("normaliza os dados de um novo restaurante", () => {
     senha: "SenhaMuitoForte123!",
     plano: "profissional",
     limite_mesas: 40,
+    limite_usuarios: 12,
+    limite_produtos: 250,
+    mensalidade_centavos: 18900,
+    status_cobranca: "ativo",
+    ciclo_cobranca: "mensal",
+    trial_termina_em: "2026-08-15",
     mesas: 12,
   });
 
@@ -21,6 +27,12 @@ test("normaliza os dados de um novo restaurante", () => {
   assert.equal(dados.plano, "profissional");
   assert.equal(dados.quantidadeMesas, 12);
   assert.equal(dados.limiteMesas, 40);
+  assert.equal(dados.limiteUsuarios, 12);
+  assert.equal(dados.limiteProdutos, 250);
+  assert.equal(dados.mensalidadeCentavos, 18900);
+  assert.equal(dados.statusCobranca, "ativo");
+  assert.equal(dados.cicloCobranca, "mensal");
+  assert.equal(dados.trialTerminaEm, "2026-08-15");
 });
 
 test("gera senha temporaria forte quando ela nao e informada", () => {
@@ -32,6 +44,9 @@ test("gera senha temporaria forte quando ela nao e informada", () => {
 
   assert.equal(dados.senhaGerada, true);
   assert.ok(dados.senha.length >= 12);
+  assert.equal(dados.limiteUsuarios, 5);
+  assert.equal(dados.limiteProdutos, 120);
+  assert.equal(dados.mensalidadeCentavos, 9900);
 });
 
 test("impede criar mais mesas que o limite contratado", () => {
@@ -46,3 +61,15 @@ test("impede criar mais mesas que o limite contratado", () => {
   );
 });
 
+test("aplica limites padrao do plano profissional", () => {
+  const dados = normalizarCriacaoTenant({
+    nome: "Restaurante Plano Pro",
+    senha: "SenhaMuitoForte123!",
+    plano: "profissional",
+  });
+
+  assert.equal(dados.limiteMesas, 60);
+  assert.equal(dados.limiteUsuarios, 15);
+  assert.equal(dados.limiteProdutos, 400);
+  assert.equal(dados.mensalidadeCentavos, 19900);
+});

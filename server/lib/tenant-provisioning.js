@@ -1,7 +1,33 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 
-const PLANOS = new Set(["essencial", "profissional", "enterprise"]);
+const PLANOS_CATALOGO = Object.freeze({
+  essencial: Object.freeze({
+    nome: "Essencial",
+    limiteMesas: 20,
+    limiteUsuarios: 5,
+    limiteProdutos: 120,
+    mensalidadeCentavos: 9900,
+  }),
+  profissional: Object.freeze({
+    nome: "Profissional",
+    limiteMesas: 60,
+    limiteUsuarios: 15,
+    limiteProdutos: 400,
+    mensalidadeCentavos: 19900,
+  }),
+  enterprise: Object.freeze({
+    nome: "Enterprise",
+    limiteMesas: 500,
+    limiteUsuarios: 100,
+    limiteProdutos: 2000,
+    mensalidadeCentavos: 0,
+  }),
+});
+
+const PLANOS = new Set(Object.keys(PLANOS_CATALOGO));
+const CICLOS_COBRANCA = new Set(["mensal", "anual", "experimental", "personalizado"]);
+const STATUS_COBRANCA = new Set(["trial", "ativo", "pendente", "atrasado", "isento"]);
 const CATEGORIAS_INICIAIS = [
   ["Entradas", 1],
   ["Pratos principais", 2],
@@ -44,6 +70,14 @@ function normalizarPlano(valor) {
   return plano;
 }
 
+function normalizarValorMonetarioCentavos(valor) {
+  const numero = Number(valor ?? 0);
+  if (!Number.isInteger(numero) || numero < 0 || numero > 99999900) {
+    throw new TenantValidationError("Mensalidade deve ser um valor valido");
+  }
+  return numero;
+}
+
 function normalizarInteiro(valor, campo, minimo, maximo) {
   const numero = Number(valor);
   if (!Number.isInteger(numero) || numero < minimo || numero > maximo) {
@@ -52,8 +86,87 @@ function normalizarInteiro(valor, campo, minimo, maximo) {
   return numero;
 }
 
+function normalizarDataOpcional(valor, campo) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const texto = String(valor).trim();
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(texto)
+    ? new Date(`${texto}T00:00:00.000Z`)
+    : new Date(texto);
+  if (Number.isNaN(data.getTime())) {
+    throw new TenantValidationError(`${campo} invalida`);
+  }
+  return data.toISOString().slice(0, 10);
+}
+
+function normalizarOpcao(valor, opcoes, padrao, campo) {
+  const normalizado = String(valor || padrao).trim().toLowerCase();
+  if (!opcoes.has(normalizado)) {
+    throw new TenantValidationError(`${campo} invalido`);
+  }
+  return normalizado;
+}
+
+function normalizarTextoOpcional(valor, limite, campo) {
+  const texto = String(valor || "").trim();
+  if (texto.length > limite) {
+    throw new TenantValidationError(`${campo} deve ter no maximo ${limite} caracteres`);
+  }
+  return texto || null;
+}
+
 function gerarSenhaTemporaria() {
   return crypto.randomBytes(18).toString("base64url");
+}
+
+function normalizarPlanoDetalhes(opcoes = {}) {
+  const plano = normalizarPlano(opcoes.plano);
+  const padrao = PLANOS_CATALOGO[plano];
+  return {
+    plano,
+    limiteMesas: normalizarInteiro(
+      opcoes.limite_mesas ?? padrao.limiteMesas,
+      "Limite de mesas",
+      1,
+      500,
+    ),
+    limiteUsuarios: normalizarInteiro(
+      opcoes.limite_usuarios ?? padrao.limiteUsuarios,
+      "Limite de usuarios",
+      1,
+      500,
+    ),
+    limiteProdutos: normalizarInteiro(
+      opcoes.limite_produtos ?? padrao.limiteProdutos,
+      "Limite de produtos",
+      1,
+      10000,
+    ),
+    mensalidadeCentavos: normalizarValorMonetarioCentavos(
+      opcoes.mensalidade_centavos ?? padrao.mensalidadeCentavos,
+    ),
+    cicloCobranca: normalizarOpcao(
+      opcoes.ciclo_cobranca,
+      CICLOS_COBRANCA,
+      "mensal",
+      "Ciclo de cobranca",
+    ),
+    statusCobranca: normalizarOpcao(
+      opcoes.status_cobranca,
+      STATUS_COBRANCA,
+      "trial",
+      "Status comercial",
+    ),
+    trialTerminaEm: normalizarDataOpcional(opcoes.trial_termina_em, "Data de fim do teste"),
+    proximaCobrancaEm: normalizarDataOpcional(
+      opcoes.proxima_cobranca_em,
+      "Data da proxima cobranca",
+    ),
+    observacoesPlano: normalizarTextoOpcional(
+      opcoes.observacoes_plano,
+      500,
+      "Observacoes do plano",
+    ),
+  };
 }
 
 function normalizarCriacaoTenant(opcoes = {}) {
@@ -62,18 +175,12 @@ function normalizarCriacaoTenant(opcoes = {}) {
   const login = normalizarLogin(opcoes.login || "master");
   const nomeMaster = String(opcoes.nome_master || "Master").trim();
   const senha = String(opcoes.senha || gerarSenhaTemporaria());
-  const plano = normalizarPlano(opcoes.plano);
-  const limiteMesas = normalizarInteiro(
-    opcoes.limite_mesas ?? 20,
-    "Limite de mesas",
-    1,
-    500,
-  );
+  const planoDetalhes = normalizarPlanoDetalhes(opcoes);
   const quantidadeMesas = normalizarInteiro(
-    opcoes.mesas ?? Math.min(10, limiteMesas),
+    opcoes.mesas ?? Math.min(10, planoDetalhes.limiteMesas),
     "Quantidade de mesas",
     0,
-    limiteMesas,
+    planoDetalhes.limiteMesas,
   );
 
   if (nome.length < 2 || nome.length > 120) {
@@ -98,8 +205,7 @@ function normalizarCriacaoTenant(opcoes = {}) {
     login,
     nomeMaster,
     senha,
-    plano,
-    limiteMesas,
+    ...planoDetalhes,
     quantidadeMesas,
     senhaGerada: !opcoes.senha,
   };
@@ -113,10 +219,29 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
     await client.query("BEGIN");
     const { rows: restaurantes } = await client.query(
       `INSERT INTO restaurantes (
-         nome, slug, ativo, plano, limite_mesas, atualizado_em
-       ) VALUES ($1, $2, 1, $3, $4, NOW())
-       RETURNING id, nome, slug, plano, limite_mesas, ativo`,
-      [dados.nome, dados.slug, dados.plano, dados.limiteMesas],
+         nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+         limite_produtos, mensalidade_centavos, ciclo_cobranca,
+         status_cobranca, trial_termina_em, proxima_cobranca_em,
+         observacoes_plano, atualizado_em
+       ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+       RETURNING id, nome, slug, plano, limite_mesas, limite_usuarios,
+                 limite_produtos, mensalidade_centavos, ciclo_cobranca,
+                 status_cobranca, trial_termina_em, proxima_cobranca_em,
+                 observacoes_plano, ativo`,
+      [
+        dados.nome,
+        dados.slug,
+        dados.plano,
+        dados.limiteMesas,
+        dados.limiteUsuarios,
+        dados.limiteProdutos,
+        dados.mensalidadeCentavos,
+        dados.cicloCobranca,
+        dados.statusCobranca,
+        dados.trialTerminaEm,
+        dados.proximaCobrancaEm,
+        dados.observacoesPlano,
+      ],
     );
     const restaurante = restaurantes[0];
     await client.query("SELECT set_config('app.restaurante_id', $1, true)", [
@@ -204,14 +329,17 @@ async function redefinirSenhaMaster(pool, restauranteId, senhaInformada, bcryptR
 }
 
 module.exports = {
+  CICLOS_COBRANCA,
   PLANOS,
+  PLANOS_CATALOGO,
+  STATUS_COBRANCA,
   TenantValidationError,
   gerarSenhaTemporaria,
   normalizarCriacaoTenant,
   normalizarLogin,
   normalizarPlano,
+  normalizarPlanoDetalhes,
   normalizarSlug,
   provisionarRestaurante,
   redefinirSenhaMaster,
 };
-

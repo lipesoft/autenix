@@ -17,7 +17,7 @@ const {
 } = require("./lib/branding");
 const {
   TenantValidationError,
-  normalizarPlano,
+  normalizarPlanoDetalhes,
   normalizarSlug: normalizarSlugTenant,
   provisionarRestaurante,
   redefinirSenhaMaster,
@@ -715,6 +715,14 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
   const { numero } = req.body;
   if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
   try {
+    const limites = await carregarLimitesPlano(req.user.restaurante_id);
+    const totalMesas = await contarRegistrosTenant(req.user.restaurante_id, "mesas");
+    if (totalMesas >= limites.limite_mesas) {
+      return res.status(400).json({
+        erro: `Limite de ${limites.limite_mesas} mesas atingido pelo plano atual`,
+      });
+    }
+
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `INSERT INTO mesas (numero, restaurante_id)
@@ -1180,6 +1188,14 @@ app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async 
 app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { categoria_id, nome, descricao, preco, imagem } = req.body;
+    const limites = await carregarLimitesPlano(req.user.restaurante_id);
+    const totalProdutos = await contarRegistrosTenant(req.user.restaurante_id, "produtos");
+    if (totalProdutos >= limites.limite_produtos) {
+      return res.status(400).json({
+        erro: `Limite de ${limites.limite_produtos} produtos atingido pelo plano atual`,
+      });
+    }
+
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `INSERT INTO produtos
@@ -1418,6 +1434,7 @@ async function carregarResumoRestaurante(restaurante) {
     `SELECT
        (SELECT COUNT(*)::int FROM mesas WHERE restaurante_id = $1) AS mesas_cadastradas,
        (SELECT COUNT(*)::int FROM usuarios WHERE restaurante_id = $1 AND ativo = 1) AS usuarios_ativos,
+       (SELECT COUNT(*)::int FROM produtos WHERE restaurante_id = $1) AS produtos_cadastrados,
        (SELECT COUNT(*)::int FROM pedidos WHERE restaurante_id = $1) AS pedidos_total,
        (
          SELECT row_to_json(master)
@@ -1432,6 +1449,32 @@ async function carregarResumoRestaurante(restaurante) {
     [restaurante.id],
   );
   return { ...restaurante, ...rows[0] };
+}
+
+async function carregarLimitesPlano(restauranteId) {
+  const { rows } = await query(
+    `SELECT limite_mesas, limite_usuarios, limite_produtos
+     FROM restaurantes
+     WHERE id = $1 AND excluido_em IS NULL`,
+    [restauranteId],
+  );
+  if (!rows[0]) {
+    const error = new Error("Restaurante nao encontrado");
+    error.statusCode = 404;
+    throw error;
+  }
+  return rows[0];
+}
+
+async function contarRegistrosTenant(restauranteId, tabela, condicaoExtra = "") {
+  const { rows } = await tenantQuery(
+    restauranteId,
+    `SELECT COUNT(*)::int AS total
+     FROM ${tabela}
+     WHERE restaurante_id = $1 ${condicaoExtra}`,
+    [restauranteId],
+  );
+  return rows[0]?.total || 0;
 }
 
 function responderErroPlataforma(res, error) {
@@ -1483,7 +1526,10 @@ app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
 app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+      `SELECT id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+              limite_produtos, mensalidade_centavos, ciclo_cobranca,
+              status_cobranca, trial_termina_em, proxima_cobranca_em,
+              observacoes_plano, excluido_em,
               white_label_ativo, nome_exibicao, logo_url,
               cor_primaria, cor_secundaria, criado_em, atualizado_em
        FROM restaurantes
@@ -1510,25 +1556,33 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
     const restauranteId = idPositivo(req.params.id, "Restaurante");
     const nome = String(req.body?.nome || "").trim();
     const slug = normalizarSlugTenant(req.body?.slug || nome);
-    const plano = normalizarPlano(req.body?.plano);
-    const limiteMesas = idPositivo(req.body?.limite_mesas, "Limite de mesas");
+    const planoDetalhes = normalizarPlanoDetalhes(req.body);
     const marca = normalizarWhiteLabel(req.body);
 
     if (nome.length < 2 || nome.length > 120 || !slug || slug.length > 80) {
       throw new TenantValidationError("Nome ou slug do restaurante invalido");
     }
-    if (limiteMesas > 500) {
-      throw new TenantValidationError("Limite de mesas deve ser no maximo 500");
-    }
-
-    const { rows: contagem } = await tenantQuery(
+    const { rows: usoAtual } = await tenantQuery(
       restauranteId,
-      "SELECT COUNT(*)::int AS total FROM mesas WHERE restaurante_id = $1",
+      `SELECT
+         (SELECT COUNT(*)::int FROM mesas WHERE restaurante_id = $1) AS mesas,
+         (SELECT COUNT(*)::int FROM usuarios WHERE restaurante_id = $1 AND ativo = 1) AS usuarios,
+         (SELECT COUNT(*)::int FROM produtos WHERE restaurante_id = $1) AS produtos`,
       [restauranteId],
     );
-    if ((contagem[0]?.total || 0) > limiteMesas) {
+    if ((usoAtual[0]?.mesas || 0) > planoDetalhes.limiteMesas) {
       throw new TenantValidationError(
-        `O restaurante ja possui ${contagem[0].total} mesas cadastradas`,
+        `O restaurante ja possui ${usoAtual[0].mesas} mesas cadastradas`,
+      );
+    }
+    if ((usoAtual[0]?.usuarios || 0) > planoDetalhes.limiteUsuarios) {
+      throw new TenantValidationError(
+        `O restaurante ja possui ${usoAtual[0].usuarios} usuarios ativos`,
+      );
+    }
+    if ((usoAtual[0]?.produtos || 0) > planoDetalhes.limiteProdutos) {
+      throw new TenantValidationError(
+        `O restaurante ja possui ${usoAtual[0].produtos} produtos cadastrados`,
       );
     }
 
@@ -1538,21 +1592,40 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
            slug = $2,
            plano = $3,
            limite_mesas = $4,
-           white_label_ativo = $5,
-           nome_exibicao = $6,
-           logo_url = $7,
-           cor_primaria = $8,
-           cor_secundaria = $9,
+           limite_usuarios = $5,
+           limite_produtos = $6,
+           mensalidade_centavos = $7,
+           ciclo_cobranca = $8,
+           status_cobranca = $9,
+           trial_termina_em = $10,
+           proxima_cobranca_em = $11,
+           observacoes_plano = $12,
+           white_label_ativo = $13,
+           nome_exibicao = $14,
+           logo_url = $15,
+           cor_primaria = $16,
+           cor_secundaria = $17,
            atualizado_em = NOW()
-       WHERE id = $10
-       RETURNING id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+       WHERE id = $18
+       RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+                 limite_produtos, mensalidade_centavos, ciclo_cobranca,
+                 status_cobranca, trial_termina_em, proxima_cobranca_em,
+                 observacoes_plano, excluido_em,
                  white_label_ativo, nome_exibicao, logo_url,
                  cor_primaria, cor_secundaria, criado_em, atualizado_em`,
       [
         nome,
         slug,
-        plano,
-        limiteMesas,
+        planoDetalhes.plano,
+        planoDetalhes.limiteMesas,
+        planoDetalhes.limiteUsuarios,
+        planoDetalhes.limiteProdutos,
+        planoDetalhes.mensalidadeCentavos,
+        planoDetalhes.cicloCobranca,
+        planoDetalhes.statusCobranca,
+        planoDetalhes.trialTerminaEm,
+        planoDetalhes.proximaCobrancaEm,
+        planoDetalhes.observacoesPlano,
         marca.white_label_ativo,
         marca.nome_exibicao,
         marca.logo_url,
@@ -1585,7 +1658,10 @@ app.patch(
              excluido_em = CASE WHEN $1 THEN NULL ELSE excluido_em END,
              atualizado_em = NOW()
          WHERE id = $2
-         RETURNING id, nome, slug, ativo, plano, limite_mesas, excluido_em,
+         RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+                   limite_produtos, mensalidade_centavos, ciclo_cobranca,
+                   status_cobranca, trial_termina_em, proxima_cobranca_em,
+                   observacoes_plano, excluido_em,
                    white_label_ativo, nome_exibicao, logo_url,
                    cor_primaria, cor_secundaria, criado_em, atualizado_em`,
         [req.body.ativo, restauranteId],
@@ -1715,7 +1791,10 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-              logo_url, cor_primaria, cor_secundaria, atualizado_em
+              logo_url, cor_primaria, cor_secundaria, plano, limite_mesas,
+              limite_usuarios, limite_produtos, mensalidade_centavos,
+              ciclo_cobranca, status_cobranca, trial_termina_em,
+              proxima_cobranca_em, atualizado_em
        FROM restaurantes WHERE id = $1 AND ativo = 1`,
       [req.user.restaurante_id],
     );
@@ -1799,6 +1878,18 @@ app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, re
     );
     if (existing[0]) return res.status(400).json({ erro: "Login ja existe, escolha outro" });
 
+    const limites = await carregarLimitesPlano(req.user.restaurante_id);
+    const usuariosAtivos = await contarRegistrosTenant(
+      req.user.restaurante_id,
+      "usuarios",
+      "AND ativo = 1",
+    );
+    if (usuariosAtivos >= limites.limite_usuarios) {
+      return res.status(400).json({
+        erro: `Limite de ${limites.limite_usuarios} usuarios ativos atingido pelo plano atual`,
+      });
+    }
+
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `INSERT INTO usuarios
@@ -1825,6 +1916,20 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
     const u = rows[0];
     const novoLogin = normalizarLogin(login || u.login || u.nome);
     const novaSenha = senha && senha.length > 0 ? await hashSenha(senha) : u.senha;
+    const novoAtivo = ativo ?? u.ativo;
+    if (Number(novoAtivo) === 1 && Number(u.ativo) !== 1) {
+      const limites = await carregarLimitesPlano(req.user.restaurante_id);
+      const usuariosAtivos = await contarRegistrosTenant(
+        req.user.restaurante_id,
+        "usuarios",
+        "AND ativo = 1",
+      );
+      if (usuariosAtivos >= limites.limite_usuarios) {
+        return res.status(400).json({
+          erro: `Limite de ${limites.limite_usuarios} usuarios ativos atingido pelo plano atual`,
+        });
+      }
+    }
     await tenantQuery(
       req.user.restaurante_id,
       `UPDATE usuarios
@@ -1834,7 +1939,7 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
         nome ?? u.nome,
         novoLogin,
         novaSenha,
-        ativo ?? u.ativo,
+        novoAtivo,
         role ?? u.role,
         req.params.id,
         req.user.restaurante_id,
