@@ -23,6 +23,7 @@ e identidade visual.
 
 - Criar um fluxo guiado para cadastrar restaurante, master, mesas, categorias,
   cardapio inicial e identidade visual.
+- Manter o onboarding inicial com login e senha proprios do Autenix.
 - Exibir credenciais e links principais depois da criacao.
 - Deixar o cadastro pronto para virar autoatendimento no futuro.
 
@@ -43,6 +44,15 @@ e identidade visual.
 - Criar dashboard SaaS com receita prevista, clientes ativos, suspensos e em teste.
 - Integrar gateway de pagamento.
 - Criar alertas de vencimento, atraso e limite de uso.
+
+## Fase futura - Autenticacao Google
+
+- Avaliar login com Google depois que o multi-restaurante estiver mais maduro.
+- Permitir Google Auth principalmente para admins, masters e financeiro.
+- Manter login e senha simples para garcom, cozinha e operacao diaria.
+- Criar vinculo seguro entre conta Google, usuario, role e restaurante_id.
+- Suportar usuarios com acesso a mais de um restaurante.
+- Criar fluxo de convite por email para associar colaboradores.
 
 ## Pendencias tecnicas paralelas
 
