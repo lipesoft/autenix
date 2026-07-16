@@ -425,6 +425,7 @@ function NovoRestaurante({ onClose, onCreated, request }) {
   const mesasIniciais = numeroInteiro(Number(form.mesas), 0);
   const limiteMesas = numeroInteiro(Number(form.limite_mesas), 0);
   const marca = normalizarWhiteLabel(form);
+  const EtapaIcon = etapaAtual.icon;
   const corPrimariaSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_primaria)
     ? marca.cor_primaria
     : WHITE_LABEL_PADRAO.cor_primaria;
@@ -745,10 +746,7 @@ function NovoRestaurante({ onClose, onCreated, request }) {
 
         <div className="pf-onboarding-panel">
           <div className="pf-form-section-title">
-            {(() => {
-              const Icon = etapaAtual.icon;
-              return <Icon size={16} />;
-            })()}
+            <EtapaIcon size={16} />
             {etapaAtual.label}
           </div>
           {renderEtapa()}

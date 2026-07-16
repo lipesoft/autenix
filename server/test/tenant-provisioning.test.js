@@ -43,7 +43,7 @@ test("normaliza white label inicial do restaurante", () => {
     nome_exibicao: "Casa do Norte Premium",
     logo_url: "https://cdn.exemplo.com/logo.png",
     cor_primaria: "#123456",
-    cor_secundaria: "#ff6600",
+    cor_secundaria: "#FF6600",
   });
 
   assert.equal(dados.marca.white_label_ativo, true);
