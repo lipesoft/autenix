@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
+const { normalizarWhiteLabel } = require("./branding");
 
 const PLANOS_CATALOGO = Object.freeze({
   essencial: Object.freeze({
@@ -176,6 +177,7 @@ function normalizarCriacaoTenant(opcoes = {}) {
   const nomeMaster = String(opcoes.nome_master || "Master").trim();
   const senha = String(opcoes.senha || gerarSenhaTemporaria());
   const planoDetalhes = normalizarPlanoDetalhes(opcoes);
+  const marca = normalizarWhiteLabel(opcoes);
   const quantidadeMesas = normalizarInteiro(
     opcoes.mesas ?? Math.min(10, planoDetalhes.limiteMesas),
     "Quantidade de mesas",
@@ -206,6 +208,7 @@ function normalizarCriacaoTenant(opcoes = {}) {
     nomeMaster,
     senha,
     ...planoDetalhes,
+    marca,
     quantidadeMesas,
     senhaGerada: !opcoes.senha,
   };
@@ -222,12 +225,15 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
          nome, slug, ativo, plano, limite_mesas, limite_usuarios,
          limite_produtos, mensalidade_centavos, ciclo_cobranca,
          status_cobranca, trial_termina_em, proxima_cobranca_em,
-         observacoes_plano, atualizado_em
-       ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+         observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
+         cor_primaria, cor_secundaria, atualizado_em
+       ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 $13, $14, $15, $16, $17, NOW())
        RETURNING id, nome, slug, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
-                 observacoes_plano, ativo`,
+                 observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
+                 cor_primaria, cor_secundaria, ativo`,
       [
         dados.nome,
         dados.slug,
@@ -241,6 +247,11 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
         dados.trialTerminaEm,
         dados.proximaCobrancaEm,
         dados.observacoesPlano,
+        dados.marca.white_label_ativo,
+        dados.marca.nome_exibicao,
+        dados.marca.logo_url,
+        dados.marca.cor_primaria,
+        dados.marca.cor_secundaria,
       ],
     );
     const restaurante = restaurantes[0];

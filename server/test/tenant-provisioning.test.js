@@ -35,6 +35,24 @@ test("normaliza os dados de um novo restaurante", () => {
   assert.equal(dados.trialTerminaEm, "2026-08-15");
 });
 
+test("normaliza white label inicial do restaurante", () => {
+  const dados = normalizarCriacaoTenant({
+    nome: "Casa do Norte",
+    senha: "SenhaMuitoForte123!",
+    white_label_ativo: true,
+    nome_exibicao: "Casa do Norte Premium",
+    logo_url: "https://cdn.exemplo.com/logo.png",
+    cor_primaria: "#123456",
+    cor_secundaria: "#ff6600",
+  });
+
+  assert.equal(dados.marca.white_label_ativo, true);
+  assert.equal(dados.marca.nome_exibicao, "Casa do Norte Premium");
+  assert.equal(dados.marca.logo_url, "https://cdn.exemplo.com/logo.png");
+  assert.equal(dados.marca.cor_primaria, "#123456");
+  assert.equal(dados.marca.cor_secundaria, "#ff6600");
+});
+
 test("gera senha temporaria forte quando ela nao e informada", () => {
   const dados = normalizarCriacaoTenant({
     nome: "Restaurante Teste",
