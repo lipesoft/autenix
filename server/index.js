@@ -24,6 +24,14 @@ const {
   redefinirSenhaMaster,
 } = require("./lib/tenant-provisioning");
 const {
+  TIPOS_IMPORTACAO,
+  ImportacaoValidationError,
+  gerarCsvModelo,
+  gerarSenhaTemporaria,
+  normalizarBusca,
+  normalizarLinhasImportacao,
+} = require("./lib/importacao");
+const {
   ALLOWED_IMAGE_MIMES,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_MB,
@@ -1216,6 +1224,91 @@ app.post(
   },
 );
 
+app.get(
+  "/api/importacoes/modelo/:tipo",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  (req, res) => {
+    try {
+      const csv = gerarCsvModelo(req.params.tipo);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=autenix-${req.params.tipo}.csv`,
+      );
+      return res.send(csv);
+    } catch (error) {
+      if (error instanceof ImportacaoValidationError) {
+        return res.status(error.statusCode).json({ erro: error.message });
+      }
+      return res.status(500).json({ erro: "Nao foi possivel gerar o modelo" });
+    }
+  },
+);
+
+app.post(
+  "/api/importacoes/validar",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const analise = await withTenantTransaction(
+        req.user.restaurante_id,
+        (client, restauranteId) =>
+          analisarImportacao(client, restauranteId, req.body),
+      );
+      return res.json(analise);
+    } catch (error) {
+      if (error instanceof ImportacaoValidationError) {
+        return res.status(error.statusCode).json({ erro: error.message });
+      }
+      return res.status(500).json({ erro: "Nao foi possivel validar a importacao" });
+    }
+  },
+);
+
+app.post(
+  "/api/importacoes/executar",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const resultado = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const analise = await analisarImportacao(client, restauranteId, req.body);
+          if (!analise.pode_executar) {
+            const erro = new ImportacaoValidationError(
+              analise.erros[0] || "Corrija as linhas invalidas antes de importar",
+            );
+            erro.analise = analise;
+            throw erro;
+          }
+          const importacao = await executarImportacao(client, restauranteId, analise);
+          return { analise, importacao };
+        },
+      );
+
+      if (["categorias", "produtos"].includes(resultado.analise.tipo)) {
+        emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
+      }
+      return res.json(resultado);
+    } catch (error) {
+      if (error instanceof ImportacaoValidationError) {
+        return res.status(error.statusCode).json({
+          erro: error.message,
+          analise: error.analise,
+        });
+      }
+      if (error.code === "23505") {
+        return res.status(409).json({ erro: "Registro duplicado na importacao" });
+      }
+      console.error("Falha na importacao:", error.message);
+      return res.status(500).json({ erro: "Nao foi possivel executar a importacao" });
+    }
+  },
+);
+
 // Categorias (admin)
 app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
@@ -1539,6 +1632,344 @@ async function contarRegistrosTenant(restauranteId, tabela, condicaoExtra = "") 
     [restauranteId],
   );
   return rows[0]?.total || 0;
+}
+
+function resumoImportacaoVazio() {
+  return {
+    criar: 0,
+    atualizar: 0,
+    ignorar: 0,
+    invalidas: 0,
+  };
+}
+
+function mapearPorChave(rows, campo) {
+  const mapa = new Map();
+  for (const row of rows) {
+    const chave = normalizarBusca(row[campo]);
+    if (chave && !mapa.has(chave)) mapa.set(chave, row);
+  }
+  return mapa;
+}
+
+async function carregarEstadoImportacao(client, restauranteId, tipo) {
+  if (tipo === "categorias" || tipo === "produtos") {
+    const { rows } = await client.query(
+      "SELECT id, nome, ordem FROM categorias WHERE restaurante_id = $1 ORDER BY ordem, nome",
+      [restauranteId],
+    );
+    const categorias = mapearPorChave(rows, "nome");
+    if (tipo === "categorias") return { categorias };
+
+    const { rows: produtos } = await client.query(
+      "SELECT id, nome FROM produtos WHERE restaurante_id = $1 ORDER BY id",
+      [restauranteId],
+    );
+    return { categorias, produtos: mapearPorChave(produtos, "nome") };
+  }
+
+  if (tipo === "mesas") {
+    const { rows } = await client.query(
+      "SELECT id, numero FROM mesas WHERE restaurante_id = $1 ORDER BY id",
+      [restauranteId],
+    );
+    return { mesas: mapearPorChave(rows, "numero") };
+  }
+
+  if (tipo === "usuarios") {
+    const { rows } = await client.query(
+      "SELECT id, login, ativo FROM usuarios WHERE restaurante_id = $1 ORDER BY id",
+      [restauranteId],
+    );
+    return { usuarios: mapearPorChave(rows, "login") };
+  }
+
+  return {};
+}
+
+function existenteDaImportacao(estado, tipo, item) {
+  if (tipo === "categorias") return estado.categorias?.get(item.chave);
+  if (tipo === "produtos") return estado.produtos?.get(item.chave);
+  if (tipo === "mesas") return estado.mesas?.get(item.chave);
+  if (tipo === "usuarios") return estado.usuarios?.get(item.chave);
+  return null;
+}
+
+async function analisarImportacao(client, restauranteId, payload = {}) {
+  const tipo = String(payload.tipo || "");
+  const spec = TIPOS_IMPORTACAO[tipo];
+  if (!spec) throw new ImportacaoValidationError("Tipo de importacao invalido");
+
+  const itens = normalizarLinhasImportacao(tipo, payload.rows || payload.linhas || []);
+  const atualizarExistentes = Boolean(payload.atualizar_existentes);
+  const estado = await carregarEstadoImportacao(client, restauranteId, tipo);
+  const resumo = resumoImportacaoVazio();
+  const errosGerais = [];
+  const preview = itens.map((item) => {
+    const erros = [...item.erros];
+    const existente = erros.length ? null : existenteDaImportacao(estado, tipo, item);
+    let acao = "criar";
+
+    if (erros.length) {
+      acao = "invalida";
+      resumo.invalidas += 1;
+    } else if (existente && atualizarExistentes) {
+      acao = "atualizar";
+      resumo.atualizar += 1;
+    } else if (existente) {
+      acao = "ignorar";
+      resumo.ignorar += 1;
+    } else {
+      resumo.criar += 1;
+    }
+
+    return {
+      linha: item.linha,
+      acao,
+      existente_id: existente?.id || null,
+      dados: item.dados,
+      erros,
+    };
+  });
+
+  const limites = await carregarLimitesPlano(restauranteId);
+  if (tipo === "produtos") {
+    const { rows } = await client.query(
+      "SELECT COUNT(*)::int AS total FROM produtos WHERE restaurante_id = $1",
+      [restauranteId],
+    );
+    const totalFinal = (rows[0]?.total || 0) + resumo.criar;
+    if (totalFinal > limites.limite_produtos) {
+      errosGerais.push(`Limite de ${limites.limite_produtos} produtos seria excedido`);
+    }
+  }
+
+  if (tipo === "mesas") {
+    const { rows } = await client.query(
+      "SELECT COUNT(*)::int AS total FROM mesas WHERE restaurante_id = $1",
+      [restauranteId],
+    );
+    const totalFinal = (rows[0]?.total || 0) + resumo.criar;
+    if (totalFinal > limites.limite_mesas) {
+      errosGerais.push(`Limite de ${limites.limite_mesas} mesas seria excedido`);
+    }
+  }
+
+  if (tipo === "usuarios") {
+    const { rows } = await client.query(
+      "SELECT COUNT(*)::int AS total FROM usuarios WHERE restaurante_id = $1 AND ativo = 1",
+      [restauranteId],
+    );
+    const ativosCriados = preview.filter(
+      (item) => item.acao === "criar" && item.dados.ativo,
+    ).length;
+    const totalFinal = (rows[0]?.total || 0) + ativosCriados;
+    if (totalFinal > limites.limite_usuarios) {
+      errosGerais.push(`Limite de ${limites.limite_usuarios} usuarios ativos seria excedido`);
+    }
+  }
+
+  return {
+    tipo,
+    label: spec.label,
+    colunas: spec.colunas,
+    total_linhas: itens.length,
+    resumo,
+    pode_executar: errosGerais.length === 0 && resumo.invalidas === 0 && itens.length > 0,
+    erros: errosGerais,
+    preview,
+  };
+}
+
+async function garantirCategoriaImportacao(client, restauranteId, estado, nomeCategoria) {
+  const nome = String(nomeCategoria || "").trim();
+  if (!nome) return null;
+
+  const chave = normalizarBusca(nome);
+  const existente = estado.categorias?.get(chave);
+  if (existente) return existente.id;
+
+  const { rows } = await client.query(
+    `INSERT INTO categorias (nome, ordem, restaurante_id)
+     VALUES ($1, $2, $3)
+     RETURNING id, nome, ordem`,
+    [nome, 99, restauranteId],
+  );
+  estado.categorias.set(chave, rows[0]);
+  return rows[0].id;
+}
+
+async function executarImportacaoCategoria(client, restauranteId, item, estado) {
+  const { dados } = item;
+  if (item.acao === "atualizar") {
+    await client.query(
+      `UPDATE categorias
+       SET nome = $1, ordem = $2
+       WHERE id = $3 AND restaurante_id = $4`,
+      [dados.nome, dados.ordem, item.existente_id, restauranteId],
+    );
+    return { acao: "atualizar", login: null };
+  }
+
+  const { rows } = await client.query(
+    `INSERT INTO categorias (nome, ordem, restaurante_id)
+     VALUES ($1, $2, $3)
+     RETURNING id, nome, ordem`,
+    [dados.nome, dados.ordem, restauranteId],
+  );
+  estado.categorias.set(normalizarBusca(rows[0].nome), rows[0]);
+  return { acao: "criar", login: null };
+}
+
+async function executarImportacaoProduto(client, restauranteId, item, estado) {
+  const { dados } = item;
+  const categoriaId = await garantirCategoriaImportacao(
+    client,
+    restauranteId,
+    estado,
+    dados.categoria,
+  );
+  const parametros = [
+    categoriaId,
+    dados.nome,
+    dados.descricao || null,
+    dados.preco,
+    dados.imagem || null,
+    dados.disponivel ? 1 : 0,
+    restauranteId,
+  ];
+
+  if (item.acao === "atualizar") {
+    await client.query(
+      `UPDATE produtos
+       SET categoria_id = $1,
+           nome = $2,
+           descricao = $3,
+           preco = $4,
+           imagem = $5,
+           disponivel = $6
+       WHERE id = $7 AND restaurante_id = $8`,
+      [...parametros.slice(0, 6), item.existente_id, restauranteId],
+    );
+    return { acao: "atualizar", login: null };
+  }
+
+  await client.query(
+    `INSERT INTO produtos
+       (categoria_id, nome, descricao, preco, imagem, disponivel, restaurante_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    parametros,
+  );
+  return { acao: "criar", login: null };
+}
+
+async function executarImportacaoMesa(client, restauranteId, item) {
+  const { dados } = item;
+  if (item.acao === "atualizar") {
+    await client.query(
+      `UPDATE mesas
+       SET numero = $1, status = $2
+       WHERE id = $3 AND restaurante_id = $4`,
+      [dados.numero, dados.status, item.existente_id, restauranteId],
+    );
+    return { acao: "atualizar", login: null };
+  }
+
+  await client.query(
+    `INSERT INTO mesas (numero, status, restaurante_id)
+     VALUES ($1, $2, $3)`,
+    [dados.numero, dados.status, restauranteId],
+  );
+  return { acao: "criar", login: null };
+}
+
+async function executarImportacaoUsuario(client, restauranteId, item) {
+  const { dados } = item;
+  const senhaTemporaria = !dados.senha_informada && item.acao === "criar"
+    ? gerarSenhaTemporaria()
+    : "";
+  const senhaFinal = dados.senha_informada ? dados.senha : senhaTemporaria;
+
+  if (item.acao === "atualizar") {
+    const senhaSql = dados.senha_informada ? ", senha = $6" : "";
+    const params = [
+      dados.nome,
+      dados.login,
+      dados.role,
+      dados.ativo ? 1 : 0,
+      item.existente_id,
+      ...(dados.senha_informada ? [await hashSenha(senhaFinal)] : []),
+      restauranteId,
+    ];
+    await client.query(
+      `UPDATE usuarios
+       SET nome = $1,
+           login = $2,
+           role = $3,
+           ativo = $4
+           ${senhaSql}
+       WHERE id = $5 AND restaurante_id = $${dados.senha_informada ? 7 : 6}`,
+      params,
+    );
+    return { acao: "atualizar", login: dados.login, senha_temporaria: "" };
+  }
+
+  await client.query(
+    `INSERT INTO usuarios (nome, login, senha, role, ativo, restaurante_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      dados.nome,
+      dados.login,
+      await hashSenha(senhaFinal),
+      dados.role,
+      dados.ativo ? 1 : 0,
+      restauranteId,
+    ],
+  );
+  return {
+    acao: "criar",
+    login: dados.login,
+    senha_temporaria: senhaTemporaria,
+  };
+}
+
+async function executarImportacao(client, restauranteId, analise) {
+  const estado = await carregarEstadoImportacao(client, restauranteId, analise.tipo);
+  const resultado = {
+    ...resumoImportacaoVazio(),
+    credenciais: [],
+  };
+
+  const executores = {
+    categorias: executarImportacaoCategoria,
+    produtos: executarImportacaoProduto,
+    mesas: executarImportacaoMesa,
+    usuarios: executarImportacaoUsuario,
+  };
+  const executor = executores[analise.tipo];
+
+  for (const item of analise.preview) {
+    if (item.acao === "invalida") {
+      resultado.invalidas += 1;
+      continue;
+    }
+    if (item.acao === "ignorar") {
+      resultado.ignorar += 1;
+      continue;
+    }
+
+    const parcial = await executor(client, restauranteId, item, estado);
+    resultado[parcial.acao] += 1;
+    if (parcial.senha_temporaria) {
+      resultado.credenciais.push({
+        nome: item.dados.nome,
+        login: parcial.login,
+        senha: parcial.senha_temporaria,
+      });
+    }
+  }
+
+  return resultado;
 }
 
 function responderErroPlataforma(res, error) {
