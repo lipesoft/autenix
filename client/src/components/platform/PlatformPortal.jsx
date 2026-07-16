@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  BadgeDollarSign,
   Building2,
   Check,
   CirclePause,
@@ -12,6 +13,7 @@ import {
   LoaderCircle,
   LockKeyhole,
   LogOut,
+  Package,
   Pencil,
   Plus,
   RefreshCw,
@@ -34,17 +36,101 @@ import {
 } from "../../services/platform.js";
 import "./PlatformPortal.css";
 
-const PLANOS = {
-  essencial: "Essencial",
-  profissional: "Profissional",
-  enterprise: "Enterprise",
+const PLANOS_CATALOGO = {
+  essencial: {
+    nome: "Essencial",
+    descricao: "Operacao enxuta para comecar com controle.",
+    limite_mesas: 20,
+    limite_usuarios: 5,
+    limite_produtos: 120,
+    mensalidade_centavos: 9900,
+    recursos: ["Cardapio digital", "Pedidos em tempo real", "Relatorios basicos"],
+  },
+  profissional: {
+    nome: "Profissional",
+    descricao: "Mais equipe, cardapio completo e rotina intensa.",
+    limite_mesas: 60,
+    limite_usuarios: 15,
+    limite_produtos: 400,
+    mensalidade_centavos: 19900,
+    recursos: ["White label", "Relatorios financeiros", "Gestao completa da equipe"],
+  },
+  enterprise: {
+    nome: "Enterprise",
+    descricao: "Operacoes maiores com limites personalizados.",
+    limite_mesas: 500,
+    limite_usuarios: 100,
+    limite_produtos: 2000,
+    mensalidade_centavos: 0,
+    recursos: ["Limites ampliados", "Atendimento dedicado", "Personalizacao avancada"],
+  },
 };
+
+const PLANOS = Object.fromEntries(
+  Object.entries(PLANOS_CATALOGO).map(([id, plano]) => [id, plano.nome]),
+);
+
+const STATUS_COBRANCA = {
+  trial: "Teste",
+  ativo: "Ativo",
+  pendente: "Pendente",
+  atrasado: "Atrasado",
+  isento: "Isento",
+};
+
+const CICLOS_COBRANCA = {
+  mensal: "Mensal",
+  anual: "Anual",
+  experimental: "Experimental",
+  personalizado: "Personalizado",
+};
+
+const formatarMoeda = (centavos = 0) =>
+  new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(Number(centavos || 0) / 100);
+
+const centavosParaCampo = (centavos = 0) => (Number(centavos || 0) / 100).toFixed(2);
+
+const campoParaCentavos = (valor) => {
+  const numero = Number(String(valor || "0").replace(",", "."));
+  if (!Number.isFinite(numero) || numero < 0) return 0;
+  return Math.round(numero * 100);
+};
+
+const dataParaCampo = (valor) => {
+  if (!valor) return "";
+  return String(valor).slice(0, 10);
+};
+
+function aplicarPlanoAoForm(planoId, atual = {}) {
+  const plano = PLANOS_CATALOGO[planoId] || PLANOS_CATALOGO.essencial;
+  const limiteMesas = Number(atual.limite_mesas || plano.limite_mesas);
+  return {
+    ...atual,
+    plano: planoId,
+    limite_mesas: plano.limite_mesas,
+    limite_usuarios: plano.limite_usuarios,
+    limite_produtos: plano.limite_produtos,
+    mensalidade: centavosParaCampo(plano.mensalidade_centavos),
+    mesas: Math.min(Number(atual.mesas || 10), limiteMesas, plano.limite_mesas),
+  };
+}
 
 const NOVO_RESTAURANTE = {
   nome: "",
   slug: "",
   plano: "essencial",
   limite_mesas: 20,
+  limite_usuarios: 5,
+  limite_produtos: 120,
+  mensalidade: "99.00",
+  ciclo_cobranca: "mensal",
+  status_cobranca: "trial",
+  trial_termina_em: "",
+  proxima_cobranca_em: "",
+  observacoes_plano: "",
   mesas: 10,
   nome_master: "Master",
   login: "master",
@@ -80,6 +166,54 @@ function Campo({ label, children, wide = false }) {
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+
+function PlanoCards({ value, onChange }) {
+  return (
+    <div className="pf-plan-options" role="radiogroup" aria-label="Plano contratado">
+      {Object.entries(PLANOS_CATALOGO).map(([id, plano]) => (
+        <button
+          key={id}
+          className={`pf-plan-option ${value === id ? "is-selected" : ""}`}
+          type="button"
+          role="radio"
+          aria-checked={value === id}
+          onClick={() => onChange(id)}
+        >
+          <span>
+            <strong>{plano.nome}</strong>
+            <small>{formatarMoeda(plano.mensalidade_centavos)}</small>
+          </span>
+          <p>{plano.descricao}</p>
+          <ul>
+            <li>{plano.limite_mesas} mesas</li>
+            <li>{plano.limite_usuarios} usuarios</li>
+            <li>{plano.limite_produtos} produtos</li>
+          </ul>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PlanoResumo({ form }) {
+  const plano = PLANOS_CATALOGO[form.plano] || PLANOS_CATALOGO.essencial;
+  return (
+    <aside className="pf-plan-summary" aria-label="Resumo do plano">
+      <div>
+        <span>Plano</span>
+        <strong>{plano.nome}</strong>
+      </div>
+      <div>
+        <span>Mensalidade</span>
+        <strong>{formatarMoeda(campoParaCentavos(form.mensalidade))}</strong>
+      </div>
+      <div>
+        <span>Limites</span>
+        <strong>{form.limite_mesas} mesas / {form.limite_usuarios} usuarios / {form.limite_produtos} produtos</strong>
+      </div>
+    </aside>
   );
 }
 
@@ -208,6 +342,7 @@ function NovoRestaurante({ onClose, onCreated, request }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const alterar = (campo, valor) => setForm((atual) => ({ ...atual, [campo]: valor }));
+  const alterarPlano = (plano) => setForm((atual) => aplicarPlanoAoForm(plano, atual));
 
   const salvar = async (event) => {
     event.preventDefault();
@@ -220,6 +355,9 @@ function NovoRestaurante({ onClose, onCreated, request }) {
           ...form,
           senha: form.senha || undefined,
           limite_mesas: Number(form.limite_mesas),
+          limite_usuarios: Number(form.limite_usuarios),
+          limite_produtos: Number(form.limite_produtos),
+          mensalidade_centavos: campoParaCentavos(form.mensalidade),
           mesas: Number(form.mesas),
         }),
       });
@@ -232,7 +370,7 @@ function NovoRestaurante({ onClose, onCreated, request }) {
   };
 
   return (
-    <Modal titulo="Cadastrar restaurante" onClose={onClose}>
+    <Modal titulo="Cadastrar restaurante" onClose={onClose} largura="920px">
       <form onSubmit={salvar}>
         <div className="pf-form-grid">
           <Campo label="Nome do restaurante" wide>
@@ -241,16 +379,46 @@ function NovoRestaurante({ onClose, onCreated, request }) {
           <Campo label="Slug de acesso">
             <input value={form.slug} onChange={(event) => alterar("slug", event.target.value)} placeholder="gerado-pelo-nome" />
           </Campo>
-          <Campo label="Plano">
-            <select value={form.plano} onChange={(event) => alterar("plano", event.target.value)}>
-              {Object.entries(PLANOS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </Campo>
+        </div>
+
+        <div className="pf-form-section-title"><BadgeDollarSign size={16} /> Plano comercial</div>
+        <PlanoCards value={form.plano} onChange={alterarPlano} />
+        <PlanoResumo form={form} />
+
+        <div className="pf-form-grid">
           <Campo label="Limite de mesas">
             <input type="number" min="1" max="500" required value={form.limite_mesas} onChange={(event) => alterar("limite_mesas", event.target.value)} />
           </Campo>
+          <Campo label="Limite de usuarios">
+            <input type="number" min="1" max="500" required value={form.limite_usuarios} onChange={(event) => alterar("limite_usuarios", event.target.value)} />
+          </Campo>
+          <Campo label="Limite de produtos">
+            <input type="number" min="1" max="10000" required value={form.limite_produtos} onChange={(event) => alterar("limite_produtos", event.target.value)} />
+          </Campo>
+          <Campo label="Mensalidade (R$)">
+            <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
+          </Campo>
+          <Campo label="Status comercial">
+            <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
+              {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Ciclo">
+            <select value={form.ciclo_cobranca} onChange={(event) => alterar("ciclo_cobranca", event.target.value)}>
+              {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Fim do teste">
+            <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
+          </Campo>
+          <Campo label="Proxima cobranca">
+            <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
+          </Campo>
           <Campo label="Mesas iniciais">
             <input type="number" min="0" max={form.limite_mesas} required value={form.mesas} onChange={(event) => alterar("mesas", event.target.value)} />
+          </Campo>
+          <Campo label="Observacoes comerciais" wide>
+            <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
           </Campo>
         </div>
 
@@ -281,16 +449,26 @@ function NovoRestaurante({ onClose, onCreated, request }) {
 }
 
 function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
+  const planoBase = PLANOS_CATALOGO[restaurante.plano] || PLANOS_CATALOGO.essencial;
   const [form, setForm] = useState({
-    nome: restaurante.nome,
-    slug: restaurante.slug,
-    plano: restaurante.plano,
-    limite_mesas: restaurante.limite_mesas,
     ...normalizarWhiteLabel(restaurante),
+    nome: restaurante.nome || "",
+    slug: restaurante.slug || "",
+    plano: restaurante.plano || "essencial",
+    limite_mesas: restaurante.limite_mesas ?? planoBase.limite_mesas,
+    limite_usuarios: restaurante.limite_usuarios ?? planoBase.limite_usuarios,
+    limite_produtos: restaurante.limite_produtos ?? planoBase.limite_produtos,
+    mensalidade: centavosParaCampo(restaurante.mensalidade_centavos),
+    ciclo_cobranca: restaurante.ciclo_cobranca || "mensal",
+    status_cobranca: restaurante.status_cobranca || "trial",
+    trial_termina_em: dataParaCampo(restaurante.trial_termina_em),
+    proxima_cobranca_em: dataParaCampo(restaurante.proxima_cobranca_em),
+    observacoes_plano: restaurante.observacoes_plano || "",
   });
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const alterar = (campo, valor) => setForm((atual) => ({ ...atual, [campo]: valor }));
+  const alterarPlano = (plano) => setForm((atual) => aplicarPlanoAoForm(plano, atual));
 
   const salvar = async (event) => {
     event.preventDefault();
@@ -299,7 +477,13 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
     try {
       const dados = await request(`/api/platform/restaurantes/${restaurante.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ ...form, limite_mesas: Number(form.limite_mesas) }),
+        body: JSON.stringify({
+          ...form,
+          limite_mesas: Number(form.limite_mesas),
+          limite_usuarios: Number(form.limite_usuarios),
+          limite_produtos: Number(form.limite_produtos),
+          mensalidade_centavos: campoParaCentavos(form.mensalidade),
+        }),
       });
       onSaved(dados);
     } catch (error) {
@@ -319,13 +503,43 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
           <Campo label="Slug">
             <input required value={form.slug} onChange={(event) => alterar("slug", event.target.value)} />
           </Campo>
-          <Campo label="Plano">
-            <select value={form.plano} onChange={(event) => alterar("plano", event.target.value)}>
-              {Object.entries(PLANOS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </div>
+
+        <div className="pf-form-section-title"><BadgeDollarSign size={16} /> Plano comercial</div>
+        <PlanoCards value={form.plano} onChange={alterarPlano} />
+        <PlanoResumo form={form} />
+
+        <div className="pf-form-grid">
+          <Campo label="Limite de mesas">
+            <input type="number" min={restaurante.mesas_cadastradas || 1} max="500" required value={form.limite_mesas} onChange={(event) => alterar("limite_mesas", event.target.value)} />
+          </Campo>
+          <Campo label="Limite de usuarios">
+            <input type="number" min={restaurante.usuarios_ativos || 1} max="500" required value={form.limite_usuarios} onChange={(event) => alterar("limite_usuarios", event.target.value)} />
+          </Campo>
+          <Campo label="Limite de produtos">
+            <input type="number" min={restaurante.produtos_cadastrados || 1} max="10000" required value={form.limite_produtos} onChange={(event) => alterar("limite_produtos", event.target.value)} />
+          </Campo>
+          <Campo label="Mensalidade (R$)">
+            <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
+          </Campo>
+          <Campo label="Status comercial">
+            <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
+              {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </Campo>
-          <Campo label="Limite de mesas" wide>
-            <input type="number" min={restaurante.mesas_cadastradas || 1} max="500" required value={form.limite_mesas} onChange={(event) => alterar("limite_mesas", event.target.value)} />
+          <Campo label="Ciclo">
+            <select value={form.ciclo_cobranca} onChange={(event) => alterar("ciclo_cobranca", event.target.value)}>
+              {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Fim do teste">
+            <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
+          </Campo>
+          <Campo label="Proxima cobranca">
+            <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
+          </Campo>
+          <Campo label="Observacoes comerciais" wide>
+            <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
           </Campo>
         </div>
 
@@ -443,6 +657,8 @@ function PlatformDashboard({ session, onLogout }) {
         restaurante.nome,
         restaurante.slug,
         restaurante.master?.login,
+        PLANOS[restaurante.plano],
+        STATUS_COBRANCA[restaurante.status_cobranca],
         String(restaurante.id),
       ].some((valor) => String(valor || "").toLowerCase().includes(termo));
       return correspondeFiltro && correspondeBusca;
@@ -454,6 +670,10 @@ function PlatformDashboard({ session, onLogout }) {
     ativos: restaurantes.filter((item) => item.ativo && !item.excluido_em).length,
     suspensos: restaurantes.filter((item) => !item.ativo && !item.excluido_em).length,
     mesas: restaurantes.reduce((soma, item) => soma + Number(item.mesas_cadastradas || 0), 0),
+    receita: restaurantes.reduce((soma, item) => {
+      if (!item.ativo || item.excluido_em || item.status_cobranca === "isento") return soma;
+      return soma + Number(item.mensalidade_centavos || 0);
+    }, 0),
   }), [restaurantes]);
 
   const atualizarItem = (item) => {
@@ -524,6 +744,7 @@ function PlatformDashboard({ session, onLogout }) {
           <article className="is-green"><Check size={19} /><span>Ativos</span><strong>{totais.ativos}</strong></article>
           <article className="is-orange"><CirclePause size={19} /><span>Suspensos</span><strong>{totais.suspensos}</strong></article>
           <article className="is-blue"><Table2 size={19} /><span>Mesas</span><strong>{totais.mesas}</strong></article>
+          <article className="is-teal"><BadgeDollarSign size={19} /><span>Receita prevista</span><strong>{formatarMoeda(totais.receita)}</strong></article>
         </section>
 
         <section className="pf-directory">
@@ -545,14 +766,24 @@ function PlatformDashboard({ session, onLogout }) {
               {visiveis.map((restaurante) => {
                 const arquivado = Boolean(restaurante.excluido_em);
                 const ativo = restaurante.ativo === 1 && !arquivado;
+                const statusComercial = restaurante.status_cobranca || "trial";
                 return (
                   <article className={`pf-restaurant-row ${arquivado ? "is-archived" : ""}`} key={restaurante.id}>
                     <div className="pf-restaurant-name">
                       <span className="pf-restaurant-mark">{restaurante.logo_url ? <img src={restaurante.logo_url} alt="" /> : <Building2 size={20} />}</span>
-                      <div><strong>{restaurante.nome}</strong><small>ID {restaurante.id} · {restaurante.slug}</small></div>
+                      <div><strong>{restaurante.nome}</strong><small>ID {restaurante.id} / {restaurante.slug}</small></div>
                     </div>
-                    <div><span className={`pf-plan is-${restaurante.plano}`}>{PLANOS[restaurante.plano] || restaurante.plano}</span></div>
-                    <div className="pf-operation-data"><span><Table2 size={14} /> {restaurante.mesas_cadastradas}/{restaurante.limite_mesas}</span><span><UsersRound size={14} /> {restaurante.usuarios_ativos}</span><span className={`pf-status ${ativo ? "is-active" : arquivado ? "is-archived" : "is-paused"}`}>{ativo ? "Ativo" : arquivado ? "Arquivado" : "Suspenso"}</span></div>
+                    <div className="pf-plan-cell">
+                      <span className={`pf-plan is-${restaurante.plano}`}>{PLANOS[restaurante.plano] || restaurante.plano}</span>
+                      <small>{formatarMoeda(restaurante.mensalidade_centavos)} / {CICLOS_COBRANCA[restaurante.ciclo_cobranca] || restaurante.ciclo_cobranca}</small>
+                      <span className={`pf-billing is-${statusComercial}`}>{STATUS_COBRANCA[statusComercial] || statusComercial}</span>
+                    </div>
+                    <div className="pf-operation-data">
+                      <span><Table2 size={14} /> {restaurante.mesas_cadastradas}/{restaurante.limite_mesas}</span>
+                      <span><UsersRound size={14} /> {restaurante.usuarios_ativos}/{restaurante.limite_usuarios}</span>
+                      <span><Package size={14} /> {restaurante.produtos_cadastrados || 0}/{restaurante.limite_produtos}</span>
+                      <span className={`pf-status ${ativo ? "is-active" : arquivado ? "is-archived" : "is-paused"}`}>{ativo ? "Ativo" : arquivado ? "Arquivado" : "Suspenso"}</span>
+                    </div>
                     <div className="pf-master"><strong>{restaurante.master?.nome || "Sem master"}</strong><small>{restaurante.master?.login || "-"}</small></div>
                     <div className="pf-row-actions">
                       <a className="pf-icon-button" href={rotaRestaurante(restaurante.slug)} target="_blank" rel="noreferrer" title="Abrir restaurante"><ExternalLink size={17} /></a>
