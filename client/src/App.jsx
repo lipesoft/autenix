@@ -12,6 +12,7 @@ import {
   WHITE_LABEL_PADRAO,
 } from "./components/branding/white-label-config.js";
 import CentralOperacao from "./components/central/CentralOperacao.jsx";
+import ImportacaoDados from "./components/importacao/ImportacaoDados.jsx";
 import LandingPage from "./components/landing/LandingPage.jsx";
 import PlatformPortal from "./components/platform/PlatformPortal.jsx";
 import ImageUploadField from "./components/upload/ImageUploadField.jsx";
@@ -51,6 +52,7 @@ const ADMIN_TABS = [
   "equipe",
   "relatorios",
   "marca",
+  "importacao",
 ];
 
 let socket = null;
@@ -3545,6 +3547,7 @@ function PainelAdmin({ usuario, onLogout }) {
             ["equipe", "Equipe"],
             ["relatorios", "Relatórios"],
             ["marca", "Marca"],
+            ["importacao", "Importação"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -4011,6 +4014,18 @@ function PainelAdmin({ usuario, onLogout }) {
                   </Btn>
                 </div>
               </Card>
+            </div>
+          )}
+
+          {aba === "importacao" && (
+            <div className="fade-up">
+              <ImportacaoDados
+                onImported={() => {
+                  fetchCardapio();
+                  fetchMesas();
+                  fetchUsuarios();
+                }}
+              />
             </div>
           )}
         {aba === "equipe" && (
