@@ -8,6 +8,7 @@ const rateLimit = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
+const multer = require("multer");
 const path = require("path");
 const os = require("os");
 const {
@@ -22,6 +23,15 @@ const {
   provisionarRestaurante,
   redefinirSenhaMaster,
 } = require("./lib/tenant-provisioning");
+const {
+  ALLOWED_IMAGE_MIMES,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_MB,
+  UploadValidationError,
+  StorageConfigurationError,
+  enviarImagemRestaurante,
+  normalizarTipo,
+} = require("./lib/storage");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -118,6 +128,41 @@ const loginRateLimit = rateLimit({
   legacyHeaders: false,
   message: { erro: "Muitas tentativas de login. Tente novamente em 1 minuto." },
 });
+
+const uploadImagem = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_IMAGE_BYTES,
+    files: 1,
+  },
+  fileFilter(req, file, callback) {
+    if (!ALLOWED_IMAGE_MIMES.has(file.mimetype)) {
+      return callback(new UploadValidationError("Use uma imagem JPG, PNG, WEBP ou GIF"));
+    }
+    return callback(null, true);
+  },
+});
+
+function responderErroUpload(res, error) {
+  if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({ erro: `Imagem acima do limite de ${MAX_IMAGE_MB}MB` });
+  }
+
+  const statusCode = error.statusCode || 500;
+  if (statusCode >= 500 && !(error instanceof StorageConfigurationError)) {
+    console.error("Falha no upload de imagem:", error.message);
+  }
+  return res.status(statusCode).json({
+    erro: statusCode >= 500 ? "Nao foi possivel enviar a imagem agora" : error.message,
+  });
+}
+
+function processarUploadImagem(req, res, next) {
+  uploadImagem.single("imagem")(req, res, (error) => {
+    if (error) return responderErroUpload(res, error);
+    return next();
+  });
+}
 
 // ─── BANCO DE DADOS (PostgreSQL) ───────────────────────────────────────────
 const pool = new Pool({
@@ -1152,6 +1197,25 @@ app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("admin"), async (r
   }
 });
 
+app.post(
+  "/api/uploads/imagem",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  processarUploadImagem,
+  async (req, res) => {
+    try {
+      const imagem = await enviarImagemRestaurante({
+        restauranteId: req.user.restaurante_id,
+        tipo: normalizarTipo(req.body?.tipo),
+        file: req.file,
+      });
+      return res.status(201).json(imagem);
+    } catch (error) {
+      return responderErroUpload(res, error);
+    }
+  },
+);
+
 // Categorias (admin)
 app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
@@ -1487,6 +1551,36 @@ function responderErroPlataforma(res, error) {
   console.error("Falha na administracao da plataforma:", error.message);
   return res.status(500).json({ erro: "Nao foi possivel concluir a operacao" });
 }
+
+app.post(
+  "/api/platform/uploads/imagem",
+  autenticarPlataforma,
+  processarUploadImagem,
+  async (req, res) => {
+    try {
+      const restauranteId = idPositivo(req.body?.restaurante_id, "Restaurante");
+      const { rows } = await query(
+        "SELECT id FROM restaurantes WHERE id = $1 AND excluido_em IS NULL",
+        [restauranteId],
+      );
+      if (!rows[0]) {
+        return res.status(404).json({ erro: "Restaurante nao encontrado" });
+      }
+
+      const imagem = await enviarImagemRestaurante({
+        restauranteId,
+        tipo: normalizarTipo(req.body?.tipo || "logo"),
+        file: req.file,
+      });
+      return res.status(201).json(imagem);
+    } catch (error) {
+      if (error instanceof TenantValidationError) {
+        return res.status(error.statusCode || 400).json({ erro: error.message });
+      }
+      return responderErroUpload(res, error);
+    }
+  },
+);
 
 app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
   const login = normalizarLogin(req.body?.login);
