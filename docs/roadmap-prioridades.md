@@ -61,6 +61,26 @@ e identidade visual.
   email do cliente e link publico de acompanhamento da reserva.
 - Pendente: historico/auditoria detalhada de alteracoes de status.
 
+## Prioridade 3.1 - Seguranca do cardapio publico
+
+- Pendente: trocar QR Code publico simples por QR Code com token de sessao da
+  mesa.
+- Pendente: criar tabela de sessoes de mesa com `restaurante_id`, `mesa_id`,
+  token seguro, status, criado_em, expira_em e encerrado_em.
+- Pendente: gerar uma nova sessao/token ao abrir atendimento da mesa.
+- Pendente: validar no backend se o token pertence ao restaurante e a mesa antes
+  de permitir pedido, cancelamento de item ou chamada de garcom.
+- Pendente: bloquear pedidos publicos quando a mesa estiver livre, fechada,
+  com sessao expirada ou token invalido.
+- Pendente: encerrar e invalidar automaticamente a sessao ao fechar a mesa.
+- Pendente: atualizar o QR Code para apontar para `/r/{slug}/mesa/{id}?sessao=...`.
+- Pendente: criar tela amigavel de "sessao encerrada" ou "atendimento nao
+  iniciado" quando alguem abrir link antigo.
+- Pendente: manter o cardapio visivel opcionalmente, mas bloquear acoes de
+  pedido sem sessao ativa.
+- Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
+  restaurante ou dispositivo autorizado para setores internos.
+
 ## Prioridade 4 - Planos na landing page
 
 - Exibir planos comerciais quando os limites e precos estiverem estaveis.
@@ -89,5 +109,4 @@ e identidade visual.
 - Validacao com Zod nos endpoints.
 - Monitoramento de erros.
 - Backup automatico revisado no Supabase.
-- Token de sessao por mesa via QR Code.
 - Resolver lint antigo do `client/src/App.jsx`.
