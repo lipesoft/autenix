@@ -90,9 +90,14 @@ e identidade visual.
 
 ## Prioridade 4 - Planos na landing page
 
-- Exibir planos comerciais quando os limites e precos estiverem estaveis.
-- Adicionar CTA para contato, cadastro ou demonstracao.
-- Mostrar diferencas de recursos entre Essencial, Profissional e Enterprise.
+- Implementado: secao de planos comerciais na landing page com Essencial,
+  Profissional e Enterprise.
+- Implementado: exibicao de limites e diferencas principais de recursos por
+  plano.
+- Pendente: adicionar formulario comercial para contato, cadastro publico ou
+  demonstracao.
+- Pendente: conectar a escolha do plano ao onboarding/self-service quando o
+  fluxo SaaS estiver pronto.
 
 ## Prioridade 5 - SaaS e cobranca
 
