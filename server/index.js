@@ -40,6 +40,12 @@ const {
   enviarImagemRestaurante,
   normalizarTipo,
 } = require("./lib/storage");
+const {
+  ReservasValidationError,
+  normalizarCriacaoReserva,
+  normalizarFiltrosReservas,
+  normalizarStatusReserva,
+} = require("./lib/reservas");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -546,6 +552,26 @@ async function initDB() {
       criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS reservas (
+      id SERIAL PRIMARY KEY,
+      restaurante_id INTEGER NOT NULL,
+      mesa_id INTEGER,
+      nome_cliente TEXT NOT NULL,
+      telefone TEXT NOT NULL,
+      email TEXT,
+      data_reserva DATE NOT NULL,
+      horario TIME NOT NULL,
+      quantidade_pessoas INTEGER NOT NULL DEFAULT 2,
+      status TEXT NOT NULL DEFAULT 'pendente',
+      observacao TEXT,
+      origem TEXT NOT NULL DEFAULT 'publica',
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      confirmada_em TIMESTAMP,
+      cancelada_em TIMESTAMP,
+      concluida_em TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY,
       valor TEXT
@@ -679,6 +705,51 @@ async function getPedidoCompleto(restauranteId, pedidoId, client = null) {
   );
   pedido.itens = itens;
   return pedido;
+}
+
+async function buscarReservaCompleta(restauranteId, reservaId, client = null) {
+  const executor = client || {
+    query: (sql, params) => tenantQuery(restauranteId, sql, params),
+  };
+  const { rows } = await executor.query(
+    `SELECT
+       r.id, r.restaurante_id, r.mesa_id, r.nome_cliente, r.telefone, r.email,
+       to_char(r.data_reserva, 'YYYY-MM-DD') AS data_reserva,
+       to_char(r.horario, 'HH24:MI') AS horario,
+       r.quantidade_pessoas, r.status, r.observacao, r.origem,
+       r.criado_em, r.atualizado_em, r.confirmada_em, r.cancelada_em,
+       r.concluida_em, m.numero AS mesa_numero
+     FROM reservas r
+     LEFT JOIN mesas m
+       ON m.id = r.mesa_id AND m.restaurante_id = r.restaurante_id
+     WHERE r.id = $1 AND r.restaurante_id = $2`,
+    [reservaId, restauranteId],
+  );
+  return rows[0] || null;
+}
+
+async function validarMesaReserva(client, restauranteId, mesaId) {
+  if (!mesaId) return null;
+  const { rows } = await client.query(
+    "SELECT id, numero FROM mesas WHERE id = $1 AND restaurante_id = $2",
+    [mesaId, restauranteId],
+  );
+  if (!rows[0]) {
+    const error = new ReservasValidationError("Mesa da reserva nao encontrada");
+    error.statusCode = 404;
+    throw error;
+  }
+  return rows[0];
+}
+
+function responderErroReserva(res, error) {
+  if (error instanceof ReservasValidationError) {
+    return res.status(error.statusCode || 400).json({ erro: error.message });
+  }
+  console.error("Falha em reservas:", error.message);
+  return res.status(error.statusCode || 500).json({
+    erro: error.statusCode ? error.message : "Nao foi possivel processar a reserva",
+  });
 }
 
 const salaRestaurante = (restauranteId) => `restaurante:${restauranteId}`;
@@ -1204,6 +1275,190 @@ app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("admin"), async (r
     res.status(500).json({ erro: e.message });
   }
 });
+
+app.post("/api/reservas", async (req, res) => {
+  try {
+    const restaurante = await buscarRestaurantePorSlug(
+      req.body?.restaurante_slug || "autenix",
+    );
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    const dados = normalizarCriacaoReserva(req.body, { origem: "publica" });
+    const reserva = await withTenantTransaction(
+      restaurante.id,
+      async (client, restauranteId) => {
+        await validarMesaReserva(client, restauranteId, dados.mesa_id);
+        const { rows } = await client.query(
+          `INSERT INTO reservas
+             (restaurante_id, mesa_id, nome_cliente, telefone, email,
+              data_reserva, horario, quantidade_pessoas, observacao, origem)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10)
+           RETURNING id`,
+          [
+            restauranteId,
+            dados.mesa_id,
+            dados.nome_cliente,
+            dados.telefone,
+            dados.email,
+            dados.data_reserva,
+            dados.horario,
+            dados.quantidade_pessoas,
+            dados.observacao,
+            dados.origem,
+          ],
+        );
+        return buscarReservaCompleta(restauranteId, rows[0].id, client);
+      },
+    );
+
+    emitirEquipe(restaurante.id, "nova_reserva", reserva);
+    return res.status(201).json({ sucesso: true, reserva });
+  } catch (error) {
+    return responderErroReserva(res, error);
+  }
+});
+
+app.get(
+  "/api/reservas",
+  autenticarJWT,
+  autorizarRoles("garcom", "financeiro"),
+  async (req, res) => {
+    try {
+      const filtros = normalizarFiltrosReservas(req.query);
+      const params = [req.user.restaurante_id];
+      let index = 2;
+      let sql = `
+        SELECT
+          r.id, r.restaurante_id, r.mesa_id, r.nome_cliente, r.telefone, r.email,
+          to_char(r.data_reserva, 'YYYY-MM-DD') AS data_reserva,
+          to_char(r.horario, 'HH24:MI') AS horario,
+          r.quantidade_pessoas, r.status, r.observacao, r.origem,
+          r.criado_em, r.atualizado_em, r.confirmada_em, r.cancelada_em,
+          r.concluida_em, m.numero AS mesa_numero
+        FROM reservas r
+        LEFT JOIN mesas m
+          ON m.id = r.mesa_id AND m.restaurante_id = r.restaurante_id
+        WHERE r.restaurante_id = $1`;
+
+      if (filtros.status) {
+        sql += ` AND r.status = $${index++}`;
+        params.push(filtros.status);
+      }
+      if (filtros.data) {
+        sql += ` AND r.data_reserva = $${index++}`;
+        params.push(filtros.data);
+      }
+      if (filtros.de) {
+        sql += ` AND r.data_reserva >= $${index++}`;
+        params.push(filtros.de);
+      }
+      if (filtros.ate) {
+        sql += ` AND r.data_reserva <= $${index++}`;
+        params.push(filtros.ate);
+      }
+
+      sql += " ORDER BY r.data_reserva ASC, r.horario ASC, r.id ASC";
+      const { rows } = await tenantQuery(req.user.restaurante_id, sql, params);
+      return res.json(rows);
+    } catch (error) {
+      return responderErroReserva(res, error);
+    }
+  },
+);
+
+app.post(
+  "/api/reservas/admin",
+  autenticarJWT,
+  autorizarRoles("garcom"),
+  async (req, res) => {
+    try {
+      const dados = normalizarCriacaoReserva(req.body, { origem: "admin" });
+      const reserva = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          await validarMesaReserva(client, restauranteId, dados.mesa_id);
+          const { rows } = await client.query(
+            `INSERT INTO reservas
+               (restaurante_id, mesa_id, nome_cliente, telefone, email,
+                data_reserva, horario, quantidade_pessoas, observacao, origem)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10)
+             RETURNING id`,
+            [
+              restauranteId,
+              dados.mesa_id,
+              dados.nome_cliente,
+              dados.telefone,
+              dados.email,
+              dados.data_reserva,
+              dados.horario,
+              dados.quantidade_pessoas,
+              dados.observacao,
+              dados.origem,
+            ],
+          );
+          return buscarReservaCompleta(restauranteId, rows[0].id, client);
+        },
+      );
+
+      emitirEquipe(req.user.restaurante_id, "nova_reserva", reserva);
+      return res.status(201).json({ sucesso: true, reserva });
+    } catch (error) {
+      return responderErroReserva(res, error);
+    }
+  },
+);
+
+app.patch(
+  "/api/reservas/:id/status",
+  autenticarJWT,
+  autorizarRoles("garcom"),
+  async (req, res) => {
+    try {
+      const reservaId = Number(req.params.id);
+      if (!Number.isInteger(reservaId) || reservaId <= 0) {
+        throw new ReservasValidationError("Reserva invalida");
+      }
+      const status = normalizarStatusReserva(req.body?.status);
+      const colunasTimestamp = {
+        confirmada: "confirmada_em",
+        cancelada: "cancelada_em",
+        concluida: "concluida_em",
+      };
+      const colunaTimestamp = colunasTimestamp[status];
+      const atualizarTimestamp = colunaTimestamp
+        ? `, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW())`
+        : "";
+
+      const reserva = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const { rows } = await client.query(
+            `UPDATE reservas
+             SET status = $1,
+                 atualizado_em = NOW()
+                 ${atualizarTimestamp}
+             WHERE id = $2 AND restaurante_id = $3
+             RETURNING id`,
+            [status, reservaId, restauranteId],
+          );
+          if (!rows[0]) {
+            const error = new ReservasValidationError("Reserva nao encontrada");
+            error.statusCode = 404;
+            throw error;
+          }
+          return buscarReservaCompleta(restauranteId, reservaId, client);
+        },
+      );
+
+      emitirEquipe(req.user.restaurante_id, "reserva_atualizada", reserva);
+      return res.json({ sucesso: true, reserva });
+    } catch (error) {
+      return responderErroReserva(res, error);
+    }
+  },
+);
 
 app.post(
   "/api/uploads/imagem",
