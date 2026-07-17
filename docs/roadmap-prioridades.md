@@ -63,21 +63,26 @@ e identidade visual.
 
 ## Prioridade 3.1 - Seguranca do cardapio publico
 
-- Pendente: trocar QR Code publico simples por QR Code com token de sessao da
+- Feito: trocar QR Code publico simples por QR Code com token de sessao da
   mesa.
-- Pendente: criar tabela de sessoes de mesa com `restaurante_id`, `mesa_id`,
+- Feito: criar tabela de sessoes de mesa com `restaurante_id`, `mesa_id`,
   token seguro, status, criado_em, expira_em e encerrado_em.
-- Pendente: gerar uma nova sessao/token ao abrir atendimento da mesa.
-- Pendente: validar no backend se o token pertence ao restaurante e a mesa antes
+- Feito: gerar uma nova sessao/token ao gerar o QR seguro da mesa na Central ou
+  no painel administrativo.
+- Feito: marcar a mesa como ocupada ao gerar o QR seguro do atendimento.
+- Feito: validar no backend se o token pertence ao restaurante e a mesa antes
   de permitir pedido, cancelamento de item ou chamada de garcom.
-- Pendente: bloquear pedidos publicos quando a mesa estiver livre, fechada,
+- Feito: bloquear pedidos publicos quando a mesa estiver fechada,
   com sessao expirada ou token invalido.
-- Pendente: encerrar e invalidar automaticamente a sessao ao fechar a mesa.
-- Pendente: atualizar o QR Code para apontar para `/r/{slug}/mesa/{id}?sessao=...`.
-- Pendente: criar tela amigavel de "sessao encerrada" ou "atendimento nao
+- Feito: encerrar e invalidar automaticamente a sessao ao fechar a mesa.
+- Feito: atualizar o QR Code para apontar para `/r/{slug}/mesa/{id}?sessao=...`.
+- Feito: criar tela amigavel de "sessao encerrada" ou "atendimento nao
   iniciado" quando alguem abrir link antigo.
-- Pendente: manter o cardapio visivel opcionalmente, mas bloquear acoes de
-  pedido sem sessao ativa.
+- Feito: proteger tambem o Socket.IO publico da mesa com o token de sessao.
+- Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
+  sessao ou se deve ficar sempre bloqueado como esta nesta fase.
+- Pendente: criar botao operacional explicito de "iniciar atendimento" e
+  "encerrar atendimento" separado da geracao do QR.
 - Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
   restaurante ou dispositivo autorizado para setores internos.
 
