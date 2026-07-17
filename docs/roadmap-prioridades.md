@@ -44,13 +44,13 @@ e identidade visual.
 - Implementado: area publica `/r/{slug}/reservas` para solicitacao de reserva.
 - Implementado: aba Reservas no painel administrativo com criacao interna,
   listagem, vinculo opcional de mesa e mudanca de status.
+- Implementado: aba Reservas na sessao do garcom para visualizar agenda,
+  confirmar chegada, vincular mesa, acomodar, cancelar e reabrir reservas.
 - Implementado: reservas ligadas ao `restaurante_id` com RLS e acesso somente
   pelo backend tenant-aware.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
 - Pendente: criar fila de espera quando o restaurante estiver cheio ou sem mesa
   disponivel para reserva imediata.
-- Pendente: adicionar aba Reservas na sessao do garcom para visualizar a agenda,
-  acompanhar chegadas e apoiar a organizacao das mesas.
 - Pendente: permitir que o cliente acompanhe sua posicao na fila em uma tela
   publica, atualizada conforme mesas forem liberadas e pessoas na frente forem
   chamadas ou acomodadas.
@@ -94,8 +94,14 @@ e identidade visual.
   Profissional e Enterprise.
 - Implementado: exibicao de limites e diferencas principais de recursos por
   plano.
-- Pendente: adicionar formulario comercial para contato, cadastro publico ou
-  demonstracao.
+- Implementado: formulario comercial de demonstracao na landing, com plano de
+  interesse vindo dos cards.
+- Implementado: animacoes suaves de entrada por scroll na landing page.
+- Implementado: CTA de reserva na landing quando ela esta no contexto de um
+  restaurante.
+- Pendente: substituir o envio por email local por um fluxo comercial persistido
+  no backend ou CRM.
+- Pendente: adicionar cadastro publico self-service.
 - Pendente: conectar a escolha do plano ao onboarding/self-service quando o
   fluxo SaaS estiver pronto.
 
