@@ -47,7 +47,16 @@ e identidade visual.
 - Implementado: reservas ligadas ao `restaurante_id` com RLS e acesso somente
   pelo backend tenant-aware.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
+- Pendente: criar fila de espera quando o restaurante estiver cheio ou sem mesa
+  disponivel para reserva imediata.
+- Pendente: permitir que o cliente acompanhe sua posicao na fila em uma tela
+  publica, atualizada conforme mesas forem liberadas e pessoas na frente forem
+  chamadas ou acomodadas.
+- Pendente: melhorar a experiencia do cliente com uma tela de acompanhamento da
+  reserva, incluindo status, horario, dados do restaurante e proximos passos.
 - Pendente: confirmacao automatica por email/WhatsApp.
+- Pendente: avaliar o melhor fluxo de notificacao entre WhatsApp do restaurante,
+  email do cliente e link publico de acompanhamento da reserva.
 - Pendente: historico/auditoria detalhada de alteracoes de status.
 
 ## Prioridade 4 - Planos na landing page
