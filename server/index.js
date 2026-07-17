@@ -46,6 +46,12 @@ const {
   normalizarFiltrosReservas,
   normalizarStatusReserva,
 } = require("./lib/reservas");
+const {
+  MesaSessionValidationError,
+  calcularExpiracaoSessaoMesa,
+  criarTokenSessaoMesa,
+  hashTokenSessaoMesa,
+} = require("./lib/mesa-session");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -270,6 +276,155 @@ async function buscarRestauranteDaMesa(mesaId, slugInformado) {
   return null;
 }
 
+function erroSessaoMesa(message = "Sessao da mesa invalida ou expirada") {
+  const error = new Error(message);
+  error.statusCode = 403;
+  return error;
+}
+
+function tokenSessaoMesaDoRequest(req) {
+  return (
+    req.body?.sessao ||
+    req.query?.sessao ||
+    req.headers["x-mesa-session"] ||
+    req.headers["x-mesa-sessao"]
+  );
+}
+
+function queryTenantComCliente(restauranteId, client) {
+  if (client) return (sql, params) => client.query(sql, params);
+  return (sql, params) => tenantQuery(restauranteId, sql, params);
+}
+
+async function validarSessaoMesa(restauranteId, mesaId, token, client = null) {
+  let tokenHash;
+  try {
+    tokenHash = hashTokenSessaoMesa(token);
+  } catch (error) {
+    if (error instanceof MesaSessionValidationError) {
+      throw erroSessaoMesa(error.message);
+    }
+    throw error;
+  }
+
+  const tenantId = Number(restauranteId);
+  const mesaIdNumero = Number(mesaId);
+  const executar = queryTenantComCliente(tenantId, client);
+  const { rows } = await executar(
+    `SELECT id, status, expira_em
+     FROM sessoes_mesa
+     WHERE restaurante_id = $1
+       AND mesa_id = $2
+       AND token_hash = $3
+     LIMIT 1`,
+    [tenantId, mesaIdNumero, tokenHash],
+  );
+  const sessao = rows[0];
+  if (!sessao) throw erroSessaoMesa();
+
+  const expiraEm = new Date(sessao.expira_em).getTime();
+  if (sessao.status !== "ativa" || !Number.isFinite(expiraEm) || expiraEm <= Date.now()) {
+    if (sessao.status === "ativa") {
+      await executar(
+        `UPDATE sessoes_mesa
+         SET status = 'expirada',
+             encerrado_em = COALESCE(encerrado_em, CURRENT_TIMESTAMP)
+         WHERE id = $1 AND restaurante_id = $2`,
+        [sessao.id, tenantId],
+      );
+    }
+    throw erroSessaoMesa();
+  }
+
+  await executar(
+    `UPDATE sessoes_mesa
+     SET ultimo_acesso_em = CURRENT_TIMESTAMP
+     WHERE id = $1 AND restaurante_id = $2`,
+    [sessao.id, tenantId],
+  );
+  return sessao;
+}
+
+async function validarSessaoMesaRequest(req, contexto, client = null) {
+  return validarSessaoMesa(
+    contexto.restaurante.id,
+    contexto.mesa.id,
+    tokenSessaoMesaDoRequest(req),
+    client,
+  );
+}
+
+async function criarSessaoMesa(restauranteId, mesaId, usuarioId = null) {
+  const token = criarTokenSessaoMesa();
+  const tokenHash = hashTokenSessaoMesa(token);
+  const expiraEm = calcularExpiracaoSessaoMesa(
+    process.env.MESA_SESSION_TTL_HOURS || 12,
+  );
+
+  const resultado = await withTenantTransaction(restauranteId, async (client) => {
+    const { rows: mesas } = await client.query(
+      `SELECT id, numero, status, restaurante_id
+       FROM mesas
+       WHERE id = $1 AND restaurante_id = $2`,
+      [mesaId, restauranteId],
+    );
+    if (!mesas[0]) {
+      const error = new Error("Mesa nao encontrada");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await client.query(
+      `UPDATE sessoes_mesa
+       SET status = 'encerrada',
+           encerrado_em = COALESCE(encerrado_em, CURRENT_TIMESTAMP)
+       WHERE mesa_id = $1
+         AND restaurante_id = $2
+       AND status = 'ativa'`,
+      [mesaId, restauranteId],
+    );
+
+    const { rows: mesasAtualizadas } = await client.query(
+      `UPDATE mesas
+       SET status = 'ocupada'
+       WHERE id = $1 AND restaurante_id = $2
+       RETURNING id, numero, status, restaurante_id`,
+      [mesaId, restauranteId],
+    );
+
+    const { rows: sessoes } = await client.query(
+      `INSERT INTO sessoes_mesa
+         (restaurante_id, mesa_id, token_hash, status, expira_em, criado_por_usuario_id)
+       VALUES ($1, $2, $3, 'ativa', $4, $5)
+       RETURNING id, expira_em`,
+      [restauranteId, mesaId, tokenHash, expiraEm, usuarioId],
+    );
+
+    return {
+      mesa: mesasAtualizadas[0] || mesas[0],
+      sessao: sessoes[0],
+    };
+  });
+
+  return {
+    ...resultado,
+    token,
+  };
+}
+
+async function encerrarSessoesMesa(restauranteId, mesaId, client = null) {
+  const executar = queryTenantComCliente(restauranteId, client);
+  await executar(
+    `UPDATE sessoes_mesa
+     SET status = 'encerrada',
+         encerrado_em = COALESCE(encerrado_em, CURRENT_TIMESTAMP)
+     WHERE mesa_id = $1
+       AND restaurante_id = $2
+       AND status = 'ativa'`,
+    [mesaId, restauranteId],
+  );
+}
+
 function isBcryptHash(valor) {
   return typeof valor === "string" && /^\$2[aby]\$\d{2}\$/.test(valor);
 }
@@ -359,6 +514,19 @@ function autenticarJWT(req, res, next) {
   }
 }
 
+function autenticarJWTSePresente(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const [tipo, token] = authHeader.split(" ");
+  if (tipo !== "Bearer" || !token) return next();
+
+  try {
+    req.user = usuarioDoToken(token);
+    return next();
+  } catch {
+    return res.status(401).json({ erro: "Token invalido ou expirado" });
+  }
+}
+
 async function autenticarPlataforma(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const [tipo, token] = authHeader.split(" ");
@@ -414,7 +582,7 @@ function autorizarRoles(...rolesPermitidas) {
 }
 
 function protegerListagemPedidos(req, res, next) {
-  if (req.query.mesa_id) return next();
+  if (req.query.mesa_id) return autenticarJWTSePresente(req, res, next);
   return autenticarJWT(req, res, () =>
     autorizarRoles("garcom", "cozinha", "financeiro")(req, res, next),
   );
@@ -586,6 +754,28 @@ async function initDB() {
     throw new Error("Execute npm run migrate antes de iniciar o backend");
   }
   const restauranteId = restaurantePadrao.id;
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS sessoes_mesa (
+      id SERIAL PRIMARY KEY,
+      restaurante_id INTEGER NOT NULL,
+      mesa_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ativa',
+      criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expira_em TIMESTAMP NOT NULL,
+      encerrado_em TIMESTAMP,
+      ultimo_acesso_em TIMESTAMP,
+      criado_por_usuario_id INTEGER
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessoes_mesa_ativa_unica
+      ON sessoes_mesa (restaurante_id, mesa_id)
+      WHERE status = 'ativa';
+
+    CREATE INDEX IF NOT EXISTS idx_sessoes_mesa_restaurante_mesa_status
+      ON sessoes_mesa (restaurante_id, mesa_id, status, expira_em);
+  `);
 
   // Seed dados de exemplo se vazio
   const { rows: cats } = await tenantQuery(
@@ -801,7 +991,7 @@ app.get("/api/cardapio", async (req, res) => {
     );
     res.json({ restaurante, categorias, produtos });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -818,7 +1008,7 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -829,9 +1019,14 @@ app.get("/api/mesas/:id", async (req, res) => {
       req.query.restaurante_slug || "autenix",
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
-    res.json({ ...contexto.mesa, restaurante: contexto.restaurante });
+    await validarSessaoMesaRequest(req, contexto);
+    res.json({
+      ...contexto.mesa,
+      restaurante: contexto.restaurante,
+      sessao_ativa: true,
+    });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -908,6 +1103,8 @@ app.post("/api/pedidos", async (req, res) => {
     const resultado = await withTenantTransaction(
       restauranteId,
       async (client) => {
+        await validarSessaoMesaRequest(req, contexto, client);
+
         const produtoIds = [...new Set(itens.map((item) => Number(item.produto_id)))];
         const { rows: produtosValidos } = await client.query(
           `SELECT id FROM produtos
@@ -984,6 +1181,10 @@ app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
         mesa_id,
         restaurante_slug || "autenix",
       );
+      if (!contexto) {
+        return res.status(404).json({ erro: "Mesa nao encontrada" });
+      }
+      await validarSessaoMesaRequest(req, contexto);
       restauranteId = contexto?.restaurante.id;
     }
     if (!restauranteId) {
@@ -1025,7 +1226,7 @@ app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
     );
     res.json(resultado);
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -1105,14 +1306,17 @@ app.patch("/api/itens/:id/cancelar", async (req, res) => {
     if (!Number.isInteger(mesaId) || mesaId <= 0) {
       return res.status(400).json({ erro: "Mesa invalida" });
     }
-    const restaurante = await buscarRestaurantePorSlug(
+    const contexto = await buscarRestauranteDaMesa(
+      mesaId,
       req.body?.restaurante_slug || "autenix",
     );
-    if (!restaurante) {
-      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    if (!contexto) {
+      return res.status(404).json({ erro: "Mesa nao encontrada" });
     }
+    await validarSessaoMesaRequest(req, contexto);
+
     const { rows } = await tenantQuery(
-      restaurante.id,
+      contexto.restaurante.id,
       `SELECT ip.*
        FROM itens_pedido ip
        JOIN pedidos p
@@ -1120,23 +1324,23 @@ app.patch("/api/itens/:id/cancelar", async (req, res) => {
        WHERE ip.id = $1
          AND ip.restaurante_id = $2
          AND p.mesa_id = $3`,
-      [req.params.id, restaurante.id, mesaId],
+      [req.params.id, contexto.restaurante.id, mesaId],
     );
     if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
     if (rows[0].status !== "pendente") return res.status(400).json({ erro: "Item ja em preparo" });
 
     await tenantQuery(
-      restaurante.id,
+      contexto.restaurante.id,
       `UPDATE itens_pedido SET status = 'cancelado'
        WHERE id = $1 AND restaurante_id = $2`,
-      [req.params.id, restaurante.id],
+      [req.params.id, contexto.restaurante.id],
     );
-    const pedido = await getPedidoCompleto(restaurante.id, rows[0].pedido_id);
-    emitirEquipe(restaurante.id, "pedido_atualizado", pedido);
-    emitirMesa(restaurante.id, pedido.mesa_id, "pedido_atualizado", pedido);
+    const pedido = await getPedidoCompleto(contexto.restaurante.id, rows[0].pedido_id);
+    emitirEquipe(contexto.restaurante.id, "pedido_atualizado", pedido);
+    emitirMesa(contexto.restaurante.id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -1174,6 +1378,11 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
              AND status != 'finalizado'`,
           [forma_pagamento, req.params.id, req.user.restaurante_id],
         );
+        await encerrarSessoesMesa(
+          req.user.restaurante_id,
+          req.params.id,
+          client,
+        );
         return mesaAtualizada;
       },
     );
@@ -1196,6 +1405,8 @@ app.post("/api/chamadas", async (req, res) => {
       restaurante_slug || "autenix",
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa nao encontrada" });
+    await validarSessaoMesaRequest(req, contexto);
+
     const { rows } = await tenantQuery(
       contexto.restaurante.id,
       `INSERT INTO chamadas
@@ -1218,7 +1429,7 @@ app.post("/api/chamadas", async (req, res) => {
     });
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -1260,19 +1471,23 @@ app.get("/api/chamadas", autenticarJWT, autorizarRoles("garcom", "cozinha"), asy
 });
 
 // QR Code por mesa
-app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
+app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("garcom"), async (req, res) => {
   try {
-    const { rows } = await tenantQuery(
+    const resultado = await criarSessaoMesa(
       req.user.restaurante_id,
-      "SELECT id FROM mesas WHERE id = $1 AND restaurante_id = $2",
-      [req.params.mesa_id, req.user.restaurante_id],
+      req.params.mesa_id,
+      req.user.id,
     );
-    if (!rows[0]) return res.status(404).json({ erro: "Mesa nao encontrada" });
-    const url = `${PUBLIC_APP_URL}/r/${req.user.restaurante_slug}/mesa/${req.params.mesa_id}`;
+    const url = `${PUBLIC_APP_URL}/r/${req.user.restaurante_slug}/mesa/${resultado.mesa.id}?sessao=${encodeURIComponent(resultado.token)}`;
     const qr = await QRCode.toDataURL(url);
-    res.json({ url, qr });
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resultado.mesa);
+    res.json({
+      url,
+      qr,
+      expira_em: resultado.sessao.expira_em,
+    });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    res.status(e.statusCode || 500).json({ erro: e.message });
   }
 });
 
@@ -2779,6 +2994,11 @@ io.use(async (socket, next) => {
     if (!contexto) {
       return next(new Error("Mesa ou restaurante invalido para o Socket.IO"));
     }
+    await validarSessaoMesa(
+      contexto.restaurante.id,
+      contexto.mesa.id,
+      socket.handshake.auth?.sessao,
+    );
     socket.publicContext = {
       restaurante_id: contexto.restaurante.id,
       restaurante_slug: contexto.restaurante.slug,
