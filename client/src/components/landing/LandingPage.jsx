@@ -39,6 +39,7 @@ const NAV_LINKS = [
   { label: "Benefícios", href: "#beneficios" },
   { label: "Áreas do sistema", href: "#areas" },
   { label: "Cardápio", href: "#cardapio" },
+  { label: "Planos", href: "#planos" },
   { label: "Como funciona", href: "#fluxo" },
 ];
 
@@ -236,6 +237,52 @@ const CATEGORIAS = [
   "Bebidas",
   "Sobremesas",
   "Combos",
+];
+
+const PLANOS_COMERCIAIS = [
+  {
+    nome: "Essencial",
+    subtitulo: "Para restaurantes começando a digitalizar o salão.",
+    preco: "R$ 99",
+    periodo: "/mês",
+    icon: Table2,
+    limites: ["Até 20 mesas", "5 usuários", "120 produtos"],
+    recursos: [
+      "Cardápio digital com QR Code",
+      "Pedidos e chamadas em tempo real",
+      "Controle básico de mesas",
+      "Relatórios operacionais essenciais",
+    ],
+  },
+  {
+    nome: "Profissional",
+    subtitulo: "Para operações que precisam integrar equipe, cozinha e gestão.",
+    preco: "R$ 199",
+    periodo: "/mês",
+    icon: Sparkles,
+    destaque: true,
+    limites: ["Até 60 mesas", "15 usuários", "400 produtos"],
+    recursos: [
+      "Garçom, cozinha e financeiro conectados",
+      "Reservas e importação inicial de dados",
+      "White label com logo e cores do restaurante",
+      "Painel completo de administração",
+    ],
+  },
+  {
+    nome: "Enterprise",
+    subtitulo: "Para grupos, casas maiores e projetos com expansão.",
+    preco: "Sob consulta",
+    periodo: "",
+    icon: ShieldCheck,
+    limites: ["Até 500 mesas", "100 usuários", "2.000 produtos"],
+    recursos: [
+      "Base preparada para multiunidade",
+      "Onboarding assistido e implantação dedicada",
+      "Limites customizados por operação",
+      "Prioridade para integrações futuras",
+    ],
+  },
 ];
 
 function Icone({ icon, ...props }) {
@@ -552,6 +599,70 @@ function CardapioVitrine() {
   );
 }
 
+function PlanosLanding({ usuario, onAccess }) {
+  return (
+    <section className="lp-section lp-plans" id="planos">
+      <div className="lp-container">
+        <div className="lp-section-heading lp-heading-split">
+          <div>
+            <span className="lp-eyebrow">Planos para cada fase</span>
+            <h2>Comece enxuto e evolua conforme a operação cresce.</h2>
+          </div>
+          <p>
+            Os planos do Autenix combinam limites comerciais, recursos do
+            restaurante e uma base pronta para expansão SaaS com mais clientes.
+          </p>
+        </div>
+
+        <div className="lp-plan-grid">
+          {PLANOS_COMERCIAIS.map((plano) => (
+            <article
+              className={`lp-plan-card ${plano.destaque ? "is-featured" : ""}`}
+              key={plano.nome}
+            >
+              <div className="lp-plan-top">
+                <span className="lp-plan-icon">
+                  <Icone icon={plano.icon} size={23} strokeWidth={1.8} />
+                </span>
+                {plano.destaque && <span className="lp-plan-badge">Mais indicado</span>}
+              </div>
+              <div className="lp-plan-title">
+                <h3>{plano.nome}</h3>
+                <p>{plano.subtitulo}</p>
+              </div>
+              <div className="lp-plan-price">
+                <strong>{plano.preco}</strong>
+                {plano.periodo && <span>{plano.periodo}</span>}
+              </div>
+              <div className="lp-plan-limits">
+                {plano.limites.map((limite) => (
+                  <span key={limite}>{limite}</span>
+                ))}
+              </div>
+              <ul className="lp-plan-features">
+                {plano.recursos.map((recurso) => (
+                  <li key={recurso}>
+                    <Check size={16} />
+                    <span>{recurso}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                className={`lp-button ${plano.destaque ? "lp-button-primary" : "lp-button-outline"}`}
+                type="button"
+                onClick={onAccess}
+              >
+                {usuario ? "Abrir meu painel" : "Acessar restaurante"}
+                <ArrowRight size={18} />
+              </button>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Fluxo() {
   const etapas = [
     { numero: "01", icon: QrCode, title: "Cliente escolhe", text: "O QR Code abre o cardápio vinculado à mesa." },
@@ -650,6 +761,7 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
         <Beneficios />
         <AreasDoSistema />
         <CardapioVitrine />
+        <PlanosLanding usuario={usuario} onAccess={acessar} />
         <Fluxo />
         <FinalCta usuario={usuario} onAccess={acessar} marca={marca} />
       </main>

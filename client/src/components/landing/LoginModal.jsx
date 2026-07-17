@@ -15,21 +15,20 @@ import { loginUsuario, rotaDoPerfil } from "../../services/auth.js";
 export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, marca }) {
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
-  const [slug, setSlug] = useState(restauranteSlug || "autenix");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [status, setStatus] = useState("idle");
   const [mensagem, setMensagem] = useState("");
   const loginRef = useRef(null);
+  const slugResolvido = (restauranteSlug || "autenix").trim();
 
   const fechar = useCallback(() => {
     setLogin("");
     setSenha("");
-    setSlug(restauranteSlug || "autenix");
     setMostrarSenha(false);
     setStatus("idle");
     setMensagem("");
     onClose();
-  }, [onClose, restauranteSlug]);
+  }, [onClose]);
 
   useEffect(() => {
     if (!aberto) return undefined;
@@ -53,9 +52,9 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, 
 
   const entrar = async (event) => {
     event.preventDefault();
-    if (!slug.trim() || !login.trim() || !senha) {
+    if (!login.trim() || !senha) {
       setStatus("error");
-      setMensagem("Preencha o restaurante, o usuário e a senha para continuar.");
+      setMensagem("Preencha o usuário e a senha para continuar.");
       return;
     }
 
@@ -63,7 +62,7 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, 
     setMensagem("");
 
     try {
-      const usuario = await loginUsuario(login.trim(), senha, slug);
+      const usuario = await loginUsuario(login.trim(), senha, slugResolvido);
       onLogin(usuario);
       setStatus("success");
       setMensagem(`Bem-vindo, ${usuario.nome || usuario.login}. Abrindo seu painel...`);
@@ -128,22 +127,6 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, 
           </div>
 
           <form className="lp-login-form" onSubmit={entrar} noValidate>
-            <label htmlFor="landing-restaurant">Restaurante</label>
-            <div className="lp-restaurant-field">
-              <Building2 size={18} aria-hidden="true" />
-              <input
-                id="landing-restaurant"
-                name="restaurant"
-                type="text"
-                autoComplete="organization"
-                value={slug}
-                onChange={(event) => setSlug(event.target.value)}
-                placeholder="codigo-do-restaurante"
-                readOnly={Boolean(restauranteSlug)}
-                disabled={status === "loading" || status === "success"}
-              />
-            </div>
-
             <label htmlFor="landing-login">Usuário</label>
             <input
               ref={loginRef}

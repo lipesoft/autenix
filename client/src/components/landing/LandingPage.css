@@ -361,6 +361,18 @@ html {
   background: rgba(6, 19, 31, 0.58);
 }
 
+.lp-button-outline {
+  border-color: #b9c5cc;
+  background: var(--lp-white);
+  color: var(--lp-navy-900);
+}
+
+.lp-button-outline:hover:not(:disabled) {
+  border-color: var(--lp-orange);
+  color: var(--lp-orange-dark);
+  box-shadow: 0 10px 24px rgba(6, 19, 31, 0.08);
+}
+
 .lp-hero-proof {
   display: flex;
   flex-wrap: wrap;
@@ -1008,6 +1020,164 @@ html {
   text-align: right;
 }
 
+.lp-plans {
+  background: #eef4f3;
+}
+
+.lp-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.lp-plan-card {
+  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid #d4dee0;
+  border-radius: 8px;
+  background: var(--lp-white);
+  box-shadow: 0 16px 42px rgba(6, 19, 31, 0.05);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.lp-plan-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(242, 116, 45, 0.45);
+  box-shadow: 0 20px 54px rgba(6, 19, 31, 0.1);
+}
+
+.lp-plan-card.is-featured {
+  border-color: rgba(242, 116, 45, 0.72);
+  box-shadow: 0 22px 64px rgba(242, 116, 45, 0.16);
+}
+
+.lp-plan-top {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lp-plan-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #e4f3ef;
+  color: var(--lp-green);
+}
+
+.lp-plan-card.is-featured .lp-plan-icon {
+  background: rgba(242, 116, 45, 0.12);
+  color: var(--lp-orange-dark);
+}
+
+.lp-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(242, 116, 45, 0.12);
+  color: var(--lp-orange-dark);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lp-plan-title {
+  margin-top: 26px;
+}
+
+.lp-plan-title h3 {
+  margin: 0;
+  color: var(--lp-navy-900);
+  font-family: "Manrope", sans-serif;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.lp-plan-title p {
+  min-height: 62px;
+  margin: 10px 0 0;
+  color: var(--lp-body);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.lp-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 24px;
+  color: var(--lp-navy-900);
+}
+
+.lp-plan-price strong {
+  font-family: "Manrope", sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.lp-plan-price span {
+  color: var(--lp-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lp-plan-limits {
+  display: grid;
+  gap: 7px;
+  margin: 24px 0 0;
+}
+
+.lp-plan-limits span {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #f4f7f6;
+  color: #435866;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-plan-features {
+  display: grid;
+  gap: 12px;
+  margin: 26px 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.lp-plan-features li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  color: var(--lp-body);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.lp-plan-features svg {
+  margin-top: 2px;
+  color: var(--lp-green);
+}
+
+.lp-plan-card .lp-button {
+  width: 100%;
+  margin-top: auto;
+}
+
 .lp-flow {
   background: var(--lp-white);
 }
@@ -1315,27 +1485,6 @@ html {
   white-space: nowrap;
 }
 
-.lp-restaurant-field {
-  position: relative;
-}
-
-.lp-restaurant-field > svg {
-  position: absolute;
-  top: 15px;
-  left: 14px;
-  color: #6e7d87;
-  pointer-events: none;
-}
-
-.lp-restaurant-field input {
-  padding-left: 43px;
-}
-
-.lp-restaurant-field input[readonly] {
-  background: #f1f4f6;
-  color: #526774;
-}
-
 .lp-password-field {
   position: relative;
 }
@@ -1431,6 +1580,14 @@ html {
 
   .lp-benefit-card.is-wide {
     grid-column: span 2;
+  }
+
+  .lp-plan-grid {
+    gap: 14px;
+  }
+
+  .lp-plan-card {
+    padding: 24px;
   }
 
   .lp-area-stage {
@@ -1568,6 +1725,18 @@ html {
     width: min(100%, 650px);
   }
 
+  .lp-plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lp-plan-card {
+    min-height: auto;
+  }
+
+  .lp-plan-title p {
+    min-height: auto;
+  }
+
   .lp-flow-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1649,6 +1818,14 @@ html {
 
   .lp-menu-card-body {
     min-height: 210px;
+  }
+
+  .lp-plan-card {
+    padding: 22px;
+  }
+
+  .lp-plan-price strong {
+    font-size: 30px;
   }
 
   .lp-final-cta-inner {
