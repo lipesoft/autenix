@@ -2337,6 +2337,17 @@ function PainelGarcom({ usuario, onLogout }) {
   const [historicoModal, setHistoricoModal] = useState(null);
   const [historicoItens, setHistoricoItens] = useState([]);
   const [historicoErro, setHistoricoErro] = useState("");
+  const [visaoGarcom, setVisaoGarcom] = useState(() =>
+    new URLSearchParams(window.location.search).get("aba") === "reservas"
+      ? "reservas"
+      : "mesas",
+  );
+  const [reservasGarcom, setReservasGarcom] = useState([]);
+  const [reservaStatusGarcom, setReservaStatusGarcom] = useState({
+    tipo: "idle",
+    mensagem: "",
+  });
+  const [reservaAtualizando, setReservaAtualizando] = useState(null);
 
   // Cardápio para fazer pedido
   const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
@@ -2364,6 +2375,16 @@ function PainelGarcom({ usuario, onLogout }) {
   const fetchPedidos = useCallback(async () => {
     const r = await authFetch(`${API}/api/pedidos`);
     setPedidos(await r.json());
+  }, []);
+  const fetchReservasGarcom = useCallback(async () => {
+    const hoje = dataLocalISO();
+    const ate = dataLocalISO(new Date(Date.now() + 1000 * 60 * 60 * 24 * 14));
+    const r = await authFetch(`${API}/api/reservas?de=${hoje}&ate=${ate}`);
+    const dados = await r.json().catch(() => []);
+    if (!r.ok) {
+      throw new Error(dados.erro || "Nao foi possivel carregar reservas");
+    }
+    setReservasGarcom(Array.isArray(dados) ? dados : []);
   }, []);
 
   const fetchCardapio = useCallback(async () => {
@@ -2431,6 +2452,9 @@ function PainelGarcom({ usuario, onLogout }) {
     fetchChamadas();
     fetchMesas();
     fetchPedidos();
+    fetchReservasGarcom().catch((error) =>
+      setReservaStatusGarcom({ tipo: "error", mensagem: error.message }),
+    );
     const s = getSocket();
 
     // Cliente chama garçom com nome e mesa.
@@ -2468,6 +2492,8 @@ function PainelGarcom({ usuario, onLogout }) {
     s.on("mesa_atualizada", fetchMesas);
     s.on("novo_pedido", fetchPedidos);
     s.on("pedido_atualizado", fetchPedidos);
+    s.on("nova_reserva", fetchReservasGarcom);
+    s.on("reserva_atualizada", fetchReservasGarcom);
     return () => {
       s.off("chamada_garcom");
       s.off("pedido_pronto");
@@ -2475,8 +2501,10 @@ function PainelGarcom({ usuario, onLogout }) {
       s.off("mesa_atualizada");
       s.off("novo_pedido");
       s.off("pedido_atualizado");
+      s.off("nova_reserva");
+      s.off("reserva_atualizada");
     };
-  }, [fetchChamadas, fetchMesas, fetchPedidos, push]);
+  }, [fetchChamadas, fetchMesas, fetchPedidos, fetchReservasGarcom, push]);
 
   const atenderChamada = async (id) => {
     await authFetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
@@ -2525,6 +2553,32 @@ function PainelGarcom({ usuario, onLogout }) {
     fetchPedidos();
   };
 
+  const alterarReservaGarcom = async (reserva, status, mesaId) => {
+    setReservaAtualizando(reserva.id);
+    setReservaStatusGarcom({ tipo: "loading", mensagem: "" });
+    try {
+      const payload = { status };
+      if (mesaId !== undefined) payload.mesa_id = mesaId || null;
+      const r = await authFetch(`${API}/api/reservas/${reserva.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(dados.erro || "Nao foi possivel atualizar a reserva");
+      }
+      setReservaStatusGarcom({ tipo: "success", mensagem: "Reserva atualizada." });
+      fetchReservasGarcom();
+      fetchMesas();
+    } catch (error) {
+      setReservaStatusGarcom({ tipo: "error", mensagem: error.message });
+      push("Reservas", error.message, "conta");
+    } finally {
+      setReservaAtualizando(null);
+    }
+  };
+
   const pedidosAbertosDaMesa = (mid) =>
     pedidos.filter((p) => p.mesa_id === mid && p.status !== "finalizado");
   const pedidosDaMesa = (mid) =>
@@ -2559,6 +2613,18 @@ function PainelGarcom({ usuario, onLogout }) {
   const totalContaModal = contaModal
     ? Number(contaModal.total ?? totalMesa(contaModal.id))
     : 0;
+  const reservasHojeGarcom = reservasGarcom.filter(
+    (reserva) => reserva.data_reserva === dataLocalISO(),
+  );
+  const reservasAtivasGarcom = reservasGarcom.filter((reserva) =>
+    ["pendente", "confirmada"].includes(reserva.status),
+  );
+  const reservasSemMesaGarcom = reservasAtivasGarcom.filter((reserva) => !reserva.mesa_id);
+  const mesasDisponiveisParaReserva = (reserva) =>
+    mesas.filter(
+      (mesa) =>
+        mesa.status === "livre" || String(mesa.id) === String(reserva.mesa_id || ""),
+    );
 
   return (
     <>
@@ -2595,6 +2661,41 @@ function PainelGarcom({ usuario, onLogout }) {
           }
         />
         <div style={{ padding: 14 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            {[
+              ["mesas", "Mesas"],
+              ["reservas", `Reservas (${reservasAtivasGarcom.length})`],
+            ].map(([valor, label]) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => setVisaoGarcom(valor)}
+                style={{
+                  minHeight: 42,
+                  borderRadius: 8,
+                  border: `1px solid ${visaoGarcom === valor ? T.accent : T.border}`,
+                  background: visaoGarcom === valor ? T.accentGlow : T.card,
+                  color: visaoGarcom === valor ? T.accent : T.text2,
+                  cursor: "pointer",
+                  fontFamily: "Inter,sans-serif",
+                  fontSize: 13,
+                  fontWeight: 800,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {visaoGarcom === "mesas" && (
+            <>
           {/* Chamadas — Item 5: mostra nome + mesa */}
           {chamadas.length > 0 && (
             <div style={{ marginBottom: 18 }}>
@@ -2835,6 +2936,218 @@ function PainelGarcom({ usuario, onLogout }) {
               </Card>
             ))}
           </div>
+            </>
+          )}
+
+          {visaoGarcom === "reservas" && (
+            <div className="fade-up">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))",
+                  gap: 10,
+                  marginBottom: 14,
+                }}
+              >
+                {[
+                  ["Hoje", reservasHojeGarcom.length, T.accent],
+                  ["Ativas", reservasAtivasGarcom.length, T.green],
+                  ["Sem mesa", reservasSemMesaGarcom.length, T.amber],
+                ].map(([label, total, cor]) => (
+                  <Card key={label} style={{ background: T.card2 }}>
+                    <div style={{ color: T.muted, fontSize: 12, marginBottom: 4 }}>
+                      {label}
+                    </div>
+                    <div
+                      style={{
+                        color: cor,
+                        fontFamily: "'Manrope',sans-serif",
+                        fontSize: 26,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {total}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              <div
+                role="status"
+                style={{
+                  minHeight: 24,
+                  marginBottom: 10,
+                  color:
+                    reservaStatusGarcom.tipo === "error"
+                      ? T.red
+                      : reservaStatusGarcom.tipo === "success"
+                        ? T.green
+                        : T.muted,
+                  fontSize: 12,
+                  fontWeight: reservaStatusGarcom.tipo === "success" ? 800 : 600,
+                }}
+              >
+                {reservaStatusGarcom.mensagem}
+              </div>
+
+              {reservasGarcom.length === 0 ? (
+                <Card>
+                  <div style={{ color: T.muted, fontSize: 13 }}>
+                    Nenhuma reserva para os próximos dias.
+                  </div>
+                </Card>
+              ) : (
+                reservasGarcom.map((reserva) => {
+                  const atualizando = reservaAtualizando === reserva.id;
+                  const mesasDaReserva = mesasDisponiveisParaReserva(reserva);
+                  return (
+                    <Card
+                      key={reserva.id}
+                      style={{
+                        marginBottom: 10,
+                        borderColor:
+                          reserva.status === "confirmada"
+                            ? T.green
+                            : reserva.status === "cancelada"
+                              ? "rgba(192,57,43,.35)"
+                              : T.border,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))",
+                          gap: 14,
+                          alignItems: "start",
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                              marginBottom: 6,
+                            }}
+                          >
+                            <strong>{reserva.nome_cliente}</strong>
+                            <Badge status={reserva.status} />
+                          </div>
+                          <div style={{ color: T.text2, fontSize: 13 }}>
+                            {formatarDataReserva(reserva.data_reserva)} as {reserva.horario}
+                          </div>
+                          <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
+                            {reserva.quantidade_pessoas} pessoa(s) · {reserva.telefone}
+                            {reserva.email ? ` · ${reserva.email}` : ""}
+                          </div>
+                          {reserva.observacao && (
+                            <div style={{ color: T.muted, fontSize: 12, marginTop: 6 }}>
+                              {reserva.observacao}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              color: T.muted,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              marginBottom: 6,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            Mesa
+                          </label>
+                          <select
+                            value={reserva.mesa_id || ""}
+                            disabled={atualizando || ["concluida", "cancelada"].includes(reserva.status)}
+                            onChange={(e) =>
+                              alterarReservaGarcom(reserva, reserva.status, e.target.value)
+                            }
+                            style={{
+                              width: "100%",
+                              height: 38,
+                              border: `1px solid ${T.border2}`,
+                              borderRadius: 8,
+                              background: T.card2,
+                              color: T.text,
+                              fontSize: 13,
+                              padding: "0 10px",
+                            }}
+                          >
+                            <option value="">Sem mesa</option>
+                            {mesasDaReserva.map((mesa) => (
+                              <option key={mesa.id} value={mesa.id}>
+                                Mesa {mesa.numero}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          marginTop: 14,
+                        }}
+                      >
+                        {reserva.status === "pendente" && (
+                          <Btn
+                            sm
+                            variant="success"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "confirmada")}
+                          >
+                            Confirmar chegada
+                          </Btn>
+                        )}
+                        {reserva.status === "confirmada" && (
+                          <Btn
+                            sm
+                            variant="info"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "concluida")}
+                          >
+                            Acomodar
+                          </Btn>
+                        )}
+                        {["pendente", "confirmada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="danger"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "cancelada")}
+                          >
+                            Cancelar
+                          </Btn>
+                        )}
+                        {reserva.status === "cancelada" && (
+                          <Btn
+                            sm
+                            variant="ghost"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "pendente")}
+                          >
+                            Reabrir
+                          </Btn>
+                        )}
+                        {atualizando && (
+                          <span style={{ color: T.muted, fontSize: 12, alignSelf: "center" }}>
+                            Atualizando...
+                          </span>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
 
         {/* Modal ver pedidos da mesa */}

@@ -4,6 +4,7 @@ const {
   ReservasValidationError,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
+  normalizarMesaId,
   normalizarStatusReserva,
 } = require("../lib/reservas");
 
@@ -60,4 +61,10 @@ test("normaliza status e filtros de reservas", () => {
     status: "pendente",
     data: "2026-07-20",
   });
+});
+
+test("normaliza mesa opcional para atualizacao de reserva", () => {
+  assert.equal(normalizarMesaId(""), null);
+  assert.equal(normalizarMesaId("7"), 7);
+  assert.throws(() => normalizarMesaId("mesa-7"), ReservasValidationError);
 });

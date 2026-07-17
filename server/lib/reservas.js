@@ -124,5 +124,6 @@ module.exports = {
   ReservasValidationError,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
+  normalizarMesaId,
   normalizarStatusReserva,
 };

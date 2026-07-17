@@ -367,7 +367,9 @@ export default function CentralOperacao({ usuario, onLogout }) {
               const Icon = setor.icon;
               const caminho = setor.id === "cliente"
                 ? `${rotaRestaurante(slug, "central")}#central-mesas-title`
-                : rotaRestaurante(slug, setor.destino);
+                : setor.id === "reservas"
+                  ? `${rotaRestaurante(slug, usuario.role === "garcom" ? "garcom" : "admin")}?aba=reservas`
+                  : rotaRestaurante(slug, setor.destino);
               return (
                 <article className="central-sector" key={setor.id}>
                   <div className="central-sector-icon"><Icon size={22} /></div>

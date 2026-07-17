@@ -44,6 +44,7 @@ const {
   ReservasValidationError,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
+  normalizarMesaId,
   normalizarStatusReserva,
 } = require("./lib/reservas");
 const {
@@ -1735,6 +1736,13 @@ app.patch(
         throw new ReservasValidationError("Reserva invalida");
       }
       const status = normalizarStatusReserva(req.body?.status);
+      const deveAtualizarMesa = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        "mesa_id",
+      );
+      const mesaId = deveAtualizarMesa
+        ? normalizarMesaId(req.body?.mesa_id)
+        : null;
       const colunasTimestamp = {
         confirmada: "confirmada_em",
         cancelada: "cancelada_em",
@@ -1748,14 +1756,18 @@ app.patch(
       const reserva = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
+          if (deveAtualizarMesa && mesaId) {
+            await validarMesaReserva(client, restauranteId, mesaId);
+          }
           const { rows } = await client.query(
             `UPDATE reservas
              SET status = $1,
+                 mesa_id = CASE WHEN $4::boolean THEN $5::INTEGER ELSE mesa_id END,
                  atualizado_em = NOW()
                  ${atualizarTimestamp}
              WHERE id = $2 AND restaurante_id = $3
              RETURNING id`,
-            [status, reservaId, restauranteId],
+            [status, reservaId, restauranteId, deveAtualizarMesa, mesaId],
           );
           if (!rows[0]) {
             const error = new ReservasValidationError("Reserva nao encontrada");
