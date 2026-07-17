@@ -4,6 +4,7 @@ import {
   BarChart3,
   Beef,
   CakeSlice,
+  CalendarCheck,
   ChartNoAxesCombined,
   Check,
   ChefHat,
@@ -21,6 +22,7 @@ import {
   QrCode,
   Radio,
   ReceiptText,
+  Send,
   ShieldCheck,
   Sparkles,
   Table2,
@@ -30,7 +32,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { rotaDoPerfil } from "../../services/auth.js";
+import { rotaDoPerfil, rotaRestaurante } from "../../services/auth.js";
 import { useBranding } from "../branding/branding-context.js";
 import LoginModal from "./LoginModal.jsx";
 import "./LandingPage.css";
@@ -40,6 +42,7 @@ const NAV_LINKS = [
   { label: "Áreas do sistema", href: "#areas" },
   { label: "Cardápio", href: "#cardapio" },
   { label: "Planos", href: "#planos" },
+  { label: "Demonstração", href: "#contato" },
   { label: "Como funciona", href: "#fluxo" },
 ];
 
@@ -599,7 +602,7 @@ function CardapioVitrine() {
   );
 }
 
-function PlanosLanding({ usuario, onAccess }) {
+function PlanosLanding({ usuario, onAccess, onPlanSelect }) {
   return (
     <section className="lp-section lp-plans" id="planos">
       <div className="lp-container">
@@ -650,14 +653,117 @@ function PlanosLanding({ usuario, onAccess }) {
               <button
                 className={`lp-button ${plano.destaque ? "lp-button-primary" : "lp-button-outline"}`}
                 type="button"
-                onClick={onAccess}
+                onClick={() => (usuario ? onAccess() : onPlanSelect(plano.nome))}
               >
-                {usuario ? "Abrir meu painel" : "Acessar restaurante"}
+                {usuario ? "Abrir meu painel" : "Solicitar demonstração"}
                 <ArrowRight size={18} />
               </button>
             </article>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
+  const [form, setForm] = useState({
+    nome: "",
+    restaurante: "",
+    telefone: "",
+  });
+  const [status, setStatus] = useState("");
+  const planoAtual = planoSelecionado || "Profissional";
+
+  const atualizar = (campo, valor) => {
+    setStatus("");
+    if (campo === "plano") {
+      onPlanoChange(valor);
+      return;
+    }
+    setForm((atual) => ({ ...atual, [campo]: valor }));
+  };
+
+  const enviar = (event) => {
+    event.preventDefault();
+    const assunto = encodeURIComponent(`Demonstração ${marca.nome} - ${planoAtual}`);
+    const corpo = encodeURIComponent(
+      [
+        `Nome: ${form.nome}`,
+        `Restaurante: ${form.restaurante}`,
+        `Telefone/WhatsApp: ${form.telefone}`,
+        `Plano de interesse: ${planoAtual}`,
+        "",
+        "Quero conhecer o Autenix para meu restaurante.",
+      ].join("\n"),
+    );
+    window.location.href = `mailto:comercial@autenix.com.br?subject=${assunto}&body=${corpo}`;
+    setStatus("Solicitação preparada no seu aplicativo de email.");
+  };
+
+  return (
+    <section className="lp-section lp-commercial-contact" id="contato">
+      <div className="lp-container lp-commercial-inner">
+        <div className="lp-commercial-copy">
+          <span className="lp-eyebrow">Demonstração guiada</span>
+          <h2>Veja o Autenix aplicado ao ritmo do seu restaurante.</h2>
+          <p>
+            Informe o plano de interesse e os dados principais para alinharmos
+            uma apresentação objetiva da operação.
+          </p>
+          <div className="lp-commercial-points">
+            <span><Check size={16} /> Fluxo do salão à cozinha</span>
+            <span><Check size={16} /> Multi-restaurante e white label</span>
+            <span><Check size={16} /> Implantação com dados iniciais</span>
+          </div>
+        </div>
+
+        <form className="lp-commercial-form" onSubmit={enviar}>
+          <label htmlFor="lp-contact-name">Seu nome</label>
+          <input
+            id="lp-contact-name"
+            value={form.nome}
+            onChange={(event) => atualizar("nome", event.target.value)}
+            placeholder="Nome e sobrenome"
+            required
+          />
+
+          <label htmlFor="lp-contact-restaurant">Restaurante</label>
+          <input
+            id="lp-contact-restaurant"
+            value={form.restaurante}
+            onChange={(event) => atualizar("restaurante", event.target.value)}
+            placeholder="Nome do restaurante"
+            required
+          />
+
+          <label htmlFor="lp-contact-phone">Telefone ou WhatsApp</label>
+          <input
+            id="lp-contact-phone"
+            value={form.telefone}
+            onChange={(event) => atualizar("telefone", event.target.value)}
+            placeholder="(00) 00000-0000"
+            required
+          />
+
+          <label htmlFor="lp-contact-plan">Plano</label>
+          <select
+            id="lp-contact-plan"
+            value={planoAtual}
+            onChange={(event) => atualizar("plano", event.target.value)}
+          >
+            {PLANOS_COMERCIAIS.map((plano) => (
+              <option key={plano.nome} value={plano.nome}>{plano.nome}</option>
+            ))}
+          </select>
+
+          <button className="lp-button lp-button-primary" type="submit">
+            Solicitar demonstração <Send size={17} />
+          </button>
+          <div className="lp-commercial-status" role="status" aria-live="polite">
+            {status}
+          </div>
+        </form>
       </div>
     </section>
   );
@@ -693,7 +799,7 @@ function Fluxo() {
   );
 }
 
-function FinalCta({ usuario, onAccess, marca }) {
+function FinalCta({ usuario, onAccess, marca, restauranteSlug }) {
   return (
     <section className="lp-final-cta">
       <div className="lp-container lp-final-cta-inner">
@@ -704,10 +810,17 @@ function FinalCta({ usuario, onAccess, marca }) {
             Acesse com seu perfil e abra diretamente a área preparada para o seu trabalho.
           </p>
         </div>
-        <button className="lp-button lp-button-primary" type="button" onClick={onAccess}>
-          {usuario ? "Abrir meu painel" : "Acessar restaurante"}
-          <ArrowRight size={19} />
-        </button>
+        <div className="lp-final-actions">
+          {restauranteSlug && (
+            <a className="lp-button lp-button-on-dark" href={rotaRestaurante(restauranteSlug, "reservas")}>
+              Reservar mesa <CalendarCheck size={18} />
+            </a>
+          )}
+          <button className="lp-button lp-button-primary" type="button" onClick={onAccess}>
+            {usuario ? "Abrir meu painel" : "Acessar restaurante"}
+            <ArrowRight size={19} />
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -725,6 +838,8 @@ function Footer({ marca }) {
           <a href="#beneficios">Benefícios</a>
           <a href="#areas">Sistema</a>
           <a href="#cardapio">Cardápio</a>
+          <a href="#planos">Planos</a>
+          <a href="#contato">Demonstração</a>
         </div>
       </div>
       <div className="lp-container lp-footer-bottom">
@@ -737,11 +852,54 @@ function Footer({ marca }) {
 
 export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
   const [loginAberto, setLoginAberto] = useState(false);
+  const [planoContato, setPlanoContato] = useState("Profissional");
   const marca = useBranding();
 
   useEffect(() => {
     document.title = `${marca.nome} | Gestão completa para restaurantes`;
   }, [marca.nome]);
+
+  useEffect(() => {
+    const seletores = [
+      ".lp-section-heading",
+      ".lp-benefit-card",
+      ".lp-area-tabs",
+      ".lp-area-stage",
+      ".lp-menu-card",
+      ".lp-menu-note",
+      ".lp-plan-card",
+      ".lp-commercial-copy",
+      ".lp-commercial-form",
+      ".lp-flow-grid article",
+      ".lp-final-cta-inner",
+    ].join(",");
+    const elementos = Array.from(document.querySelectorAll(seletores));
+    const reduzirMovimento = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+    elementos.forEach((elemento, index) => {
+      elemento.classList.add("lp-reveal");
+      elemento.style.setProperty("--lp-reveal-delay", `${Math.min(index % 6, 5) * 55}ms`);
+    });
+
+    if (reduzirMovimento || !("IntersectionObserver" in window)) {
+      elementos.forEach((elemento) => elemento.classList.add("is-visible"));
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+    );
+
+    elementos.forEach((elemento) => observer.observe(elemento));
+    return () => observer.disconnect();
+  }, []);
 
   const acessar = () => {
     if (usuario) {
@@ -753,6 +911,13 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
     setLoginAberto(true);
   };
 
+  const selecionarPlano = (plano) => {
+    setPlanoContato(plano);
+    window.requestAnimationFrame(() => {
+      document.getElementById("contato")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <div className="lp-page">
       <Header usuario={usuario} onAccess={acessar} marca={marca} />
@@ -761,9 +926,19 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
         <Beneficios />
         <AreasDoSistema />
         <CardapioVitrine />
-        <PlanosLanding usuario={usuario} onAccess={acessar} />
+        <PlanosLanding usuario={usuario} onAccess={acessar} onPlanSelect={selecionarPlano} />
+        <ContatoComercial
+          planoSelecionado={planoContato}
+          onPlanoChange={setPlanoContato}
+          marca={marca}
+        />
         <Fluxo />
-        <FinalCta usuario={usuario} onAccess={acessar} marca={marca} />
+        <FinalCta
+          usuario={usuario}
+          onAccess={acessar}
+          marca={marca}
+          restauranteSlug={restauranteSlug}
+        />
       </main>
       <Footer marca={marca} />
       <LoginModal

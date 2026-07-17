@@ -373,6 +373,17 @@ html {
   box-shadow: 0 10px 24px rgba(6, 19, 31, 0.08);
 }
 
+.lp-button-on-dark {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--lp-white);
+}
+
+.lp-button-on-dark:hover:not(:disabled) {
+  border-color: var(--lp-white);
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .lp-hero-proof {
   display: flex;
   flex-wrap: wrap;
@@ -1178,6 +1189,105 @@ html {
   margin-top: auto;
 }
 
+.lp-commercial-contact {
+  background: var(--lp-white);
+}
+
+.lp-commercial-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.72fr);
+  align-items: start;
+  gap: 62px;
+}
+
+.lp-commercial-copy h2 {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: var(--lp-navy-900);
+  font-size: 38px;
+  line-height: 1.2;
+}
+
+.lp-commercial-copy p {
+  max-width: 560px;
+  margin: 18px 0 0;
+  color: var(--lp-body);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.lp-commercial-points {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.lp-commercial-points span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #435765;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lp-commercial-points svg {
+  color: var(--lp-green);
+}
+
+.lp-commercial-form {
+  display: grid;
+  padding: 28px;
+  border: 1px solid var(--lp-line);
+  border-radius: 8px;
+  background: #f8faf9;
+  box-shadow: 0 18px 50px rgba(6, 19, 31, 0.06);
+}
+
+.lp-commercial-form label {
+  margin: 0 0 7px;
+  color: #334959;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.lp-commercial-form label:not(:first-child) {
+  margin-top: 15px;
+}
+
+.lp-commercial-form input,
+.lp-commercial-form select {
+  width: 100%;
+  height: 46px;
+  padding: 0 13px;
+  border: 1px solid #ccd8dc;
+  border-radius: 7px;
+  outline: none;
+  background: var(--lp-white);
+  color: var(--lp-ink);
+  font-size: 13px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.lp-commercial-form input:focus,
+.lp-commercial-form select:focus {
+  border-color: var(--lp-orange);
+  box-shadow: 0 0 0 3px rgba(242, 116, 45, 0.13);
+}
+
+.lp-commercial-form .lp-button {
+  width: 100%;
+  margin-top: 22px;
+}
+
+.lp-commercial-status {
+  min-height: 20px;
+  margin-top: 12px;
+  color: var(--lp-green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .lp-flow {
   background: var(--lp-white);
 }
@@ -1257,6 +1367,14 @@ html {
   margin: 16px 0 0;
   color: #c5dfdb;
   font-size: 14px;
+}
+
+.lp-final-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .lp-footer {
@@ -1549,6 +1667,21 @@ html {
   outline-offset: 3px;
 }
 
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 620ms cubic-bezier(0.2, 0.75, 0.2, 1),
+    transform 620ms cubic-bezier(0.2, 0.75, 0.2, 1);
+  transition-delay: var(--lp-reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.lp-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @keyframes lp-rise {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1725,6 +1858,19 @@ html {
     width: min(100%, 650px);
   }
 
+  .lp-commercial-inner {
+    grid-template-columns: 1fr;
+    gap: 34px;
+  }
+
+  .lp-commercial-copy h2 {
+    max-width: 680px;
+  }
+
+  .lp-commercial-form {
+    width: min(100%, 620px);
+  }
+
   .lp-plan-grid {
     grid-template-columns: 1fr;
   }
@@ -1828,9 +1974,21 @@ html {
     font-size: 30px;
   }
 
+  .lp-commercial-copy h2 {
+    font-size: 33px;
+  }
+
+  .lp-commercial-form {
+    padding: 22px;
+  }
+
   .lp-final-cta-inner {
     grid-template-columns: 1fr;
     gap: 30px;
+  }
+
+  .lp-final-actions {
+    justify-content: flex-start;
   }
 
   .lp-final-cta .lp-button {
@@ -2036,6 +2194,11 @@ html {
     width: 100%;
   }
 
+  .lp-final-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .lp-login-backdrop {
     align-items: flex-end;
     padding: 0;
@@ -2101,5 +2264,10 @@ html {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
+  }
+
+  .lp-reveal {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
