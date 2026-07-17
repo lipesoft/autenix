@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
+  CalendarCheck,
   ChefHat,
   ClipboardList,
   Copy,
@@ -55,6 +56,13 @@ const SETORES = [
     descricao: "Cardápio digital e pedidos da mesa",
     destino: "cliente",
     icon: QrCode,
+  },
+  {
+    id: "reservas",
+    titulo: "Reservas",
+    descricao: "Agenda e solicitacoes de mesa",
+    destino: "reservas",
+    icon: CalendarCheck,
   },
 ];
 
@@ -189,7 +197,11 @@ export default function CentralOperacao({ usuario, onLogout }) {
 
   const setores = usuario.role === "admin"
     ? SETORES
-    : SETORES.filter((setor) => setor.id === usuario.role);
+    : SETORES.filter(
+      (setor) =>
+        setor.id === usuario.role ||
+        (usuario.role === "garcom" && setor.id === "reservas"),
+    );
 
   const mesasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();

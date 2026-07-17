@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
-import { LayoutGrid, LogOut, Palette, Save } from "lucide-react";
+import { CalendarCheck, LayoutGrid, LogOut, Palette, Save } from "lucide-react";
 import BrandingProvider from "./components/branding/BrandingProvider.jsx";
 import {
   notificarMarcaAtualizada,
@@ -49,6 +49,7 @@ const ADMIN_TABS = [
   "produtos",
   "categorias",
   "mesas",
+  "reservas",
   "equipe",
   "relatorios",
   "marca",
@@ -271,6 +272,9 @@ function gerarCSS(t = T) {
   .badge-finalizado { background: rgba(122,112,106,.12); color: ${t.muted};   border: 1px solid rgba(122,112,106,.3); }
   .badge-entregue   { background: rgba(91,155,213,.12);  color: ${t.blue};    border: 1px solid rgba(91,155,213,.3); }
   .badge-cancelado  { background: rgba(224,92,92,.1);    color: ${t.red};     border: 1px solid rgba(224,92,92,.25); }
+  .badge-confirmada { background: rgba(46,139,87,.10);   color: ${t.green};   border: 1px solid rgba(46,139,87,.28); }
+  .badge-cancelada  { background: rgba(224,92,92,.1);    color: ${t.red};     border: 1px solid rgba(224,92,92,.25); }
+  .badge-concluida  { background: rgba(91,155,213,.12);  color: ${t.blue};    border: 1px solid rgba(91,155,213,.3); }
   @keyframes fadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
   @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
   @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.4} }
@@ -372,17 +376,33 @@ function gerarCSS(t = T) {
   .admin-report-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .admin-report-copy { min-width: 0; }
   .admin-report-value { flex-shrink: 0; text-align: right; }
+  .public-reserva-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(320px, 1.05fr); gap: 18px; }
+  .public-reserva-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 28px; }
+  .admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .admin-form-grid .is-full { grid-column: 1 / -1; }
+  .admin-reserva-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(150px, .55fr) auto; gap: 14px; align-items: center; }
+  .admin-reserva-copy { min-width: 0; }
+  .admin-reserva-meta { color: ${t.muted}; font-size: 12px; margin-top: 4px; }
+  .admin-reserva-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
   @media (max-width: 768px) {
     .admin-tabs button { font-size: 12px !important; min-width: 64px; }
     .admin-produto-acoes { flex-direction: column !important; }
+    .public-reserva-layout { grid-template-columns: 1fr; }
     .admin-report-filters { grid-template-columns: 1fr 1fr; }
     .admin-report-actions { grid-column: 1 / -1; }
+    .admin-reserva-row { grid-template-columns: 1fr; align-items: stretch; }
+    .admin-reserva-actions { justify-content: flex-start; }
   }
   @media (max-width: 560px) {
     .admin-content { padding: 12px; }
+    .public-reserva-highlights { grid-template-columns: 1fr; }
+    .admin-form-grid { grid-template-columns: 1fr; }
+    .admin-form-grid .is-full { grid-column: auto; }
     .admin-user-row { align-items: stretch; flex-direction: column; }
     .admin-user-actions { width: 100%; }
     .admin-user-actions .app-btn { flex: 1; }
+    .admin-reserva-actions { display: grid; grid-template-columns: 1fr; width: 100%; }
+    .admin-reserva-actions .app-btn { width: 100%; }
     .admin-report-periods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .admin-report-periods button { width: 100%; }
     .admin-report-filters { grid-template-columns: 1fr; }
@@ -530,6 +550,9 @@ function Badge({ status }) {
     pronto: "Pronto",
     finalizado: "Finalizado",
     entregue: "Entregue",
+    confirmada: "Confirmada",
+    cancelada: "Cancelada",
+    concluida: "Concluida",
   };
   return <span className={`badge badge-${status}`}>{l[status] || status}</span>;
 }
@@ -874,6 +897,294 @@ function TelaLogin({ titulo, role, onLogin, restauranteSlug = "autenix" }) {
           {loading ? "Entrando..." : "Entrar"}
         </Btn>
       </div>
+    </div>
+  );
+}
+
+function dataLocalISO(data = new Date()) {
+  const local = new Date(data.getTime() - data.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function dataReservaInicial() {
+  const data = new Date();
+  data.setDate(data.getDate() + 1);
+  return dataLocalISO(data);
+}
+
+function formatarDataReserva(data) {
+  const partes = String(data || "").split("-");
+  if (partes.length !== 3) return data || "-";
+  return `${partes[2]}/${partes[1]}/${partes[0]}`;
+}
+
+function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
+  const marca = useBranding();
+  const css = gerarCSS(T);
+  const [form, setForm] = useState({
+    nome_cliente: "",
+    telefone: "",
+    email: "",
+    data_reserva: dataReservaInicial(),
+    horario: "19:30",
+    quantidade_pessoas: 2,
+    observacao: "",
+  });
+  const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
+
+  useEffect(() => {
+    document.title = `Reservas - ${marca.nome}`;
+  }, [marca.nome]);
+
+  const atualizar = (campo, valor) => {
+    setForm((atual) => ({ ...atual, [campo]: valor }));
+  };
+
+  const enviar = async (event) => {
+    event.preventDefault();
+    setStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const resposta = await fetch(`${API}/api/reservas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          restaurante_slug: restauranteSlug,
+          quantidade_pessoas: Number(form.quantidade_pessoas),
+        }),
+      });
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Nao foi possivel enviar a reserva");
+      }
+      setStatus({
+        tipo: "success",
+        mensagem: `Reserva recebida para ${formatarDataReserva(form.data_reserva)} as ${form.horario}.`,
+      });
+      setForm((atual) => ({
+        ...atual,
+        nome_cliente: "",
+        telefone: "",
+        email: "",
+        observacao: "",
+      }));
+    } catch (error) {
+      setStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: `linear-gradient(180deg,${T.bg2} 0%,${T.bg} 48%)`,
+      }}
+    >
+      <style>{css}</style>
+      <header className="panel-header">
+        <div className="panel-header-main">
+          <Logo />
+          <div className="panel-header-copy">
+            <div className="panel-header-title">Reservas</div>
+            <div className="panel-header-subtitle">Solicitacao de mesa</div>
+          </div>
+        </div>
+        <div className="panel-header-actions">
+          <a
+            href={rotaRestaurante(restauranteSlug)}
+            style={{
+              textDecoration: "none",
+              color: T.text2,
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            Voltar
+          </a>
+        </div>
+      </header>
+
+      <main
+        style={{
+          width: "100%",
+          maxWidth: 1060,
+          margin: "0 auto",
+          padding: "34px 16px 48px",
+        }}
+        className="public-reserva-layout"
+      >
+        <section
+          style={{
+            background: T.navy,
+            color: "#fff",
+            borderRadius: 8,
+            padding: 28,
+            minHeight: 420,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            boxShadow: "0 18px 52px rgba(6,19,31,.16)",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                color: T.accent,
+                fontSize: 12,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+                marginBottom: 16,
+              }}
+            >
+              <CalendarCheck size={17} /> Agenda do restaurante
+            </div>
+            <h1
+              style={{
+                fontFamily: "'Manrope',sans-serif",
+                fontSize: "clamp(30px, 5vw, 52px)",
+                lineHeight: 1.02,
+                letterSpacing: 0,
+                maxWidth: 620,
+              }}
+            >
+              Reserve sua mesa com praticidade.
+            </h1>
+            <p
+              style={{
+                color: "rgba(255,255,255,.76)",
+                fontSize: 16,
+                marginTop: 18,
+                maxWidth: 520,
+              }}
+            >
+              Envie os dados da sua reserva e acompanhe a confirmacao pelo contato
+              informado.
+            </p>
+          </div>
+          <div className="public-reserva-highlights">
+            {[
+              ["Tempo real", "Equipe recebe na hora"],
+              ["Mesa", "Vinculo interno opcional"],
+              ["Historico", "Agenda por restaurante"],
+            ].map(([titulo, texto]) => (
+              <div
+                key={titulo}
+                style={{
+                  border: "1px solid rgba(255,255,255,.13)",
+                  background: "rgba(255,255,255,.06)",
+                  borderRadius: 8,
+                  padding: 12,
+                }}
+              >
+                <div style={{ color: T.accent, fontWeight: 800, fontSize: 12 }}>
+                  {titulo}
+                </div>
+                <div style={{ color: "rgba(255,255,255,.72)", fontSize: 12 }}>
+                  {texto}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <Card style={{ padding: 22 }}>
+          <div
+            style={{
+              fontFamily: "'Manrope',sans-serif",
+              fontSize: 24,
+              fontWeight: 800,
+              marginBottom: 4,
+            }}
+          >
+            Dados da reserva
+          </div>
+          <div style={{ color: T.text2, fontSize: 13, marginBottom: 18 }}>
+            Preencha os campos para solicitar a reserva.
+          </div>
+          <form onSubmit={enviar}>
+            <div className="admin-form-grid">
+              <input
+                className="is-full"
+                placeholder="Nome completo *"
+                value={form.nome_cliente}
+                onChange={(e) => atualizar("nome_cliente", e.target.value)}
+                required
+              />
+              <input
+                placeholder="Telefone *"
+                value={form.telefone}
+                onChange={(e) => atualizar("telefone", e.target.value)}
+                required
+              />
+              <input
+                placeholder="Email"
+                type="email"
+                value={form.email}
+                onChange={(e) => atualizar("email", e.target.value)}
+              />
+              <input
+                type="date"
+                min={dataLocalISO()}
+                value={form.data_reserva}
+                onChange={(e) => atualizar("data_reserva", e.target.value)}
+                required
+              />
+              <input
+                type="time"
+                value={form.horario}
+                onChange={(e) => atualizar("horario", e.target.value)}
+                required
+              />
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={form.quantidade_pessoas}
+                onChange={(e) => atualizar("quantidade_pessoas", e.target.value)}
+                required
+              />
+              <textarea
+                className="is-full"
+                placeholder="Observacao (opcional)"
+                value={form.observacao}
+                onChange={(e) => atualizar("observacao", e.target.value)}
+                style={{ minHeight: 92, resize: "vertical" }}
+              />
+            </div>
+            <div
+              role="status"
+              style={{
+                minHeight: 34,
+                paddingTop: 12,
+                color:
+                  status.tipo === "error"
+                    ? T.red
+                    : status.tipo === "success"
+                      ? T.green
+                      : T.muted,
+                fontSize: 13,
+                fontWeight: status.tipo === "success" ? 700 : 500,
+              }}
+            >
+              {status.mensagem}
+            </div>
+            <Btn
+              full
+              disabled={
+                status.tipo === "loading" ||
+                !form.nome_cliente.trim() ||
+                !form.telefone.trim()
+              }
+            >
+              {status.tipo === "loading" ? "Enviando..." : "Solicitar reserva"}
+            </Btn>
+          </form>
+        </Card>
+      </main>
     </div>
   );
 }
@@ -3302,6 +3613,18 @@ function PainelAdmin({ usuario, onLogout }) {
   const [dataFimRel, setDataFimRel] = useState("");
   const [marcaConfig, setMarcaConfig] = useState(WHITE_LABEL_PADRAO);
   const [marcaStatus, setMarcaStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [reservas, setReservas] = useState([]);
+  const [reservaStatus, setReservaStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [novaReserva, setNovaReserva] = useState({
+    nome_cliente: "",
+    telefone: "",
+    email: "",
+    data_reserva: dataReservaInicial(),
+    horario: "19:30",
+    quantidade_pessoas: 2,
+    mesa_id: "",
+    observacao: "",
+  });
 
   const tema = useTema();
   const css = gerarCSS(T);
@@ -3323,6 +3646,17 @@ function PainelAdmin({ usuario, onLogout }) {
     const r = await authFetch(`${API}/api/usuarios`);
     setUsuarios(await r.json());
   }, []);
+  const fetchReservas = useCallback(async () => {
+    const r = await authFetch(`${API}/api/reservas`);
+    const dados = await r.json();
+    if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar reservas");
+    setReservas(Array.isArray(dados) ? dados : []);
+  }, []);
+  const recarregarReservas = useCallback(() => {
+    fetchReservas().catch((error) =>
+      setReservaStatus({ tipo: "error", mensagem: error.message }),
+    );
+  }, [fetchReservas]);
   const fetchRestaurante = useCallback(async () => {
     const r = await authFetch(`${API}/api/restaurante`);
     const dados = await r.json();
@@ -3347,11 +3681,18 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchCardapio();
     fetchMesas();
     fetchUsuarios();
+    recarregarReservas();
     fetchRelatorio("hoje");
     const s = getSocket();
     s.on("cardapio_atualizado", fetchCardapio);
-    return () => s.off("cardapio_atualizado");
-  }, [fetchCardapio, fetchMesas, fetchUsuarios, fetchRelatorio]);
+    s.on("nova_reserva", recarregarReservas);
+    s.on("reserva_atualizada", recarregarReservas);
+    return () => {
+      s.off("cardapio_atualizado", fetchCardapio);
+      s.off("nova_reserva", recarregarReservas);
+      s.off("reserva_atualizada", recarregarReservas);
+    };
+  }, [fetchCardapio, fetchMesas, fetchUsuarios, recarregarReservas, fetchRelatorio]);
 
   useEffect(() => {
     fetchRestaurante().catch((error) => {
@@ -3451,6 +3792,55 @@ function PainelAdmin({ usuario, onLogout }) {
     setQrModal(await r.json());
   };
 
+  const salvarReservaAdmin = async () => {
+    if (!novaReserva.nome_cliente.trim() || !novaReserva.telefone.trim()) return;
+    setReservaStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...novaReserva,
+          mesa_id: novaReserva.mesa_id || null,
+          quantidade_pessoas: Number(novaReserva.quantidade_pessoas),
+        }),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel criar reserva");
+      setReservaStatus({ tipo: "success", mensagem: "Reserva criada." });
+      setNovaReserva({
+        nome_cliente: "",
+        telefone: "",
+        email: "",
+        data_reserva: dataReservaInicial(),
+        horario: "19:30",
+        quantidade_pessoas: 2,
+        mesa_id: "",
+        observacao: "",
+      });
+      recarregarReservas();
+    } catch (error) {
+      setReservaStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  const alterarStatusReserva = async (id, status) => {
+    setReservaStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel atualizar reserva");
+      setReservaStatus({ tipo: "success", mensagem: "Reserva atualizada." });
+      recarregarReservas();
+    } catch (error) {
+      setReservaStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
   const produtosFiltrados = cardapio.produtos.filter(
     (p) =>
       p.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -3544,6 +3934,7 @@ function PainelAdmin({ usuario, onLogout }) {
             ["produtos", "Produtos"],
             ["categorias", "Categorias"],
             ["mesas", "Mesas"],
+            ["reservas", "Reservas"],
             ["equipe", "Equipe"],
             ["relatorios", "Relatórios"],
             ["marca", "Marca"],
@@ -3952,6 +4343,253 @@ function PainelAdmin({ usuario, onLogout }) {
                   </Card>
                 ))}
               </div>
+            </div>
+          )}
+
+          {aba === "reservas" && (
+            <div className="fade-up">
+              <Card style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    marginBottom: 14,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "'Manrope',sans-serif",
+                        fontSize: 17,
+                        fontWeight: 800,
+                      }}
+                    >
+                      Nova Reserva
+                    </div>
+                    <div style={{ color: T.muted, fontSize: 12 }}>
+                      Cadastro interno para telefone, balcão ou WhatsApp.
+                    </div>
+                  </div>
+                  <a
+                    href={rotaRestaurante(usuario.restaurante_slug, "reservas")}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      color: T.accent,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Link publico
+                  </a>
+                </div>
+
+                <div className="admin-form-grid">
+                  <input
+                    className="is-full"
+                    placeholder="Nome do cliente *"
+                    value={novaReserva.nome_cliente}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, nome_cliente: e.target.value }))
+                    }
+                  />
+                  <input
+                    placeholder="Telefone *"
+                    value={novaReserva.telefone}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, telefone: e.target.value }))
+                    }
+                  />
+                  <input
+                    placeholder="Email"
+                    type="email"
+                    value={novaReserva.email}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, email: e.target.value }))
+                    }
+                  />
+                  <input
+                    type="date"
+                    min={dataLocalISO()}
+                    value={novaReserva.data_reserva}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, data_reserva: e.target.value }))
+                    }
+                  />
+                  <input
+                    type="time"
+                    value={novaReserva.horario}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, horario: e.target.value }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={novaReserva.quantidade_pessoas}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({
+                        ...r,
+                        quantidade_pessoas: e.target.value,
+                      }))
+                    }
+                  />
+                  <select
+                    value={novaReserva.mesa_id}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, mesa_id: e.target.value }))
+                    }
+                  >
+                    <option value="">Sem mesa definida</option>
+                    {mesas.map((mesa) => (
+                      <option key={mesa.id} value={mesa.id}>
+                        Mesa {mesa.numero}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    className="is-full"
+                    placeholder="Observacao"
+                    value={novaReserva.observacao}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, observacao: e.target.value }))
+                    }
+                    style={{ minHeight: 76, resize: "vertical" }}
+                  />
+                </div>
+                <div
+                  role="status"
+                  style={{
+                    minHeight: 34,
+                    paddingTop: 10,
+                    color:
+                      reservaStatus.tipo === "error"
+                        ? T.red
+                        : reservaStatus.tipo === "success"
+                          ? T.green
+                          : T.muted,
+                    fontSize: 12,
+                    fontWeight: reservaStatus.tipo === "success" ? 700 : 500,
+                  }}
+                >
+                  {reservaStatus.mensagem}
+                </div>
+                <Btn
+                  onClick={salvarReservaAdmin}
+                  disabled={
+                    reservaStatus.tipo === "loading" ||
+                    !novaReserva.nome_cliente.trim() ||
+                    !novaReserva.telefone.trim()
+                  }
+                >
+                  {reservaStatus.tipo === "loading" ? "Salvando" : "Criar Reserva"}
+                </Btn>
+              </Card>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))",
+                  gap: 10,
+                  marginBottom: 16,
+                }}
+              >
+                {["pendente", "confirmada", "concluida", "cancelada"].map((status) => (
+                  <Card key={status} style={{ background: T.card2 }}>
+                    <div style={{ color: T.muted, fontSize: 12, marginBottom: 4 }}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "'Manrope',sans-serif",
+                        fontSize: 28,
+                        fontWeight: 800,
+                        color: status === "cancelada" ? T.red : T.accent,
+                      }}
+                    >
+                      {reservas.filter((reserva) => reserva.status === status).length}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {reservas.length === 0 ? (
+                <Card>
+                  <div style={{ color: T.muted, fontSize: 13 }}>
+                    Nenhuma reserva cadastrada ainda.
+                  </div>
+                </Card>
+              ) : (
+                reservas.map((reserva) => (
+                  <Card key={reserva.id} style={{ marginBottom: 8 }}>
+                    <div className="admin-reserva-row">
+                      <div className="admin-reserva-copy">
+                        <div style={{ fontWeight: 800 }}>{reserva.nome_cliente}</div>
+                        <div className="admin-reserva-meta">
+                          {reserva.telefone}
+                          {reserva.email ? ` · ${reserva.email}` : ""}
+                        </div>
+                        {reserva.observacao && (
+                          <div className="admin-reserva-meta">{reserva.observacao}</div>
+                        )}
+                      </div>
+                      <div>
+                        <Badge status={reserva.status} />
+                        <div className="admin-reserva-meta">
+                          {formatarDataReserva(reserva.data_reserva)} as {reserva.horario}
+                        </div>
+                        <div className="admin-reserva-meta">
+                          {reserva.quantidade_pessoas} pessoa(s)
+                          {reserva.mesa_numero ? ` · Mesa ${reserva.mesa_numero}` : ""}
+                        </div>
+                      </div>
+                      <div className="admin-reserva-actions">
+                        {reserva.status === "pendente" && (
+                          <Btn
+                            sm
+                            variant="success"
+                            onClick={() => alterarStatusReserva(reserva.id, "confirmada")}
+                          >
+                            Confirmar
+                          </Btn>
+                        )}
+                        {reserva.status === "confirmada" && (
+                          <Btn
+                            sm
+                            variant="info"
+                            onClick={() => alterarStatusReserva(reserva.id, "concluida")}
+                          >
+                            Concluir
+                          </Btn>
+                        )}
+                        {["pendente", "confirmada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="danger"
+                            onClick={() => alterarStatusReserva(reserva.id, "cancelada")}
+                          >
+                            Cancelar
+                          </Btn>
+                        )}
+                        {reserva.status === "cancelada" && (
+                          <Btn
+                            sm
+                            variant="ghost"
+                            onClick={() => alterarStatusReserva(reserva.id, "pendente")}
+                          >
+                            Reabrir
+                          </Btn>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
             </div>
           )}
 
@@ -4609,6 +5247,10 @@ function AppContent() {
     return <PlatformPortal />;
   }
 
+  if (rota.area === "reservas") {
+    return <TelaReservasPublicas restauranteSlug={rota.slug} />;
+  }
+
   if (rota.mesaId) {
     return <PainelCliente mesa_id={rota.mesaId} restauranteSlug={rota.slug} />;
   }
@@ -4711,6 +5353,7 @@ export default function App() {
     "financeiro",
     "garcom",
     "mesa",
+    "reservas",
   ]);
   const slug = escopada
     ? normalizarSlugRestaurante(decodeURIComponent(partes[1]))
