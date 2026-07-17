@@ -216,28 +216,71 @@ export default function CentralOperacao({ usuario, onLogout }) {
     setFeedback({ mensagem, erro });
   };
 
-  const gerarLinkSeguroMesa = async (mesa) => {
+  const atualizarMesaLocal = (mesaAtualizada) => {
+    if (!mesaAtualizada?.id) return;
+    setMesas((atuais) =>
+      atuais.map((mesa) =>
+        mesa.id === mesaAtualizada.id ? { ...mesa, ...mesaAtualizada } : mesa,
+      ),
+    );
+  };
+
+  const iniciarAtendimentoMesa = async (mesa) => {
     setLinksSeguros((atual) => ({
       ...atual,
       [mesa.id]: { ...(atual[mesa.id] || {}), carregando: true },
     }));
     try {
-      const resposta = await authFetch(`${API_URL}/api/qrcode/${mesa.id}`);
+      const resposta = await authFetch(`${API_URL}/api/mesas/${mesa.id}/atendimento/iniciar`, {
+        method: "POST",
+      });
       const dados = await resposta.json();
       if (!resposta.ok) {
-        throw new Error(dados.erro || "Falha ao gerar link seguro");
+        throw new Error(dados.erro || "Falha ao iniciar atendimento");
       }
       setLinksSeguros((atual) => ({
         ...atual,
         [mesa.id]: { ...dados, carregando: false },
       }));
-      mostrarFeedback(`Link seguro da ${rotuloMesa(mesa.numero).toLowerCase()} gerado.`);
+      atualizarMesaLocal({ ...(dados.mesa || mesa), sessao_ativa: true });
+      mostrarFeedback(`Atendimento da ${rotuloMesa(mesa.numero).toLowerCase()} iniciado.`);
     } catch (error) {
       setLinksSeguros((atual) => ({
         ...atual,
         [mesa.id]: { ...(atual[mesa.id] || {}), carregando: false },
       }));
-      mostrarFeedback(error.message || "Nao foi possivel gerar o link seguro.", true);
+      mostrarFeedback(error.message || "Nao foi possivel iniciar o atendimento.", true);
+    }
+  };
+
+  const encerrarAtendimentoMesa = async (mesa) => {
+    const nomeMesa = rotuloMesa(mesa.numero).toLowerCase();
+    if (!window.confirm(`Encerrar atendimento da ${nomeMesa}?`)) return;
+    setLinksSeguros((atual) => ({
+      ...atual,
+      [mesa.id]: { ...(atual[mesa.id] || {}), encerrando: true },
+    }));
+    try {
+      const resposta = await authFetch(`${API_URL}/api/mesas/${mesa.id}/atendimento/encerrar`, {
+        method: "POST",
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Falha ao encerrar atendimento");
+      }
+      setLinksSeguros((atual) => {
+        const proximo = { ...atual };
+        delete proximo[mesa.id];
+        return proximo;
+      });
+      atualizarMesaLocal({ ...(dados.mesa || mesa), sessao_ativa: false });
+      mostrarFeedback(`Atendimento da ${nomeMesa} encerrado.`);
+    } catch (error) {
+      setLinksSeguros((atual) => ({
+        ...atual,
+        [mesa.id]: { ...(atual[mesa.id] || {}), encerrando: false },
+      }));
+      mostrarFeedback(error.message || "Nao foi possivel encerrar o atendimento.", true);
     }
   };
 
@@ -374,6 +417,8 @@ export default function CentralOperacao({ usuario, onLogout }) {
                   const nomeMesa = rotuloMesa(mesa.numero);
                   const linkSeguro = linksSeguros[mesa.id];
                   const carregandoLink = Boolean(linkSeguro?.carregando);
+                  const encerrando = Boolean(linkSeguro?.encerrando);
+                  const atendimentoAtivo = Boolean(mesa.sessao_ativa || mesa.status === "ocupada");
                   const caminho = linkSeguro?.url || "";
                   return (
                     <article className="central-table-row" key={mesa.id}>
@@ -387,20 +432,36 @@ export default function CentralOperacao({ usuario, onLogout }) {
                       <code>
                         {caminho
                           ? urlCompleta(caminho)
-                          : "Gere um link seguro para esta mesa"}
+                          : atendimentoAtivo
+                            ? "Atendimento ativo. Renove o link se precisar compartilhar."
+                            : "Inicie o atendimento para gerar o link seguro."}
                       </code>
                       <button
                         className="central-icon-button"
                         type="button"
-                        onClick={() => gerarLinkSeguroMesa(mesa)}
+                        onClick={() => iniciarAtendimentoMesa(mesa)}
                         disabled={carregandoLink}
-                        title={`Gerar link seguro da ${nomeMesa.toLowerCase()}`}
-                        aria-label={`Gerar link seguro da ${nomeMesa.toLowerCase()}`}
+                        title={`${atendimentoAtivo ? "Renovar" : "Iniciar"} atendimento da ${nomeMesa.toLowerCase()}`}
+                        aria-label={`${atendimentoAtivo ? "Renovar" : "Iniciar"} atendimento da ${nomeMesa.toLowerCase()}`}
                       >
                         {carregandoLink ? (
                           <LoaderCircle className="is-spinning" size={17} />
                         ) : (
                           <QrCode size={17} />
+                        )}
+                      </button>
+                      <button
+                        className="central-icon-button"
+                        type="button"
+                        onClick={() => encerrarAtendimentoMesa(mesa)}
+                        disabled={encerrando || !atendimentoAtivo}
+                        title={`Encerrar atendimento da ${nomeMesa.toLowerCase()}`}
+                        aria-label={`Encerrar atendimento da ${nomeMesa.toLowerCase()}`}
+                      >
+                        {encerrando ? (
+                          <LoaderCircle className="is-spinning" size={17} />
+                        ) : (
+                          <LogOut size={17} />
                         )}
                       </button>
                       <LinkActions

@@ -3938,13 +3938,28 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchMesas();
   };
   const verQR = async (mesa_id) => {
-    const r = await authFetch(`${API}/api/qrcode/${mesa_id}`);
+    const r = await authFetch(`${API}/api/mesas/${mesa_id}/atendimento/iniciar`, {
+      method: "POST",
+    });
     const dados = await r.json();
     if (!r.ok) {
-      alert(dados.erro || "Nao foi possivel gerar o QR Code");
+      alert(dados.erro || "Nao foi possivel iniciar o atendimento");
       return;
     }
     setQrModal(dados);
+    fetchMesas();
+  };
+  const encerrarAtendimento = async (mesa) => {
+    if (!confirm(`Encerrar atendimento da ${rotuloMesa(mesa.numero)}?`)) return;
+    const r = await authFetch(`${API}/api/mesas/${mesa.id}/atendimento/encerrar`, {
+      method: "POST",
+    });
+    const dados = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      alert(dados.erro || "Nao foi possivel encerrar o atendimento");
+      return;
+    }
+    fetchMesas();
   };
 
   const salvarReservaAdmin = async () => {
@@ -4483,8 +4498,17 @@ function PainelAdmin({ usuario, onLogout }) {
                       }}
                     >
                       <Btn sm onClick={() => verQR(m.id)}>
-                        QR Code
+                        {m.status === "ocupada" ? "Renovar QR" : "Iniciar"}
                       </Btn>
+                      {m.status === "ocupada" && (
+                        <Btn
+                          sm
+                          variant="ghost"
+                          onClick={() => encerrarAtendimento(m)}
+                        >
+                          Encerrar
+                        </Btn>
+                      )}
                       {m.status === "livre" && (
                         <Btn
                           sm
