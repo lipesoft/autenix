@@ -425,6 +425,21 @@ async function encerrarSessoesMesa(restauranteId, mesaId, client = null) {
   );
 }
 
+function montarUrlMesa(restauranteSlug, mesaId, token) {
+  return `${PUBLIC_APP_URL}/r/${restauranteSlug}/mesa/${mesaId}?sessao=${encodeURIComponent(token)}`;
+}
+
+async function montarRespostaAtendimento(restauranteSlug, resultado) {
+  const url = montarUrlMesa(restauranteSlug, resultado.mesa.id, resultado.token);
+  const qr = await QRCode.toDataURL(url);
+  return {
+    url,
+    qr,
+    mesa: resultado.mesa,
+    expira_em: resultado.sessao.expira_em,
+  };
+}
+
 function isBcryptHash(valor) {
   return typeof valor === "string" && /^\$2[aby]\$\d{2}\$/.test(valor);
 }
@@ -1000,10 +1015,19 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
   try {
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
-      `SELECT * FROM mesas
-       WHERE restaurante_id = $1
-       ORDER BY NULLIF(regexp_replace(numero, '[^0-9]', '', 'g'), '')::INTEGER NULLS LAST,
-                numero`,
+      `SELECT m.*,
+              EXISTS (
+                SELECT 1
+                FROM sessoes_mesa sm
+                WHERE sm.restaurante_id = m.restaurante_id
+                  AND sm.mesa_id = m.id
+                  AND sm.status = 'ativa'
+                  AND sm.expira_em > CURRENT_TIMESTAMP
+              ) AS sessao_ativa
+       FROM mesas m
+       WHERE m.restaurante_id = $1
+       ORDER BY NULLIF(regexp_replace(m.numero, '[^0-9]', '', 'g'), '')::INTEGER NULLS LAST,
+                m.numero`,
       [req.user.restaurante_id],
     );
     res.json(rows);
@@ -1396,6 +1420,83 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
   }
 });
 
+// Atendimento de mesa
+app.post("/api/mesas/:id/atendimento/iniciar", autenticarJWT, autorizarRoles("garcom"), async (req, res) => {
+  try {
+    const resultado = await criarSessaoMesa(
+      req.user.restaurante_id,
+      req.params.id,
+      req.user.id,
+    );
+    const resposta = await montarRespostaAtendimento(
+      req.user.restaurante_slug,
+      resultado,
+    );
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resposta.mesa);
+    res.json(resposta);
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ erro: e.message });
+  }
+});
+
+app.post("/api/mesas/:id/atendimento/encerrar", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
+  try {
+    const mesa = await withTenantTransaction(
+      req.user.restaurante_id,
+      async (client) => {
+        const { rows: mesas } = await client.query(
+          `SELECT id, numero, status, restaurante_id
+           FROM mesas
+           WHERE id = $1 AND restaurante_id = $2`,
+          [req.params.id, req.user.restaurante_id],
+        );
+        if (!mesas[0]) {
+          const error = new Error("Mesa nao encontrada");
+          error.statusCode = 404;
+          throw error;
+        }
+
+        const { rows: pedidosAbertos } = await client.query(
+          `SELECT count(*)::integer AS total
+           FROM pedidos
+           WHERE mesa_id = $1
+             AND restaurante_id = $2
+             AND status != 'finalizado'`,
+          [req.params.id, req.user.restaurante_id],
+        );
+        if (pedidosAbertos[0]?.total > 0) {
+          const error = new Error("Feche a conta antes de encerrar o atendimento da mesa");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        await encerrarSessoesMesa(
+          req.user.restaurante_id,
+          req.params.id,
+          client,
+        );
+
+        const { rows } = await client.query(
+          `UPDATE mesas
+           SET status = 'livre',
+               forma_pagamento = NULL,
+               obs_pagamento = NULL
+           WHERE id = $1 AND restaurante_id = $2
+           RETURNING *`,
+          [req.params.id, req.user.restaurante_id],
+        );
+        return rows[0];
+      },
+    );
+
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", mesa);
+    emitirMesa(req.user.restaurante_id, req.params.id, "mesa_fechada", req.params.id);
+    res.json({ sucesso: true, mesa });
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ erro: e.message });
+  }
+});
+
 // Chamar garçom
 app.post("/api/chamadas", async (req, res) => {
   try {
@@ -1478,14 +1579,12 @@ app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("garcom"), async (
       req.params.mesa_id,
       req.user.id,
     );
-    const url = `${PUBLIC_APP_URL}/r/${req.user.restaurante_slug}/mesa/${resultado.mesa.id}?sessao=${encodeURIComponent(resultado.token)}`;
-    const qr = await QRCode.toDataURL(url);
-    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resultado.mesa);
-    res.json({
-      url,
-      qr,
-      expira_em: resultado.sessao.expira_em,
-    });
+    const resposta = await montarRespostaAtendimento(
+      req.user.restaurante_slug,
+      resultado,
+    );
+    emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resposta.mesa);
+    res.json(resposta);
   } catch (e) {
     res.status(e.statusCode || 500).json({ erro: e.message });
   }
