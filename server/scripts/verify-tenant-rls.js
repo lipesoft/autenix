@@ -12,6 +12,7 @@ const TABELAS = [
   "pedidos",
   "itens_pedido",
   "chamadas",
+  "sessoes_mesa",
   "configuracoes",
 ];
 
