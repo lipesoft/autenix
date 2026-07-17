@@ -2386,22 +2386,25 @@ function PainelGarcom({ usuario, onLogout }) {
     fetchPedidos();
   };
 
+  const pedidosAbertosDaMesa = (mid) =>
+    pedidos.filter((p) => p.mesa_id === mid && p.status !== "finalizado");
   const pedidosDaMesa = (mid) =>
-    pedidos.filter(
-      (p) =>
-        p.mesa_id === mid &&
-        p.status !== "finalizado" &&
-        p.status !== "entregue",
-    );
+    pedidosAbertosDaMesa(mid).filter((p) => p.status !== "entregue");
+  const totalPedido = (pedido) =>
+    pedido.itens
+      ?.filter((i) => i.status !== "cancelado")
+      .reduce((s, i) => s + i.preco * i.quantidade, 0) || 0;
   const totalMesa = (mid) =>
-    pedidosDaMesa(mid).reduce(
-      (s, p) =>
-        s +
-        (p.itens
-          ?.filter((i) => i.status !== "cancelado")
-          .reduce((ss, i) => ss + i.preco * i.quantidade, 0) || 0),
-      0,
-    );
+    pedidosAbertosDaMesa(mid).reduce((s, p) => s + totalPedido(p), 0);
+  const totalPedidosAtivosMesa = (mid) =>
+    pedidosDaMesa(mid).reduce((s, p) => s + totalPedido(p), 0);
+  const abrirFechamentoMesa = (mesa) => {
+    setContaModal({
+      ...mesa,
+      pedidos: pedidosAbertosDaMesa(mesa.id),
+      total: totalMesa(mesa.id),
+    });
+  };
   const pedidosProntos = pedidos.filter(
     (p) =>
       p.itens?.length &&
@@ -2411,6 +2414,12 @@ function PainelGarcom({ usuario, onLogout }) {
       p.status !== "entregue" &&
       p.status !== "finalizado",
   );
+  const pedidosContaModal = contaModal
+    ? contaModal.pedidos || pedidosAbertosDaMesa(contaModal.id)
+    : [];
+  const totalContaModal = contaModal
+    ? Number(contaModal.total ?? totalMesa(contaModal.id))
+    : 0;
 
   return (
     <>
@@ -2667,7 +2676,7 @@ function PainelGarcom({ usuario, onLogout }) {
                       sm
                       full
                       variant="danger"
-                      onClick={() => setContaModal(m)}
+                      onClick={() => abrirFechamentoMesa(m)}
                     >
                       Fechar Mesa
                     </Btn>
@@ -2766,7 +2775,7 @@ function PainelGarcom({ usuario, onLogout }) {
             >
               <span style={{ fontWeight: 700 }}>Total</span>
               <span style={{ fontWeight: 800, fontSize: 18, color: T.accent }}>
-                R$ {totalMesa(pedidosModal.id).toFixed(2)}
+                R$ {totalPedidosAtivosMesa(pedidosModal.id).toFixed(2)}
               </span>
             </div>
             <Btn variant="ghost" full onClick={() => setPedidosModal(null)}>
@@ -2894,7 +2903,19 @@ function PainelGarcom({ usuario, onLogout }) {
             </div>
 
             {/* Itens consumidos */}
-            {pedidosDaMesa(contaModal.id).map((p) => (
+            {pedidosContaModal.length === 0 ? (
+              <div
+                style={{
+                  color: T.muted,
+                  fontSize: 13,
+                  padding: "10px 0 16px",
+                  borderTop: `1px solid ${T.border}`,
+                }}
+              >
+                Nenhum pedido aberto para esta mesa.
+              </div>
+            ) : (
+              pedidosContaModal.map((p) => (
               <div key={p.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>Pedido #{p.numero_dia || p.id}</div>
                 {p.itens?.map((i) => (
@@ -2904,12 +2925,13 @@ function PainelGarcom({ usuario, onLogout }) {
                   </div>
                 ))}
               </div>
-            ))}
+              ))
+            )}
 
             {/* Total */}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `1px solid ${T.border2}`, marginBottom: 20 }}>
               <span style={{ fontWeight: 700 }}>Total</span>
-              <span style={{ fontWeight: 800, fontSize: 18, color: T.accent }}>R$ {totalMesa(contaModal.id).toFixed(2)}</span>
+              <span style={{ fontWeight: 800, fontSize: 18, color: T.accent }}>R$ {totalContaModal.toFixed(2)}</span>
             </div>
 
             {/* Forma de pagamento — OBRIGATÓRIA */}
