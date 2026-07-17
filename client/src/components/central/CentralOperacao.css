@@ -348,7 +348,7 @@
 .central-table-row {
   min-height: 68px;
   display: grid;
-  grid-template-columns: 38px minmax(110px, 0.55fr) minmax(180px, 1fr) auto;
+  grid-template-columns: 38px minmax(110px, 0.55fr) minmax(180px, 1fr) 36px auto;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
@@ -470,7 +470,7 @@
   }
 
   .central-table-row {
-    grid-template-columns: 38px minmax(0, 1fr) auto;
+    grid-template-columns: 38px minmax(0, 1fr) 36px auto;
   }
 
   .central-table-row code {
@@ -530,7 +530,7 @@
   }
 
   .central-table-row {
-    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
     gap: 10px;
   }
 

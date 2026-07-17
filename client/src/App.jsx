@@ -58,15 +58,15 @@ const ADMIN_TABS = [
 
 let socket = null;
 let socketIdentity = null;
-function getSocket({ mesaId = null, restauranteSlug = null } = {}) {
+function getSocket({ mesaId = null, restauranteSlug = null, sessaoMesa = null } = {}) {
   const sessao = getUsuarioSessao();
   const token = sessao?.token || null;
-  const contextoPublico = !token && mesaId && restauranteSlug
-    ? { mesa_id: mesaId, restaurante_slug: restauranteSlug }
+  const contextoPublico = !token && mesaId && restauranteSlug && sessaoMesa
+    ? { mesa_id: mesaId, restaurante_slug: restauranteSlug, sessao: sessaoMesa }
     : {};
   const identity = token
     ? `token:${token}`
-    : `public:${restauranteSlug || "none"}:${mesaId || "none"}`;
+    : `public:${restauranteSlug || "none"}:${mesaId || "none"}:${sessaoMesa || "none"}`;
 
   if (socket && socketIdentity !== identity) {
     socket.disconnect();
@@ -90,6 +90,12 @@ function getSocket({ mesaId = null, restauranteSlug = null } = {}) {
 function apiComRestaurante(caminho, restauranteSlug) {
   const url = new URL(`${API}${caminho}`);
   url.searchParams.set("restaurante_slug", restauranteSlug || "autenix");
+  return url.toString();
+}
+
+function apiComSessaoMesa(caminho, restauranteSlug, sessaoMesa) {
+  const url = new URL(apiComRestaurante(caminho, restauranteSlug));
+  if (sessaoMesa) url.searchParams.set("sessao", sessaoMesa);
   return url.toString();
 }
 
@@ -1290,8 +1296,80 @@ function TelaBoasVindas({ mesaNumero, onContinuar }) {
   );
 }
 
+function TelaSessaoMesaBloqueada({ mesaNumero, mensagem, carregando = false }) {
+  const css = gerarCSS(T);
+  return (
+    <>
+      <style>{css}</style>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: T.bg,
+          padding: 20,
+          textAlign: "center",
+        }}
+      >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 380,
+            padding: 22,
+            borderRadius: 12,
+            background: T.bg2,
+            border: `1px solid ${T.border}`,
+            boxShadow: "0 16px 40px rgba(15,23,42,.14)",
+          }}
+        >
+          <Logo size="lg" center />
+          <div
+            style={{
+              marginTop: 26,
+              fontFamily: "'Manrope',sans-serif",
+              fontSize: 23,
+              fontWeight: 800,
+              lineHeight: 1.2,
+              color: T.text,
+            }}
+          >
+            {carregando ? "Verificando atendimento" : "Atendimento nao iniciado"}
+          </div>
+          <div style={{ marginTop: 8, color: T.accent, fontWeight: 800 }}>
+            {rotuloMesa(mesaNumero)}
+          </div>
+          <div
+            style={{
+              color: T.text2,
+              fontSize: 14,
+              marginTop: 14,
+              lineHeight: 1.55,
+            }}
+          >
+            {carregando
+              ? "Estamos validando o QR Code desta mesa."
+              : mensagem || "Escaneie o QR Code atualizado da mesa ou solicite ajuda da equipe."}
+          </div>
+          {!carregando && (
+            <Btn
+              full
+              variant="ghost"
+              onClick={() => window.location.reload()}
+              style={{ marginTop: 18 }}
+            >
+              Tentar novamente
+            </Btn>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── PAINEL CLIENTE ───────────────────────────────────────────────────────────
-function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
+function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }) {
   const marca = useBranding();
   const [nomeCliente, setNomeCliente] = useState(null);
   const [mesa, setMesa] = useState(null);
@@ -1305,6 +1383,8 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
   const [toast, setToast] = useState(null);
   const [carrinhoModal, setCarrinhoModal] = useState(false);
   const [cancelandoItem, setCancelandoItem] = useState(null);
+  const [sessaoBloqueada, setSessaoBloqueada] = useState(null);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
 
   const tema = useTema();
   const css = gerarCSS(T);
@@ -1316,6 +1396,11 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
     setToast(msg);
     setTimeout(() => setToast(null), 3200);
   };
+  const bloquearSessaoMesa = useCallback((msg) => {
+    setSessaoBloqueada(msg || "Atendimento da mesa nao iniciado ou encerrado.");
+    setPedidos([]);
+    setCarrinho([]);
+  }, []);
 
   const fetchCardapio = useCallback(async () => {
     const r = await fetch(apiComRestaurante("/api/cardapio", restauranteSlug));
@@ -1325,42 +1410,68 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
   }, [restauranteSlug]);
   const fetchPedidos = useCallback(async () => {
     const r = await fetch(
-      apiComRestaurante(`/api/pedidos?mesa_id=${mesa_id}`, restauranteSlug),
+      apiComSessaoMesa(`/api/pedidos?mesa_id=${mesa_id}`, restauranteSlug, sessaoMesa),
     );
     const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || "Nao foi possivel carregar os pedidos");
+    if (!r.ok) {
+      if (r.status === 403) bloquearSessaoMesa(d.erro);
+      throw new Error(d.erro || "Nao foi possivel carregar os pedidos");
+    }
     setPedidos(d.filter((p) => p.status !== "finalizado"));
-  }, [mesa_id, restauranteSlug]);
+  }, [bloquearSessaoMesa, mesa_id, restauranteSlug, sessaoMesa]);
   const fetchMesa = useCallback(async () => {
     const r = await fetch(
-      apiComRestaurante(`/api/mesas/${mesa_id}`, restauranteSlug),
+      apiComSessaoMesa(`/api/mesas/${mesa_id}`, restauranteSlug, sessaoMesa),
     );
     const dados = await r.json();
-    if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar a mesa");
+    if (!r.ok) {
+      if (r.status === 403) bloquearSessaoMesa(dados.erro);
+      throw new Error(dados.erro || "Nao foi possivel carregar a mesa");
+    }
+    setSessaoBloqueada(null);
     setMesa(dados);
-  }, [mesa_id, restauranteSlug]);
+  }, [bloquearSessaoMesa, mesa_id, restauranteSlug, sessaoMesa]);
 
   useEffect(() => {
-    fetchMesa();
-    fetchCardapio();
-    fetchPedidos();
-    const s = getSocket({ mesaId: mesa_id, restauranteSlug });
-    s.on("cardapio_atualizado", fetchCardapio);
-    s.on("pedido_atualizado", fetchPedidos);
+    let ativo = true;
+    const carregamentoInicial = window.setTimeout(() => {
+      Promise.all([fetchMesa(), fetchCardapio(), fetchPedidos()])
+        .catch(() => {})
+        .finally(() => {
+          if (ativo) setVerificandoSessao(false);
+        });
+    }, 0);
+
+    const s = sessaoMesa
+      ? getSocket({ mesaId: mesa_id, restauranteSlug, sessaoMesa })
+      : null;
+    s?.on("cardapio_atualizado", fetchCardapio);
+    s?.on("pedido_atualizado", fetchPedidos);
     // Item 3: ao fechar mesa, reseta tudo para tela de boas-vindas
-    s.on("mesa_fechada", (id) => {
+    s?.on("mesa_fechada", (id) => {
       if (String(id) === String(mesa_id)) {
         setPedidos([]);
         setCarrinho([]);
         setNomeCliente(null);
+        bloquearSessaoMesa("Atendimento encerrado. Solicite um novo QR Code para a equipe.");
       }
     });
     return () => {
-      s.off("cardapio_atualizado");
-      s.off("pedido_atualizado");
-      s.off("mesa_fechada");
+      ativo = false;
+      window.clearTimeout(carregamentoInicial);
+      s?.off("cardapio_atualizado");
+      s?.off("pedido_atualizado");
+      s?.off("mesa_fechada");
     };
-  }, [fetchCardapio, fetchMesa, fetchPedidos, mesa_id, restauranteSlug]);
+  }, [
+    bloquearSessaoMesa,
+    fetchCardapio,
+    fetchMesa,
+    fetchPedidos,
+    mesa_id,
+    restauranteSlug,
+    sessaoMesa,
+  ]);
 
   const add = (p) =>
     setCarrinho((prev) => {
@@ -1405,11 +1516,13 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
         itens,
         nome_cliente: nomeCliente,
         restaurante_slug: restauranteSlug,
+        sessao: sessaoMesa,
       }),
     });
     const dados = await resposta.json().catch(() => ({}));
     if (!resposta.ok) {
       setEnviando(false);
+      if (resposta.status === 403) bloquearSessaoMesa(dados.erro);
       showToast(dados.erro || "Nao foi possivel enviar o pedido.");
       return;
     }
@@ -1431,10 +1544,12 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
       body: JSON.stringify({
         mesa_id,
         restaurante_slug: restauranteSlug,
+        sessao: sessaoMesa,
       }),
     });
     const dados = await resposta.json().catch(() => ({}));
     if (!resposta.ok) {
+      if (resposta.status === 403) bloquearSessaoMesa(dados.erro);
       showToast(dados.erro || "Nao foi possivel cancelar o item.");
       return;
     }
@@ -1447,6 +1562,19 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix" }) {
     catAtiva === null
       ? cardapio.produtos
       : cardapio.produtos.filter((p) => p.categoria_id === catAtiva);
+
+  if (sessaoBloqueada)
+    return (
+      <TelaSessaoMesaBloqueada
+        mesaNumero={mesaNumero}
+        mensagem={sessaoBloqueada}
+      />
+    );
+
+  if (verificandoSessao)
+    return (
+      <TelaSessaoMesaBloqueada mesaNumero={mesaNumero} carregando />
+    );
 
   if (!nomeCliente)
     return (
@@ -3811,7 +3939,12 @@ function PainelAdmin({ usuario, onLogout }) {
   };
   const verQR = async (mesa_id) => {
     const r = await authFetch(`${API}/api/qrcode/${mesa_id}`);
-    setQrModal(await r.json());
+    const dados = await r.json();
+    if (!r.ok) {
+      alert(dados.erro || "Nao foi possivel gerar o QR Code");
+      return;
+    }
+    setQrModal(dados);
   };
 
   const salvarReservaAdmin = async () => {
@@ -5168,7 +5301,17 @@ function PainelAdmin({ usuario, onLogout }) {
                   marginBottom: 14,
                 }}
               >
-                QR Code
+                QR Code seguro
+              </div>
+              <div
+                style={{
+                  color: T.text2,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  marginBottom: 12,
+                }}
+              >
+                Gere um novo QR para cada atendimento da mesa.
               </div>
               <img
                 src={qrModal.qr}
@@ -5190,6 +5333,17 @@ function PainelAdmin({ usuario, onLogout }) {
               >
                 {qrModal.url}
               </div>
+              {qrModal.expira_em && (
+                <div
+                  style={{
+                    color: T.text2,
+                    fontSize: 12,
+                    marginTop: 8,
+                  }}
+                >
+                  Expira em {new Date(qrModal.expira_em).toLocaleString("pt-BR")}
+                </div>
+              )}
               <Btn
                 variant="ghost"
                 onClick={() => setQrModal(null)}
@@ -5229,6 +5383,9 @@ function AppContent() {
     return salvo ? JSON.parse(salvo) : undefined;
   });
   const rota = analisarRota(window.location.pathname, usuarioLogado);
+  const sessaoMesa = rota.mesaId
+    ? new URLSearchParams(window.location.search).get("sessao") || ""
+    : "";
   const sessaoDaRota = Boolean(
     usuarioLogado &&
     normalizarSlugRestaurante(usuarioLogado.restaurante_slug) === rota.slug,
@@ -5274,7 +5431,13 @@ function AppContent() {
   }
 
   if (rota.mesaId) {
-    return <PainelCliente mesa_id={rota.mesaId} restauranteSlug={rota.slug} />;
+    return (
+      <PainelCliente
+        mesa_id={rota.mesaId}
+        restauranteSlug={rota.slug}
+        sessaoMesa={sessaoMesa}
+      />
+    );
   }
 
   if (rota.area === "central") {

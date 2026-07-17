@@ -92,6 +92,8 @@ async function copiarTexto(texto) {
 }
 
 function LinkActions({ caminho, titulo, onFeedback }) {
+  if (!caminho) return null;
+
   const link = urlCompleta(caminho);
 
   const copiar = async () => {
@@ -158,6 +160,7 @@ export default function CentralOperacao({ usuario, onLogout }) {
   const [busca, setBusca] = useState("");
   const [status, setStatus] = useState("loading");
   const [feedback, setFeedback] = useState(null);
+  const [linksSeguros, setLinksSeguros] = useState({});
 
   useEffect(() => {
     let ativo = true;
@@ -211,6 +214,31 @@ export default function CentralOperacao({ usuario, onLogout }) {
 
   const mostrarFeedback = (mensagem, erro = false) => {
     setFeedback({ mensagem, erro });
+  };
+
+  const gerarLinkSeguroMesa = async (mesa) => {
+    setLinksSeguros((atual) => ({
+      ...atual,
+      [mesa.id]: { ...(atual[mesa.id] || {}), carregando: true },
+    }));
+    try {
+      const resposta = await authFetch(`${API_URL}/api/qrcode/${mesa.id}`);
+      const dados = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Falha ao gerar link seguro");
+      }
+      setLinksSeguros((atual) => ({
+        ...atual,
+        [mesa.id]: { ...dados, carregando: false },
+      }));
+      mostrarFeedback(`Link seguro da ${rotuloMesa(mesa.numero).toLowerCase()} gerado.`);
+    } catch (error) {
+      setLinksSeguros((atual) => ({
+        ...atual,
+        [mesa.id]: { ...(atual[mesa.id] || {}), carregando: false },
+      }));
+      mostrarFeedback(error.message || "Nao foi possivel gerar o link seguro.", true);
+    }
   };
 
   const sair = () => {
@@ -295,9 +323,7 @@ export default function CentralOperacao({ usuario, onLogout }) {
             {setores.map((setor) => {
               const Icon = setor.icon;
               const caminho = setor.id === "cliente"
-                ? mesas[0]
-                  ? rotaRestaurante(slug, `mesa/${mesas[0].id}`)
-                  : `${rotaRestaurante(slug, "central")}#central-mesas-title`
+                ? `${rotaRestaurante(slug, "central")}#central-mesas-title`
                 : rotaRestaurante(slug, setor.destino);
               return (
                 <article className="central-sector" key={setor.id}>
@@ -345,8 +371,10 @@ export default function CentralOperacao({ usuario, onLogout }) {
             {status === "ready" && (
               <div className="central-table-list">
                 {mesasFiltradas.map((mesa) => {
-                  const caminho = rotaRestaurante(slug, `mesa/${mesa.id}`);
                   const nomeMesa = rotuloMesa(mesa.numero);
+                  const linkSeguro = linksSeguros[mesa.id];
+                  const carregandoLink = Boolean(linkSeguro?.carregando);
+                  const caminho = linkSeguro?.url || "";
                   return (
                     <article className="central-table-row" key={mesa.id}>
                       <div className="central-table-icon"><Table2 size={20} /></div>
@@ -356,7 +384,25 @@ export default function CentralOperacao({ usuario, onLogout }) {
                           {mesa.status || "livre"}
                         </span>
                       </div>
-                      <code>{urlCompleta(caminho)}</code>
+                      <code>
+                        {caminho
+                          ? urlCompleta(caminho)
+                          : "Gere um link seguro para esta mesa"}
+                      </code>
+                      <button
+                        className="central-icon-button"
+                        type="button"
+                        onClick={() => gerarLinkSeguroMesa(mesa)}
+                        disabled={carregandoLink}
+                        title={`Gerar link seguro da ${nomeMesa.toLowerCase()}`}
+                        aria-label={`Gerar link seguro da ${nomeMesa.toLowerCase()}`}
+                      >
+                        {carregandoLink ? (
+                          <LoaderCircle className="is-spinning" size={17} />
+                        ) : (
+                          <QrCode size={17} />
+                        )}
+                      </button>
                       <LinkActions
                         caminho={caminho}
                         titulo={`cardápio da ${nomeMesa.toLowerCase()}`}
