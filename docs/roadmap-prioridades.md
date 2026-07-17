@@ -49,6 +49,8 @@ e identidade visual.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
 - Pendente: criar fila de espera quando o restaurante estiver cheio ou sem mesa
   disponivel para reserva imediata.
+- Pendente: adicionar aba Reservas na sessao do garcom para visualizar a agenda,
+  acompanhar chegadas e apoiar a organizacao das mesas.
 - Pendente: permitir que o cliente acompanhe sua posicao na fila em uma tela
   publica, atualizada conforme mesas forem liberadas e pessoas na frente forem
   chamadas ou acomodadas.
