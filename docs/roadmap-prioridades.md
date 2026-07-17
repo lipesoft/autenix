@@ -81,8 +81,10 @@ e identidade visual.
 - Feito: proteger tambem o Socket.IO publico da mesa com o token de sessao.
 - Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
   sessao ou se deve ficar sempre bloqueado como esta nesta fase.
-- Pendente: criar botao operacional explicito de "iniciar atendimento" e
-  "encerrar atendimento" separado da geracao do QR.
+- Feito: criar botao operacional explicito de "iniciar atendimento" e
+  "encerrar atendimento" na Central e na aba Mesas do Admin.
+- Feito: bloquear encerramento operacional quando ainda existem pedidos abertos,
+  orientando fechar a conta primeiro.
 - Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
   restaurante ou dispositivo autorizado para setores internos.
 
