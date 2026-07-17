@@ -1537,25 +1537,29 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
 
   // Item 6: cancelar item — só se ainda pendente
   const cancelarItem = async (item) => {
-    if (item.status !== "pendente") return;
-    const resposta = await fetch(`${API}/api/itens/${item.id}/cancelar`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mesa_id,
-        restaurante_slug: restauranteSlug,
-        sessao: sessaoMesa,
-      }),
-    });
-    const dados = await resposta.json().catch(() => ({}));
-    if (!resposta.ok) {
-      if (resposta.status === 403) bloquearSessaoMesa(dados.erro);
-      showToast(dados.erro || "Nao foi possivel cancelar o item.");
-      return;
+    if (item.status !== "pendente" || cancelandoItem) return;
+    setCancelandoItem(item.id);
+    try {
+      const resposta = await fetch(`${API}/api/itens/${item.id}/cancelar`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mesa_id,
+          restaurante_slug: restauranteSlug,
+          sessao: sessaoMesa,
+        }),
+      });
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        if (resposta.status === 403) bloquearSessaoMesa(dados.erro);
+        showToast(dados.erro || "Nao foi possivel cancelar o item.");
+        return;
+      }
+      fetchPedidos();
+      showToast("Item cancelado.");
+    } finally {
+      setCancelandoItem(null);
     }
-    setCancelandoItem(null);
-    fetchPedidos();
-    showToast("Item cancelado.");
   };
 
   const produtos =
@@ -2044,7 +2048,8 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
                             {/* Item 6: cancelar se ainda pendente */}
                             {item.status === "pendente" && (
                               <button
-                                onClick={() => setCancelandoItem(item)}
+                                onClick={() => cancelarItem(item)}
+                                disabled={cancelandoItem === item.id}
                                 style={{
                                   fontSize: 11,
                                   color: T.red,
@@ -2052,11 +2057,12 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
                                   border: "1px solid rgba(248,113,113,.25)",
                                   borderRadius: 6,
                                   padding: "2px 8px",
-                                  cursor: "pointer",
+                                  cursor: cancelandoItem === item.id ? "wait" : "pointer",
                                   fontFamily: "Inter,sans-serif",
+                                  opacity: cancelandoItem === item.id ? 0.65 : 1,
                                 }}
                               >
-                                Cancelar
+                                {cancelandoItem === item.id ? "Cancelando..." : "Cancelar"}
                               </button>
                             )}
                           </div>
@@ -2330,6 +2336,7 @@ function PainelGarcom({ usuario, onLogout }) {
   const [pedidosModal, setPedidosModal] = useState(null);
   const [historicoModal, setHistoricoModal] = useState(null);
   const [historicoItens, setHistoricoItens] = useState([]);
+  const [historicoErro, setHistoricoErro] = useState("");
 
   // Cardápio para fazer pedido
   const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
@@ -2490,14 +2497,18 @@ function PainelGarcom({ usuario, onLogout }) {
   };
 
   const verHistoricoMesa = async (mesa) => {
-    const r = await fetch(
-      apiComRestaurante(
-        `/api/pedidos?mesa_id=${mesa.id}&excluir_finalizados=true`,
-        usuario.restaurante_slug,
-      ),
-    );
-    const d = await r.json();
-    setHistoricoItens(d.filter(p => p.status !== "finalizado"));
+    const r = await authFetch(`${API}/api/pedidos?mesa_id=${mesa.id}`);
+    const d = await r.json().catch(() => []);
+    if (!r.ok || !Array.isArray(d)) {
+      const mensagem = d.erro || "Nao foi possivel carregar o historico da mesa.";
+      setHistoricoItens([]);
+      setHistoricoErro(mensagem);
+      setHistoricoModal(mesa);
+      push("Histórico da mesa", mensagem, "erro");
+      return;
+    }
+    setHistoricoErro("");
+    setHistoricoItens(d.filter((p) => p.status !== "finalizado"));
     setHistoricoModal(mesa);
   };
 
@@ -2924,7 +2935,9 @@ function PainelGarcom({ usuario, onLogout }) {
             >
               Histórico - Mesa {historicoModal.numero}
             </div>
-            {historicoItens.length === 0 ? (
+            {historicoErro ? (
+              <div style={{ color: T.red }}>{historicoErro}</div>
+            ) : historicoItens.length === 0 ? (
               <div style={{ color: T.muted }}>Nenhum pedido encontrado.</div>
             ) : (
               historicoItens.map((p) => (
