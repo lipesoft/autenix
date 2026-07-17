@@ -32,9 +32,14 @@ e identidade visual.
 
 ## Prioridade 3 - Reservas
 
-- Criar uma area de reservas por restaurante.
-- Permitir nome, telefone, data, horario, quantidade de pessoas, observacao e status.
-- Ligar reservas ao `restaurante_id` e, em uma segunda etapa, a mesas/saloes.
+- Implementado: area publica `/r/{slug}/reservas` para solicitacao de reserva.
+- Implementado: aba Reservas no painel administrativo com criacao interna,
+  listagem, vinculo opcional de mesa e mudanca de status.
+- Implementado: reservas ligadas ao `restaurante_id` com RLS e acesso somente
+  pelo backend tenant-aware.
+- Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
+- Pendente: confirmacao automatica por email/WhatsApp.
+- Pendente: historico/auditoria detalhada de alteracoes de status.
 
 ## Prioridade 4 - Planos na landing page
 
