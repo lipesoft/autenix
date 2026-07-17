@@ -30,6 +30,15 @@ e identidade visual.
 - Pendente: transformar o cadastro em autoatendimento publico no futuro.
 - Pendente: convite automatico por email/WhatsApp com credenciais e links.
 
+## Prioridade 2.1 - White label avancado
+
+- Pendente: permitir configurar cores das fontes no white label do restaurante.
+- Pendente: separar cor de texto principal, texto secundario, titulos e textos
+  sobre fundos escuros/destaque.
+- Pendente: aplicar as cores de fonte na landing, central, admin, cardapio,
+  garcom, cozinha, financeiro e reservas sem prejudicar contraste/acessibilidade.
+- Pendente: adicionar preview visual antes de salvar a identidade do restaurante.
+
 ## Prioridade 3 - Reservas
 
 - Implementado: area publica `/r/{slug}/reservas` para solicitacao de reserva.
