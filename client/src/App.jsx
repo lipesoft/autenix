@@ -66,6 +66,30 @@ const ADMIN_TABS = [
   "importacao",
 ];
 
+const DIAS_SEMANA_RESERVA = [
+  [0, "Dom"],
+  [1, "Seg"],
+  [2, "Ter"],
+  [3, "Qua"],
+  [4, "Qui"],
+  [5, "Sex"],
+  [6, "Sab"],
+];
+
+const RESERVA_CONFIG_PADRAO = {
+  ativo: 1,
+  dias_semana: [0, 1, 2, 3, 4, 5, 6],
+  hora_inicio: "18:00",
+  hora_fim: "23:00",
+  intervalo_minutos: 30,
+  duracao_minutos: 90,
+  antecedencia_minutos: 60,
+  horizonte_dias: 30,
+  limite_reservas_horario: 0,
+  limite_pessoas_horario: 0,
+  permitir_fila: 1,
+};
+
 let socket = null;
 let socketIdentity = null;
 function getSocket({ mesaId = null, restauranteSlug = null, sessaoMesa = null } = {}) {
@@ -1022,6 +1046,43 @@ function formatarDataReserva(data) {
   return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
 
+function normalizarConfigReservaFrontend(config = {}) {
+  return {
+    ...RESERVA_CONFIG_PADRAO,
+    ...config,
+    ativo: Number(config.ativo ?? RESERVA_CONFIG_PADRAO.ativo),
+    permitir_fila: Number(config.permitir_fila ?? RESERVA_CONFIG_PADRAO.permitir_fila),
+    dias_semana: Array.isArray(config.dias_semana)
+      ? config.dias_semana.map(Number).filter((dia) => dia >= 0 && dia <= 6)
+      : RESERVA_CONFIG_PADRAO.dias_semana,
+    intervalo_minutos: Number(
+      config.intervalo_minutos ?? RESERVA_CONFIG_PADRAO.intervalo_minutos,
+    ),
+    duracao_minutos: Number(
+      config.duracao_minutos ?? RESERVA_CONFIG_PADRAO.duracao_minutos,
+    ),
+    antecedencia_minutos: Number(
+      config.antecedencia_minutos ?? RESERVA_CONFIG_PADRAO.antecedencia_minutos,
+    ),
+    horizonte_dias: Number(config.horizonte_dias ?? RESERVA_CONFIG_PADRAO.horizonte_dias),
+    limite_reservas_horario: Number(
+      config.limite_reservas_horario ??
+        RESERVA_CONFIG_PADRAO.limite_reservas_horario,
+    ),
+    limite_pessoas_horario: Number(
+      config.limite_pessoas_horario ??
+        RESERVA_CONFIG_PADRAO.limite_pessoas_horario,
+    ),
+  };
+}
+
+function textoDiasReserva(dias = []) {
+  const selecionados = DIAS_SEMANA_RESERVA
+    .filter(([dia]) => dias.map(Number).includes(dia))
+    .map(([, label]) => label);
+  return selecionados.length === 7 ? "Todos os dias" : selecionados.join(", ");
+}
+
 function formatarDataHoraReservaEvento(valor) {
   if (!valor) return "-";
   const data = new Date(valor);
@@ -1071,6 +1132,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     data_reserva: dataReservaInicial(),
     horario: "19:30",
     quantidade_pessoas: 2,
+    salao_id: "",
     observacao: "",
   });
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
@@ -1084,7 +1146,19 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
 
   useEffect(() => {
     let ativo = true;
-    fetch(apiComRestaurante("/api/reservas/disponibilidade", restauranteSlug))
+    const params = new URLSearchParams();
+    if (modo === "reserva") {
+      params.set("data_reserva", form.data_reserva);
+      params.set("quantidade_pessoas", String(form.quantidade_pessoas || 2));
+      if (form.salao_id) params.set("salao_id", form.salao_id);
+    }
+    const query = params.toString();
+    fetch(
+      apiComRestaurante(
+        `/api/reservas/disponibilidade${query ? `?${query}` : ""}`,
+        restauranteSlug,
+      ),
+    )
       .then((resposta) => resposta.json())
       .then((dados) => {
         if (ativo) setDisponibilidade(dados);
@@ -1095,7 +1169,22 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     return () => {
       ativo = false;
     };
-  }, [restauranteSlug]);
+  }, [
+    restauranteSlug,
+    modo,
+    form.data_reserva,
+    form.quantidade_pessoas,
+    form.salao_id,
+  ]);
+
+  useEffect(() => {
+    const saloesAtivos = Array.isArray(disponibilidade?.saloes)
+      ? disponibilidade.saloes.filter((salao) => Number(salao.ativo) === 1)
+      : [];
+    if (saloesAtivos.length && !form.salao_id) {
+      setForm((atual) => ({ ...atual, salao_id: String(saloesAtivos[0].id) }));
+    }
+  }, [disponibilidade?.saloes, form.salao_id]);
 
   const atualizar = (campo, valor) => {
     setForm((atual) => ({ ...atual, [campo]: valor }));
@@ -1184,6 +1273,18 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     marca.whatsappNumero,
     mensagemParaRestaurante,
   );
+  const configuracaoReservas = normalizarConfigReservaFrontend(
+    disponibilidade?.configuracao,
+  );
+  const saloesReserva = Array.isArray(disponibilidade?.saloes)
+    ? disponibilidade.saloes.filter((salao) => Number(salao.ativo) === 1)
+    : [];
+  const horariosReserva = Array.isArray(disponibilidade?.horarios)
+    ? disponibilidade.horarios
+    : [];
+  const horarioSelecionado = horariosReserva.find(
+    (slot) => slot.horario === form.horario,
+  );
 
   return (
     <div
@@ -1268,7 +1369,12 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 padding: "7px 10px",
                 borderRadius: 999,
                 background: T.card2,
-                color: disponibilidade?.restaurante_cheio ? T.amber : T.green,
+                color:
+                  !configuracaoReservas.ativo
+                    ? T.red
+                    : disponibilidade?.restaurante_cheio
+                      ? T.amber
+                      : T.green,
                 fontSize: 12,
                 fontWeight: 800,
               }}
@@ -1282,9 +1388,13 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 }}
               />
               {disponibilidade
-                ? disponibilidade.restaurante_cheio
-                  ? "Restaurante cheio agora"
-                  : `${disponibilidade.mesas_livres} mesa(s) livres agora`
+                ? !configuracaoReservas.ativo
+                  ? "Reservas online pausadas"
+                  : disponibilidade.restaurante_cheio
+                    ? configuracaoReservas.permitir_fila
+                      ? "Restaurante cheio · fila disponivel"
+                      : "Restaurante cheio agora"
+                    : `${disponibilidade.mesas_livres} mesa(s) livres agora`
                 : "Consulta de disponibilidade ativa"}
             </div>
           </div>
@@ -1303,6 +1413,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
               <button
                 key={valor}
                 type="button"
+                disabled={valor === "fila" && !configuracaoReservas.permitir_fila}
                 onClick={() => selecionarModo(valor)}
                 style={{
                   minHeight: 42,
@@ -1310,10 +1421,14 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                   border: `1px solid ${modo === valor ? T.accent : T.border}`,
                   background: modo === valor ? T.accentGlow : T.card2,
                   color: modo === valor ? T.accent : T.text2,
-                  cursor: "pointer",
+                  cursor:
+                    valor === "fila" && !configuracaoReservas.permitir_fila
+                      ? "not-allowed"
+                      : "pointer",
                   fontFamily: "Inter,sans-serif",
                   fontSize: 13,
                   fontWeight: 800,
+                  opacity: valor === "fila" && !configuracaoReservas.permitir_fila ? 0.45 : 1,
                 }}
               >
                 {label}
@@ -1364,6 +1479,19 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 onChange={(e) => atualizar("quantidade_pessoas", e.target.value)}
                 required
               />
+              {saloesReserva.length > 0 && (
+                <select
+                  value={form.salao_id}
+                  onChange={(e) => atualizar("salao_id", e.target.value)}
+                  disabled={modo === "fila"}
+                >
+                  {saloesReserva.map((salao) => (
+                    <option key={salao.id} value={salao.id}>
+                      {salao.nome} · até {salao.capacidade_pessoas} pessoas
+                    </option>
+                  ))}
+                </select>
+              )}
               <textarea
                 className="is-full"
                 placeholder="Observacao (opcional: area, aniversario, acessibilidade...)"
@@ -1372,6 +1500,85 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 style={{ minHeight: 72, resize: "vertical" }}
               />
             </div>
+            {modo === "reserva" && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 8,
+                  background: T.card2,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ color: T.text, fontSize: 13, fontWeight: 800 }}>
+                      Horarios disponiveis
+                    </div>
+                    <div style={{ color: T.muted, fontSize: 11 }}>
+                      {configuracaoReservas.ativo
+                        ? `${configuracaoReservas.hora_inicio} as ${configuracaoReservas.hora_fim} · ${textoDiasReserva(configuracaoReservas.dias_semana)}`
+                        : "Reservas online pausadas"}
+                    </div>
+                  </div>
+                  {horarioSelecionado && !horarioSelecionado.disponivel && (
+                    <span style={{ color: T.red, fontSize: 11, fontWeight: 800 }}>
+                      {horarioSelecionado.motivo}
+                    </span>
+                  )}
+                </div>
+                {horariosReserva.length === 0 ? (
+                  <div style={{ color: T.muted, fontSize: 12 }}>
+                    Selecione uma data para consultar a agenda.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit,minmax(86px,1fr))",
+                      gap: 7,
+                    }}
+                  >
+                    {horariosReserva.map((slot) => (
+                      <button
+                        key={slot.horario}
+                        type="button"
+                        disabled={!slot.disponivel}
+                        onClick={() => atualizar("horario", slot.horario)}
+                        title={slot.motivo || "Disponivel"}
+                        style={{
+                          minHeight: 34,
+                          borderRadius: 8,
+                          border: `1px solid ${
+                            form.horario === slot.horario ? T.accent : T.border
+                          }`,
+                          background:
+                            form.horario === slot.horario
+                              ? T.accentGlow
+                              : slot.disponivel
+                                ? T.card
+                                : "rgba(120,120,120,.08)",
+                          color: slot.disponivel ? T.text2 : T.muted,
+                          cursor: slot.disponivel ? "pointer" : "not-allowed",
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {slot.horario}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div
               role="status"
               style={{
@@ -1604,6 +1811,7 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
               <div style={{ color: T.muted, fontSize: 13, marginTop: 6 }}>
                 {formatarDataReserva(reserva.data_reserva)} as {reserva.horario}
                 {reserva.mesa_numero ? ` · Mesa ${reserva.mesa_numero}` : ""}
+                {reserva.salao_nome ? ` · ${reserva.salao_nome}` : ""}
               </div>
 
               {reserva.status === "fila" && (
@@ -3810,6 +4018,7 @@ function PainelGarcom({ usuario, onLogout }) {
                           <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
                             {reserva.quantidade_pessoas} pessoa(s) · {reserva.telefone}
                             {reserva.email ? ` · ${reserva.email}` : ""}
+                            {reserva.salao_nome ? ` · ${reserva.salao_nome}` : ""}
                           </div>
                           <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
                             {reserva.tipo === "fila" ? "Fila de espera" : "Reserva programada"}
@@ -4936,6 +5145,16 @@ function PainelAdmin({ usuario, onLogout }) {
   const [marcaStatus, setMarcaStatus] = useState({ tipo: "idle", mensagem: "" });
   const [reservas, setReservas] = useState([]);
   const [reservaStatus, setReservaStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [reservaConfig, setReservaConfig] = useState(RESERVA_CONFIG_PADRAO);
+  const [reservaSaloes, setReservaSaloes] = useState([]);
+  const [reservaConfigStatus, setReservaConfigStatus] = useState({
+    tipo: "idle",
+    mensagem: "",
+  });
+  const [novoSalaoReserva, setNovoSalaoReserva] = useState({
+    nome: "",
+    capacidade_pessoas: 40,
+  });
   const [historicoReservaAdmin, setHistoricoReservaAdmin] = useState(null);
   const [novaReserva, setNovaReserva] = useState({
     tipo: "reserva",
@@ -4946,6 +5165,7 @@ function PainelAdmin({ usuario, onLogout }) {
     horario: "19:30",
     quantidade_pessoas: 2,
     mesa_id: "",
+    salao_id: "",
     observacao: "",
   });
 
@@ -4974,6 +5194,15 @@ function PainelAdmin({ usuario, onLogout }) {
     const dados = await r.json();
     if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar reservas");
     setReservas(Array.isArray(dados) ? dados : []);
+  }, []);
+  const fetchReservaConfiguracao = useCallback(async () => {
+    const r = await authFetch(`${API}/api/reservas/configuracao`);
+    const dados = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(dados.erro || "Nao foi possivel carregar regras de reserva");
+    }
+    setReservaConfig(normalizarConfigReservaFrontend(dados.configuracao));
+    setReservaSaloes(Array.isArray(dados.saloes) ? dados.saloes : []);
   }, []);
   const recarregarReservas = useCallback(() => {
     fetchReservas().catch((error) =>
@@ -5005,6 +5234,9 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchMesas();
     fetchUsuarios();
     recarregarReservas();
+    fetchReservaConfiguracao().catch((error) =>
+      setReservaConfigStatus({ tipo: "error", mensagem: error.message }),
+    );
     fetchRelatorio("hoje");
     const s = getSocket();
     s.on("cardapio_atualizado", fetchCardapio);
@@ -5015,7 +5247,14 @@ function PainelAdmin({ usuario, onLogout }) {
       s.off("nova_reserva", recarregarReservas);
       s.off("reserva_atualizada", recarregarReservas);
     };
-  }, [fetchCardapio, fetchMesas, fetchUsuarios, recarregarReservas, fetchRelatorio]);
+  }, [
+    fetchCardapio,
+    fetchMesas,
+    fetchUsuarios,
+    recarregarReservas,
+    fetchReservaConfiguracao,
+    fetchRelatorio,
+  ]);
 
   useEffect(() => {
     fetchRestaurante().catch((error) => {
@@ -5135,6 +5374,107 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchMesas();
   };
 
+  const alterarDiaReservaConfig = (dia) => {
+    setReservaConfig((atual) => {
+      const dias = atual.dias_semana.map(Number);
+      const existe = dias.includes(dia);
+      const proximos = existe
+        ? dias.filter((item) => item !== dia)
+        : [...dias, dia].sort((a, b) => a - b);
+      return { ...atual, dias_semana: proximos.length ? proximos : dias };
+    });
+  };
+
+  const salvarReservaConfiguracao = async () => {
+    setReservaConfigStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/configuracao`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reservaConfig),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(dados.erro || "Nao foi possivel salvar regras");
+      }
+      setReservaConfig(normalizarConfigReservaFrontend(dados.configuracao));
+      setReservaSaloes(Array.isArray(dados.saloes) ? dados.saloes : []);
+      setReservaConfigStatus({ tipo: "success", mensagem: "Regras de reserva salvas." });
+    } catch (error) {
+      setReservaConfigStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  const adicionarSalaoReserva = async () => {
+    if (!novoSalaoReserva.nome.trim()) return;
+    setReservaConfigStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/saloes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...novoSalaoReserva,
+          capacidade_pessoas: Number(novoSalaoReserva.capacidade_pessoas),
+          ordem: reservaSaloes.length + 1,
+          ativo: 1,
+        }),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel criar salao");
+      setNovoSalaoReserva({ nome: "", capacidade_pessoas: 40 });
+      await fetchReservaConfiguracao();
+      setReservaConfigStatus({ tipo: "success", mensagem: "Salao criado." });
+    } catch (error) {
+      setReservaConfigStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  const atualizarSalaoReservaLocal = (id, campo, valor) => {
+    setReservaSaloes((atuais) =>
+      atuais.map((salao) =>
+        salao.id === id ? { ...salao, [campo]: valor } : salao,
+      ),
+    );
+  };
+
+  const salvarSalaoReserva = async (salao) => {
+    setReservaConfigStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/saloes/${salao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: salao.nome,
+          capacidade_pessoas: Number(salao.capacidade_pessoas),
+          ativo: Number(salao.ativo),
+          ordem: Number(salao.ordem || 0),
+        }),
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel salvar salao");
+      await fetchReservaConfiguracao();
+      setReservaConfigStatus({ tipo: "success", mensagem: "Salao salvo." });
+    } catch (error) {
+      setReservaConfigStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  const desativarSalaoReserva = async (salao) => {
+    if (!confirm(`Desativar ${salao.nome}?`)) return;
+    setReservaConfigStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const r = await authFetch(`${API}/api/reservas/saloes/${salao.id}`, {
+        method: "DELETE",
+      });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel desativar salao");
+      await fetchReservaConfiguracao();
+      setReservaConfigStatus({ tipo: "success", mensagem: "Salao desativado." });
+    } catch (error) {
+      setReservaConfigStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
   const salvarReservaAdmin = async () => {
     if (!novaReserva.nome_cliente.trim() || !novaReserva.telefone.trim()) return;
     setReservaStatus({ tipo: "loading", mensagem: "" });
@@ -5145,6 +5485,7 @@ function PainelAdmin({ usuario, onLogout }) {
         body: JSON.stringify({
           ...novaReserva,
           mesa_id: novaReserva.mesa_id || null,
+          salao_id: novaReserva.salao_id || null,
           quantidade_pessoas: Number(novaReserva.quantidade_pessoas),
         }),
       });
@@ -5160,6 +5501,7 @@ function PainelAdmin({ usuario, onLogout }) {
         horario: "19:30",
         quantidade_pessoas: 2,
         mesa_id: "",
+        salao_id: novaReserva.salao_id,
         observacao: "",
       });
       recarregarReservas();
@@ -5766,6 +6108,325 @@ function PainelAdmin({ usuario, onLogout }) {
                 <div
                   style={{
                     display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "'Manrope',sans-serif",
+                        fontSize: 17,
+                        fontWeight: 800,
+                      }}
+                    >
+                      Regras de disponibilidade
+                    </div>
+                    <div style={{ color: T.muted, fontSize: 12 }}>
+                      Controle dias, horários, limites por horário e capacidade por salão.
+                    </div>
+                  </div>
+                  <Btn
+                    sm
+                    type="button"
+                    onClick={salvarReservaConfiguracao}
+                    disabled={reservaConfigStatus.tipo === "loading"}
+                  >
+                    <Save size={14} />
+                    Salvar regras
+                  </Btn>
+                </div>
+
+                <div className="admin-form-grid">
+                  <select
+                    value={reservaConfig.ativo}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        ativo: Number(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value={1}>Reservas online ativas</option>
+                    <option value={0}>Reservas online pausadas</option>
+                  </select>
+                  <select
+                    value={reservaConfig.permitir_fila}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        permitir_fila: Number(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value={1}>Fila de espera ativa</option>
+                    <option value={0}>Fila de espera pausada</option>
+                  </select>
+                  <input
+                    type="time"
+                    value={reservaConfig.hora_inicio}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        hora_inicio: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="time"
+                    value={reservaConfig.hora_fim}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        hora_fim: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="15"
+                    max="240"
+                    placeholder="Intervalo entre horários (min)"
+                    value={reservaConfig.intervalo_minutos}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        intervalo_minutos: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="15"
+                    max="360"
+                    placeholder="Duração estimada (min)"
+                    value={reservaConfig.duracao_minutos}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        duracao_minutos: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="10080"
+                    placeholder="Antecedência mínima (min)"
+                    value={reservaConfig.antecedencia_minutos}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        antecedencia_minutos: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    placeholder="Agenda aberta por dias"
+                    value={reservaConfig.horizonte_dias}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        horizonte_dias: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Limite de reservas por horário (0 = sem limite)"
+                    value={reservaConfig.limite_reservas_horario}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        limite_reservas_horario: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Limite de pessoas por horário (0 = sem limite)"
+                    value={reservaConfig.limite_pessoas_horario}
+                    onChange={(e) =>
+                      setReservaConfig((atual) => ({
+                        ...atual,
+                        limite_pessoas_horario: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ color: T.muted, fontSize: 11, fontWeight: 800, marginBottom: 7 }}>
+                    DIAS COM RESERVA
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    {DIAS_SEMANA_RESERVA.map(([dia, label]) => {
+                      const ativoDia = reservaConfig.dias_semana.map(Number).includes(dia);
+                      return (
+                        <button
+                          key={dia}
+                          type="button"
+                          onClick={() => alterarDiaReservaConfig(dia)}
+                          style={{
+                            minWidth: 46,
+                            height: 34,
+                            borderRadius: 8,
+                            border: `1px solid ${ativoDia ? T.accent : T.border}`,
+                            background: ativoDia ? T.accentGlow : T.card2,
+                            color: ativoDia ? T.accent : T.muted,
+                            fontSize: 12,
+                            fontWeight: 800,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  role="status"
+                  style={{
+                    minHeight: 32,
+                    paddingTop: 10,
+                    color:
+                      reservaConfigStatus.tipo === "error"
+                        ? T.red
+                        : reservaConfigStatus.tipo === "success"
+                          ? T.green
+                          : T.muted,
+                    fontSize: 12,
+                    fontWeight: reservaConfigStatus.tipo === "success" ? 700 : 500,
+                  }}
+                >
+                  {reservaConfigStatus.mensagem}
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+                    gap: 10,
+                    marginTop: 4,
+                  }}
+                >
+                  {reservaSaloes.map((salao) => (
+                    <Card
+                      key={salao.id}
+                      style={{
+                        background: T.card2,
+                        opacity: Number(salao.ativo) === 1 ? 1 : 0.62,
+                      }}
+                    >
+                      <input
+                        value={salao.nome}
+                        onChange={(e) =>
+                          atualizarSalaoReservaLocal(salao.id, "nome", e.target.value)
+                        }
+                        style={{ marginBottom: 8 }}
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        value={salao.capacidade_pessoas}
+                        onChange={(e) =>
+                          atualizarSalaoReservaLocal(
+                            salao.id,
+                            "capacidade_pessoas",
+                            e.target.value,
+                          )
+                        }
+                        style={{ marginBottom: 8 }}
+                      />
+                      <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                        <Btn
+                          sm
+                          variant={Number(salao.ativo) === 1 ? "success" : "ghost"}
+                          type="button"
+                          onClick={() =>
+                            atualizarSalaoReservaLocal(
+                              salao.id,
+                              "ativo",
+                              Number(salao.ativo) === 1 ? 0 : 1,
+                            )
+                          }
+                        >
+                          {Number(salao.ativo) === 1 ? "Ativo" : "Inativo"}
+                        </Btn>
+                        <Btn
+                          sm
+                          variant="ghost"
+                          type="button"
+                          onClick={() => salvarSalaoReserva(salao)}
+                        >
+                          Salvar
+                        </Btn>
+                        <Btn
+                          sm
+                          variant="danger"
+                          type="button"
+                          onClick={() => desativarSalaoReserva(salao)}
+                        >
+                          Desativar
+                        </Btn>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+
+                <div
+                  className="admin-form-grid"
+                  style={{
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop: `1px solid ${T.border}`,
+                  }}
+                >
+                  <input
+                    placeholder="Novo salão/área"
+                    value={novoSalaoReserva.nome}
+                    onChange={(e) =>
+                      setNovoSalaoReserva((atual) => ({
+                        ...atual,
+                        nome: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Capacidade"
+                    value={novoSalaoReserva.capacidade_pessoas}
+                    onChange={(e) =>
+                      setNovoSalaoReserva((atual) => ({
+                        ...atual,
+                        capacidade_pessoas: e.target.value,
+                      }))
+                    }
+                  />
+                  <Btn
+                    type="button"
+                    onClick={adicionarSalaoReserva}
+                    disabled={!novoSalaoReserva.nome.trim()}
+                  >
+                    Adicionar salão
+                  </Btn>
+                </div>
+              </Card>
+
+              <Card style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 12,
@@ -5875,6 +6536,21 @@ function PainelAdmin({ usuario, onLogout }) {
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={novaReserva.salao_id}
+                    onChange={(e) =>
+                      setNovaReserva((r) => ({ ...r, salao_id: e.target.value }))
+                    }
+                  >
+                    <option value="">Sem salão definido</option>
+                    {reservaSaloes
+                      .filter((salao) => Number(salao.ativo) === 1)
+                      .map((salao) => (
+                        <option key={salao.id} value={salao.id}>
+                          {salao.nome} · {salao.capacidade_pessoas} pessoas
+                        </option>
+                      ))}
+                  </select>
                   <textarea
                     className="is-full"
                     placeholder="Observacao"
@@ -5982,6 +6658,7 @@ function PainelAdmin({ usuario, onLogout }) {
                         <div className="admin-reserva-meta">
                           {reserva.quantidade_pessoas} pessoa(s)
                           {reserva.mesa_numero ? ` · Mesa ${reserva.mesa_numero}` : ""}
+                          {reserva.salao_nome ? ` · ${reserva.salao_nome}` : ""}
                         </div>
                         <div className="admin-reserva-meta">
                           {reserva.tipo === "fila" ? "Fila de espera" : "Reserva programada"}
