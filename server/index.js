@@ -152,7 +152,7 @@ if (isProduction || process.env.TRUST_PROXY === "true") {
 
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", async (req, res) => {
   try {

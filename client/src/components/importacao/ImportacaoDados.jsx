@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   CheckCircle2,
+  Columns3,
   Download,
   FileSpreadsheet,
   LoaderCircle,
@@ -9,109 +10,58 @@ import {
 } from "lucide-react";
 import { API_URL } from "../../services/api.js";
 import { authFetch } from "../../services/auth.js";
+import {
+  criarPlanilha,
+  formatoArquivo,
+  mapearAutomaticamente,
+  mapearLinhas,
+  MAX_ARQUIVO_IMPORTACAO_BYTES,
+  parseCsv,
+  validarMapeamento,
+} from "./importacao-arquivos.js";
 import "./ImportacaoDados.css";
 
 const TIPOS = {
   produtos: {
     label: "Produtos",
     descricao: "Importa cardapio com categoria, preco, descricao e imagem.",
-    colunas: "categoria;nome;descricao;preco;imagem;disponivel",
+    campos: [
+      { id: "categoria", label: "Categoria", aliases: ["category", "grupo", "secao"] },
+      { id: "nome", label: "Nome", obrigatorio: true, aliases: ["produto", "name"] },
+      { id: "descricao", label: "Descricao", aliases: ["description", "detalhes"] },
+      { id: "preco", label: "Preco", obrigatorio: true, aliases: ["valor", "price", "preco_r$"] },
+      { id: "imagem", label: "Imagem", aliases: ["foto", "url_imagem", "image", "image_url"] },
+      { id: "disponivel", label: "Disponivel", aliases: ["ativo", "status_produto"] },
+    ],
   },
   categorias: {
     label: "Categorias",
     descricao: "Cria secoes do cardapio e suas ordens.",
-    colunas: "nome;ordem",
+    campos: [
+      { id: "nome", label: "Nome", obrigatorio: true, aliases: ["categoria", "name"] },
+      { id: "ordem", label: "Ordem", aliases: ["order", "posicao"] },
+    ],
   },
   mesas: {
     label: "Mesas",
     descricao: "Cria mesas ou balcoes do restaurante.",
-    colunas: "numero;status",
+    campos: [
+      { id: "numero", label: "Numero", obrigatorio: true, aliases: ["mesa", "identificacao"] },
+      { id: "status", label: "Status", aliases: ["situacao"] },
+    ],
   },
   usuarios: {
     label: "Usuarios",
     descricao: "Cria equipe com perfil, login e senha temporaria.",
-    colunas: "nome;login;role;senha;ativo",
+    campos: [
+      { id: "nome", label: "Nome", obrigatorio: true, aliases: ["name", "usuario"] },
+      { id: "login", label: "Login", aliases: ["user", "username"] },
+      { id: "role", label: "Perfil", aliases: ["perfil", "funcao", "cargo"] },
+      { id: "senha", label: "Senha", aliases: ["password", "senha_temporaria"] },
+      { id: "ativo", label: "Ativo", aliases: ["active", "habilitado"] },
+    ],
   },
 };
-
-function contarSeparador(linha, separador) {
-  let total = 0;
-  let dentroAspas = false;
-  for (let i = 0; i < linha.length; i += 1) {
-    const char = linha[i];
-    if (char === '"') dentroAspas = !dentroAspas;
-    if (!dentroAspas && char === separador) total += 1;
-  }
-  return total;
-}
-
-function detectarSeparador(texto) {
-  const primeiraLinha = texto.split(/\r?\n/).find((linha) => linha.trim()) || "";
-  return contarSeparador(primeiraLinha, ";") >= contarSeparador(primeiraLinha, ",")
-    ? ";"
-    : ",";
-}
-
-function parseCsv(texto) {
-  const conteudo = String(texto || "").replace(/^\uFEFF/, "");
-  const separador = detectarSeparador(conteudo);
-  const linhas = [];
-  let linha = [];
-  let valor = "";
-  let dentroAspas = false;
-
-  for (let i = 0; i < conteudo.length; i += 1) {
-    const char = conteudo[i];
-    const proximo = conteudo[i + 1];
-
-    if (char === '"' && dentroAspas && proximo === '"') {
-      valor += '"';
-      i += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      dentroAspas = !dentroAspas;
-      continue;
-    }
-
-    if (!dentroAspas && char === separador) {
-      linha.push(valor.trim());
-      valor = "";
-      continue;
-    }
-
-    if (!dentroAspas && (char === "\n" || char === "\r")) {
-      if (char === "\r" && proximo === "\n") i += 1;
-      linha.push(valor.trim());
-      if (linha.some(Boolean)) linhas.push(linha);
-      linha = [];
-      valor = "";
-      continue;
-    }
-
-    valor += char;
-  }
-
-  if (valor || linha.length) {
-    linha.push(valor.trim());
-    if (linha.some(Boolean)) linhas.push(linha);
-  }
-
-  if (linhas.length < 2) {
-    throw new Error("CSV precisa ter cabecalho e pelo menos uma linha de dados.");
-  }
-
-  const headers = linhas[0].map((header, index) => header || `coluna_${index + 1}`);
-  const rows = linhas.slice(1).map((valores) =>
-    headers.reduce((acc, header, index) => {
-      acc[header] = valores[index] ?? "";
-      return acc;
-    }, {}),
-  );
-
-  return { headers, rows };
-}
 
 function acaoLabel(acao) {
   return {
@@ -131,13 +81,26 @@ export default function ImportacaoDados({ onImported }) {
   const [tipo, setTipo] = useState("produtos");
   const [csvText, setCsvText] = useState("");
   const [arquivoNome, setArquivoNome] = useState("");
+  const [formato, setFormato] = useState("");
   const [parsed, setParsed] = useState(null);
+  const [mapeamento, setMapeamento] = useState({});
   const [atualizarExistentes, setAtualizarExistentes] = useState(false);
   const [analise, setAnalise] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
 
-  const linhasValidas = parsed?.rows?.length || 0;
+  const campos = TIPOS[tipo].campos;
+  const errosMapeamento = useMemo(
+    () => (parsed ? validarMapeamento(mapeamento, campos) : []),
+    [campos, mapeamento, parsed],
+  );
+  const linhasMapeadas = useMemo(
+    () => (parsed && errosMapeamento.length === 0
+      ? mapearLinhas(parsed, mapeamento, campos)
+      : []),
+    [campos, errosMapeamento.length, mapeamento, parsed],
+  );
+  const linhasValidas = linhasMapeadas.length;
   const preview = useMemo(() => analise?.preview?.slice(0, 80) || [], [analise]);
 
   const resetAnalise = () => {
@@ -146,20 +109,26 @@ export default function ImportacaoDados({ onImported }) {
     setStatus({ tipo: "idle", mensagem: "" });
   };
 
-  const carregarTexto = (texto, nome = "") => {
+  const carregarPlanilha = (planilha, nome, formatoArquivoAtual, texto = "") => {
+    setCsvText(texto);
+    setArquivoNome(nome);
+    setFormato(formatoArquivoAtual);
+    setParsed(planilha);
+    setMapeamento(mapearAutomaticamente(planilha.colunas, campos));
+    setAnalise(null);
+    setResultado(null);
+    setStatus({
+      tipo: "success",
+      mensagem: `${planilha.rows.length} linha(s) carregada(s). Confira o mapeamento.`,
+    });
+  };
+
+  const carregarTexto = (texto, nome = "conteudo-colado.csv") => {
     try {
-      const csv = parseCsv(texto);
-      setCsvText(texto);
-      setArquivoNome(nome);
-      setParsed(csv);
-      setAnalise(null);
-      setResultado(null);
-      setStatus({
-        tipo: "success",
-        mensagem: `${csv.rows.length} linha(s) carregada(s).`,
-      });
+      carregarPlanilha(parseCsv(texto), nome, "csv", texto);
     } catch (error) {
       setParsed(null);
+      setMapeamento({});
       setAnalise(null);
       setResultado(null);
       setStatus({ tipo: "error", mensagem: error.message });
@@ -170,11 +139,31 @@ export default function ImportacaoDados({ onImported }) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setStatus({ tipo: "error", mensagem: "Envie um arquivo CSV." });
+    const formatoSelecionado = formatoArquivo(file.name);
+    if (!formatoSelecionado) {
+      setStatus({ tipo: "error", mensagem: "Envie um arquivo CSV ou XLSX." });
       return;
     }
-    carregarTexto(await file.text(), file.name);
+    if (file.size > MAX_ARQUIVO_IMPORTACAO_BYTES) {
+      setStatus({ tipo: "error", mensagem: "O arquivo deve ter no maximo 5 MB." });
+      return;
+    }
+
+    setStatus({ tipo: "loading", mensagem: "Lendo arquivo..." });
+    try {
+      if (formatoSelecionado === "csv") {
+        const texto = await file.text();
+        carregarPlanilha(parseCsv(texto), file.name, formatoSelecionado, texto);
+        return;
+      }
+      const { readSheet } = await import("read-excel-file/browser");
+      const matriz = await readSheet(file);
+      carregarPlanilha(criarPlanilha(matriz), file.name, formatoSelecionado);
+    } catch (error) {
+      setParsed(null);
+      setMapeamento({});
+      setStatus({ tipo: "error", mensagem: error.message || "Nao foi possivel ler o arquivo." });
+    }
   };
 
   const baixarModelo = async () => {
@@ -200,13 +189,25 @@ export default function ImportacaoDados({ onImported }) {
 
   const payload = () => ({
     tipo,
-    rows: parsed?.rows || [],
+    rows: linhasMapeadas,
     atualizar_existentes: atualizarExistentes,
+    arquivo_nome: arquivoNome || "conteudo-colado.csv",
+    formato: formato || "csv",
+    mapeamento: Object.fromEntries(
+      campos.map((campo) => [
+        campo.id,
+        parsed?.colunas.find((coluna) => coluna.id === mapeamento[campo.id])?.nome || "",
+      ]),
+    ),
   });
 
   const validar = async () => {
     if (!parsed?.rows?.length) {
-      setStatus({ tipo: "error", mensagem: "Carregue ou cole um CSV antes de validar." });
+      setStatus({ tipo: "error", mensagem: "Carregue um CSV ou XLSX antes de validar." });
+      return;
+    }
+    if (errosMapeamento.length) {
+      setStatus({ tipo: "error", mensagem: errosMapeamento[0] });
       return;
     }
     setStatus({ tipo: "loading", mensagem: "Validando importacao..." });
@@ -233,7 +234,7 @@ export default function ImportacaoDados({ onImported }) {
 
   const executar = async () => {
     if (!analise?.pode_executar) {
-      setStatus({ tipo: "error", mensagem: "Valide um CSV sem erros antes de executar." });
+      setStatus({ tipo: "error", mensagem: "Valide o arquivo sem erros antes de executar." });
       return;
     }
     setStatus({ tipo: "loading", mensagem: "Importando dados..." });
@@ -259,7 +260,7 @@ export default function ImportacaoDados({ onImported }) {
       <div className="import-heading">
         <div>
           <span>Importacao de dados</span>
-          <h2>Migre dados de outro sistema via CSV</h2>
+          <h2>Migre dados de outro sistema via CSV ou Excel</h2>
         </div>
         <button type="button" className="import-secondary" onClick={baixarModelo}>
           <Download size={16} />
@@ -275,6 +276,7 @@ export default function ImportacaoDados({ onImported }) {
             className={`import-type ${tipo === id ? "is-active" : ""}`}
             onClick={() => {
               setTipo(id);
+              setMapeamento(parsed ? mapearAutomaticamente(parsed.colunas, item.campos) : {});
               resetAnalise();
             }}
           >
@@ -286,25 +288,88 @@ export default function ImportacaoDados({ onImported }) {
       </div>
 
       <div className="import-card">
-        <div className="import-card-title">Arquivo CSV</div>
-        <div className="import-template">Colunas: {TIPOS[tipo].colunas}</div>
+        <div className="import-card-title">Arquivo de dados</div>
+        <div className="import-template">
+          Campos aceitos: {campos.map((campo) => campo.id).join(", ")}
+        </div>
         <label className="import-drop">
           <Upload size={22} />
-          <strong>{arquivoNome || "Selecionar arquivo CSV"}</strong>
-          <small>Tambem e possivel colar o conteudo no campo abaixo.</small>
-          <input type="file" accept=".csv,text/csv" onChange={selecionarArquivo} />
+          <strong>{arquivoNome || "Selecionar arquivo CSV ou XLSX"}</strong>
+          <small>Primeira planilha do Excel, ate 500 linhas e 5 MB.</small>
+          <input
+            type="file"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={selecionarArquivo}
+          />
+        </label>
+        <label className="import-paste-label" htmlFor="import-csv-texto">
+          Colar CSV manualmente
         </label>
         <textarea
+          id="import-csv-texto"
           value={csvText}
           onChange={(event) => {
             setCsvText(event.target.value);
             setParsed(null);
+            setMapeamento({});
+            setArquivoNome("");
+            setFormato("");
             setAnalise(null);
             setResultado(null);
           }}
-          placeholder={`${TIPOS[tipo].colunas}\n...`}
-          rows={7}
+          placeholder={`${campos.map((campo) => campo.id).join(";")}\n...`}
+          rows={5}
         />
+
+        {parsed && (
+          <div className="import-mapping">
+            <div className="import-mapping-heading">
+              <Columns3 size={17} />
+              <div>
+                <strong>Mapeamento de colunas</strong>
+                <small>Confirme de onde vem cada campo antes de validar.</small>
+              </div>
+            </div>
+            <div className="import-mapping-grid">
+              {campos.map((campo) => (
+                <label key={campo.id}>
+                  <span>
+                    {campo.label}
+                    {campo.obrigatorio && <b>Obrigatorio</b>}
+                  </span>
+                  <select
+                    value={mapeamento[campo.id] || ""}
+                    aria-required={campo.obrigatorio || undefined}
+                    onChange={(event) => {
+                      setMapeamento((atual) => ({
+                        ...atual,
+                        [campo.id]: event.target.value,
+                      }));
+                      resetAnalise();
+                    }}
+                  >
+                    <option value="">Nao importar</option>
+                    {parsed.colunas.map((coluna) => (
+                      <option
+                        key={coluna.id}
+                        value={coluna.id}
+                        disabled={Object.entries(mapeamento).some(
+                          ([campoId, colunaId]) => campoId !== campo.id && colunaId === coluna.id,
+                        )}
+                      >
+                        {coluna.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            {errosMapeamento.length > 0 && (
+              <div className="import-mapping-errors">{errosMapeamento.join(" ")}</div>
+            )}
+          </div>
+        )}
+
         <div className="import-actions">
           <button
             type="button"
@@ -313,7 +378,7 @@ export default function ImportacaoDados({ onImported }) {
             disabled={!csvText.trim() || status.tipo === "loading"}
           >
             <RefreshCw size={16} />
-            Ler CSV
+            Ler CSV colado
           </button>
           <label className="import-check">
             <input
@@ -345,7 +410,7 @@ export default function ImportacaoDados({ onImported }) {
           </button>
         </div>
         <div className={`import-status import-status-${status.tipo}`} role="status">
-          {status.mensagem || "Aguardando arquivo CSV."}
+          {status.mensagem || "Aguardando arquivo CSV ou XLSX."}
         </div>
       </div>
 
