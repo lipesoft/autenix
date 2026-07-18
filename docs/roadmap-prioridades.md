@@ -48,14 +48,14 @@ e identidade visual.
   confirmar chegada, vincular mesa, acomodar, cancelar e reabrir reservas.
 - Implementado: reservas ligadas ao `restaurante_id` com RLS e acesso somente
   pelo backend tenant-aware.
+- Implementado: fila de espera para atendimento imediato, com status `fila` e
+  `chamada`.
+- Implementado: link publico de acompanhamento por codigo seguro da reserva.
+- Implementado: tela publica para o cliente acompanhar status, posicao na fila,
+  quantidade de grupos na frente e atualizacao automatica.
+- Implementado: garcom e admin podem colocar reserva na fila, chamar cliente,
+  voltar para fila, vincular mesa e acomodar.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
-- Pendente: criar fila de espera quando o restaurante estiver cheio ou sem mesa
-  disponivel para reserva imediata.
-- Pendente: permitir que o cliente acompanhe sua posicao na fila em uma tela
-  publica, atualizada conforme mesas forem liberadas e pessoas na frente forem
-  chamadas ou acomodadas.
-- Pendente: melhorar a experiencia do cliente com uma tela de acompanhamento da
-  reserva, incluindo status, horario, dados do restaurante e proximos passos.
 - Pendente: confirmacao automatica por email/WhatsApp.
 - Pendente: avaliar o melhor fluxo de notificacao entre WhatsApp do restaurante,
   email do cliente e link publico de acompanhamento da reserva.
