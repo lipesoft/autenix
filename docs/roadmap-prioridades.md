@@ -5,10 +5,16 @@ e identidade visual.
 
 ## Prioridade 1 - Planos e controle comercial
 
-- Melhorar o cadastro de restaurantes no painel da plataforma com planos, limites,
-  mensalidade, status comercial e ciclo de cobranca.
-- Aplicar limites do plano na operacao: mesas, usuarios e produtos.
-- Preparar a base para upgrades, downgrades e cobranca futura.
+- Implementado: cadastro de restaurantes no painel da plataforma com planos,
+  limites, mensalidade, status de cobranca, status comercial e ciclo de cobranca.
+- Implementado: campos comerciais de inicio do contrato, ultimo contato,
+  responsavel comercial e motivo de suspensao.
+- Implementado: limites do plano aplicados na operacao: mesas, usuarios,
+  produtos e importacao.
+- Implementado: alertas comerciais para trial vencendo, cobranca vencida ou
+  atrasada e uso alto/limite atingido.
+- Implementado: base para upgrades, downgrades e cobranca futura.
+- Pendente: historico formal de mudancas de plano e status comercial.
 
 ## Prioridade 1.1 - Importacao de dados
 
@@ -111,9 +117,11 @@ e identidade visual.
 
 ## Prioridade 5 - SaaS e cobranca
 
-- Criar dashboard SaaS com receita prevista, clientes ativos, suspensos e em teste.
-- Integrar gateway de pagamento.
-- Criar alertas de vencimento, atraso e limite de uso.
+- Implementado: dashboard SaaS no painel da plataforma com MRR previsto,
+  clientes ativos, trials e alertas comerciais.
+- Implementado: alertas de vencimento, atraso e limite de uso.
+- Pendente: integrar gateway de pagamento.
+- Pendente: gerar cobrancas, notas/recibos e reconciliacao automatica.
 
 ## Fase futura - Autenticacao Google
 
