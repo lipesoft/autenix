@@ -80,6 +80,13 @@ const {
   AuthSessionError,
   revalidarUsuarioToken,
 } = require("./lib/auth-session");
+const {
+  acaoMesaRateLimit,
+  acompanharReservaRateLimit,
+  criarReservaRateLimit,
+  leituraMesaRateLimit,
+  leituraPublicaRateLimit,
+} = require("./lib/request-limits");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -157,7 +164,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-app.get("/api/restaurantes/:slug/publico", async (req, res) => {
+app.get("/api/restaurantes/:slug/publico", leituraPublicaRateLimit, async (req, res) => {
   try {
     const restaurante = await buscarRestaurantePorSlug(req.params.slug);
     if (!restaurante) {
@@ -210,6 +217,13 @@ function processarUploadImagem(req, res, next) {
     if (error) return responderErroUpload(res, error);
     return next();
   });
+}
+
+function limitarSeSemAutenticacao(limitador) {
+  return (req, res, next) => {
+    if (req.headers.authorization) return next();
+    return limitador(req, res, next);
+  };
 }
 
 // ─── BANCO DE DADOS (PostgreSQL) ───────────────────────────────────────────
@@ -1413,7 +1427,7 @@ function emitirMesa(restauranteId, mesaId, evento, dados) {
 // ─── ROTAS API ─────────────────────────────────────────────────────────────
 
 // Cardápio
-app.get("/api/cardapio", async (req, res) => {
+app.get("/api/cardapio", leituraPublicaRateLimit, async (req, res) => {
   try {
     const restaurante = await buscarRestaurantePorSlug(
       req.query.restaurante_slug || "autenix",
@@ -1472,7 +1486,7 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
   }
 });
 
-app.get("/api/mesas/:id", async (req, res) => {
+app.get("/api/mesas/:id", leituraMesaRateLimit, async (req, res) => {
   try {
     const contexto = await buscarRestauranteDaMesa(
       req.params.id,
@@ -1537,7 +1551,7 @@ app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req,
 });
 
 // Fazer pedido (cliente)
-app.post("/api/pedidos", async (req, res) => {
+app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
   const { mesa_id, itens, nome_cliente, restaurante_slug } = req.body;
   if (!mesa_id || !itens?.length)
     return res.status(400).json({ erro: "Dados inválidos" });
@@ -1632,7 +1646,11 @@ app.post("/api/pedidos", async (req, res) => {
 });
 
 // Listar pedidos (cozinha/admin)
-app.get("/api/pedidos", protegerListagemPedidos, async (req, res) => {
+app.get(
+  "/api/pedidos",
+  limitarSeSemAutenticacao(leituraMesaRateLimit),
+  protegerListagemPedidos,
+  async (req, res) => {
   try {
     const { mesa_id, status, restaurante_slug } = req.query;
     let restauranteId = req.user?.restaurante_id;
@@ -1760,7 +1778,7 @@ app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), asy
 });
 
 // Cancelar item
-app.patch("/api/itens/:id/cancelar", async (req, res) => {
+app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
   try {
     const mesaId = Number(req.body?.mesa_id);
     if (!Number.isInteger(mesaId) || mesaId <= 0) {
@@ -1934,7 +1952,7 @@ app.post("/api/mesas/:id/atendimento/encerrar", autenticarJWT, autorizarRoles("g
 });
 
 // Chamar garçom
-app.post("/api/chamadas", async (req, res) => {
+app.post("/api/chamadas", acaoMesaRateLimit, async (req, res) => {
   try {
     const { mesa_id, motivo, nome_cliente, restaurante_slug } = req.body;
     const contexto = await buscarRestauranteDaMesa(
@@ -2026,7 +2044,7 @@ app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("garcom"), async (
   }
 });
 
-app.post("/api/reservas", async (req, res) => {
+app.post("/api/reservas", criarReservaRateLimit, async (req, res) => {
   try {
     const restaurante = await buscarRestaurantePorSlug(
       req.body?.restaurante_slug || "autenix",
@@ -2105,7 +2123,10 @@ app.post("/api/reservas", async (req, res) => {
   }
 });
 
-app.get("/api/reservas/acompanhar/:codigo", async (req, res) => {
+app.get(
+  "/api/reservas/acompanhar/:codigo",
+  acompanharReservaRateLimit,
+  async (req, res) => {
   try {
     const restaurante = await buscarRestaurantePorSlug(
       req.query.restaurante_slug || "autenix",
@@ -2146,7 +2167,10 @@ app.get("/api/reservas/acompanhar/:codigo", async (req, res) => {
   }
 });
 
-app.get("/api/reservas/disponibilidade", async (req, res) => {
+app.get(
+  "/api/reservas/disponibilidade",
+  leituraPublicaRateLimit,
+  async (req, res) => {
   try {
     const restaurante = await buscarRestaurantePorSlug(
       req.query.restaurante_slug || "autenix",
