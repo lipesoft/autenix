@@ -279,6 +279,8 @@ function gerarCSS(t = T) {
   .badge-entregue   { background: rgba(91,155,213,.12);  color: ${t.blue};    border: 1px solid rgba(91,155,213,.3); }
   .badge-cancelado  { background: rgba(224,92,92,.1);    color: ${t.red};     border: 1px solid rgba(224,92,92,.25); }
   .badge-confirmada { background: rgba(46,139,87,.10);   color: ${t.green};   border: 1px solid rgba(46,139,87,.28); }
+  .badge-fila       { background: rgba(231,143,64,.12);  color: ${t.amber};   border: 1px solid rgba(231,143,64,.3); }
+  .badge-chamada    { background: rgba(91,155,213,.12);  color: ${t.blue};    border: 1px solid rgba(91,155,213,.3); }
   .badge-cancelada  { background: rgba(224,92,92,.1);    color: ${t.red};     border: 1px solid rgba(224,92,92,.25); }
   .badge-concluida  { background: rgba(91,155,213,.12);  color: ${t.blue};    border: 1px solid rgba(91,155,213,.3); }
   @keyframes fadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
@@ -557,6 +559,8 @@ function Badge({ status }) {
     finalizado: "Finalizado",
     entregue: "Entregue",
     confirmada: "Confirmada",
+    fila: "Na fila",
+    chamada: "Chamado",
     cancelada: "Cancelada",
     concluida: "Concluida",
   };
@@ -918,6 +922,16 @@ function dataReservaInicial() {
   return dataLocalISO(data);
 }
 
+function horaLocalHHMM(data = new Date()) {
+  const horas = String(data.getHours()).padStart(2, "0");
+  const minutos = String(data.getMinutes()).padStart(2, "0");
+  return `${horas}:${minutos}`;
+}
+
+function urlAbsoluta(caminho) {
+  return new URL(caminho, window.location.origin).toString();
+}
+
 function formatarDataReserva(data) {
   const partes = String(data || "").split("-");
   if (partes.length !== 3) return data || "-";
@@ -927,6 +941,7 @@ function formatarDataReserva(data) {
 function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   const marca = useBranding();
   const css = gerarCSS(T);
+  const [modo, setModo] = useState("reserva");
   const [form, setForm] = useState({
     nome_cliente: "",
     telefone: "",
@@ -937,18 +952,55 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     observacao: "",
   });
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [disponibilidade, setDisponibilidade] = useState(null);
+  const [acompanhamento, setAcompanhamento] = useState(null);
 
   useEffect(() => {
     document.title = `Reservas - ${marca.nome}`;
   }, [marca.nome]);
 
+  useEffect(() => {
+    let ativo = true;
+    fetch(apiComRestaurante("/api/reservas/disponibilidade", restauranteSlug))
+      .then((resposta) => resposta.json())
+      .then((dados) => {
+        if (ativo) setDisponibilidade(dados);
+      })
+      .catch(() => {
+        if (ativo) setDisponibilidade(null);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [restauranteSlug]);
+
   const atualizar = (campo, valor) => {
     setForm((atual) => ({ ...atual, [campo]: valor }));
+  };
+
+  const selecionarModo = (novoModo) => {
+    setModo(novoModo);
+    setStatus({ tipo: "idle", mensagem: "" });
+    setAcompanhamento(null);
+    if (novoModo === "fila") {
+      setForm((atual) => ({
+        ...atual,
+        data_reserva: dataLocalISO(),
+        horario: horaLocalHHMM(),
+      }));
+    } else {
+      setForm((atual) => ({
+        ...atual,
+        data_reserva: dataReservaInicial(),
+        horario: atual.horario || "19:30",
+      }));
+    }
   };
 
   const enviar = async (event) => {
     event.preventDefault();
     setStatus({ tipo: "loading", mensagem: "" });
+    setAcompanhamento(null);
     try {
       const resposta = await fetch(`${API}/api/reservas`, {
         method: "POST",
@@ -957,15 +1009,29 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
           ...form,
           restaurante_slug: restauranteSlug,
           quantidade_pessoas: Number(form.quantidade_pessoas),
+          tipo: modo,
         }),
       });
       const dados = await resposta.json().catch(() => ({}));
       if (!resposta.ok) {
         throw new Error(dados.erro || "Nao foi possivel enviar a reserva");
       }
+      const linkAcompanhamento = dados.acompanhamento_url
+        ? new URL(dados.acompanhamento_url).pathname
+        : rotaRestaurante(
+          restauranteSlug,
+          `reservas/acompanhar/${dados.reserva?.codigo_acompanhamento || ""}`,
+        );
+      setAcompanhamento({
+        reserva: dados.reserva,
+        caminho: linkAcompanhamento,
+      });
       setStatus({
         tipo: "success",
-        mensagem: `Reserva recebida para ${formatarDataReserva(form.data_reserva)} as ${form.horario}.`,
+        mensagem:
+          modo === "fila"
+            ? "Voce entrou na fila de espera. Acompanhe sua posicao pelo link abaixo."
+            : `Reserva recebida para ${formatarDataReserva(form.data_reserva)} as ${form.horario}.`,
       });
       setForm((atual) => ({
         ...atual,
@@ -1057,7 +1123,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 maxWidth: 620,
               }}
             >
-              Reserve sua mesa com praticidade.
+              Reserve sua mesa ou entre na fila.
             </h1>
             <p
               style={{
@@ -1067,15 +1133,22 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 maxWidth: 520,
               }}
             >
-              Envie os dados da sua reserva e acompanhe a confirmacao pelo contato
-              informado.
+              Escolha uma reserva programada ou entre na fila de espera quando
+              chegar ao restaurante.
             </p>
           </div>
           <div className="public-reserva-highlights">
             {[
               ["Tempo real", "Equipe recebe na hora"],
-              ["Mesa", "Vinculo interno opcional"],
-              ["Historico", "Agenda por restaurante"],
+              [
+                "Fila",
+                disponibilidade?.restaurante_cheio
+                  ? "Restaurante cheio agora"
+                  : disponibilidade
+                    ? `${disponibilidade.mesas_livres} mesa(s) livres`
+                    : "Acompanhamento publico",
+              ],
+              ["Status", "Cliente acompanha pelo link"],
             ].map(([titulo, texto]) => (
               <div
                 key={titulo}
@@ -1109,7 +1182,41 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
             Dados da reserva
           </div>
           <div style={{ color: T.text2, fontSize: 13, marginBottom: 18 }}>
-            Preencha os campos para solicitar a reserva.
+            {modo === "fila"
+              ? "Use esta opcao para atendimento imediato quando o restaurante estiver cheio."
+              : "Preencha os campos para solicitar a reserva."}
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
+            {[
+              ["reserva", "Reserva programada"],
+              ["fila", "Fila agora"],
+            ].map(([valor, label]) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => selecionarModo(valor)}
+                style={{
+                  minHeight: 42,
+                  borderRadius: 8,
+                  border: `1px solid ${modo === valor ? T.accent : T.border}`,
+                  background: modo === valor ? T.accentGlow : T.card2,
+                  color: modo === valor ? T.accent : T.text2,
+                  cursor: "pointer",
+                  fontFamily: "Inter,sans-serif",
+                  fontSize: 13,
+                  fontWeight: 800,
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <form onSubmit={enviar}>
             <div className="admin-form-grid">
@@ -1137,12 +1244,14 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 min={dataLocalISO()}
                 value={form.data_reserva}
                 onChange={(e) => atualizar("data_reserva", e.target.value)}
+                disabled={modo === "fila"}
                 required
               />
               <input
                 type="time"
                 value={form.horario}
                 onChange={(e) => atualizar("horario", e.target.value)}
+                disabled={modo === "fila"}
                 required
               />
               <input
@@ -1178,6 +1287,34 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
             >
               {status.mensagem}
             </div>
+            {acompanhamento?.caminho && (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 8,
+                  padding: 12,
+                  marginBottom: 12,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 8,
+                  background: T.card2,
+                }}
+              >
+                <div style={{ color: T.text2, fontSize: 12, fontWeight: 700 }}>
+                  Link de acompanhamento
+                </div>
+                <a
+                  href={acompanhamento.caminho}
+                  style={{
+                    color: T.accent,
+                    fontSize: 13,
+                    fontWeight: 800,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {urlAbsoluta(acompanhamento.caminho)}
+                </a>
+              </div>
+            )}
             <Btn
               full
               disabled={
@@ -1186,9 +1323,175 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 !form.telefone.trim()
               }
             >
-              {status.tipo === "loading" ? "Enviando..." : "Solicitar reserva"}
+              {status.tipo === "loading"
+                ? "Enviando..."
+                : modo === "fila"
+                  ? "Entrar na fila"
+                  : "Solicitar reserva"}
             </Btn>
           </form>
+        </Card>
+      </main>
+    </div>
+  );
+}
+
+function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
+  const marca = useBranding();
+  const css = gerarCSS(T);
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(true);
+
+  const carregar = useCallback(async () => {
+    try {
+      const resposta = await fetch(
+        apiComRestaurante(`/api/reservas/acompanhar/${codigo}`, restauranteSlug),
+      );
+      const json = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(json.erro || "Nao foi possivel carregar o acompanhamento");
+      }
+      setDados(json);
+      setErro("");
+    } catch (error) {
+      setErro(error.message);
+    } finally {
+      setCarregando(false);
+    }
+  }, [codigo, restauranteSlug]);
+
+  useEffect(() => {
+    document.title = `Acompanhar reserva - ${marca.nome}`;
+  }, [marca.nome]);
+
+  useEffect(() => {
+    carregar();
+    const intervalo = window.setInterval(carregar, 15000);
+    return () => window.clearInterval(intervalo);
+  }, [carregar]);
+
+  const reserva = dados?.reserva;
+  const statusTexto = {
+    pendente: "Solicitacao recebida",
+    confirmada: "Reserva confirmada",
+    fila: "Voce esta na fila",
+    chamada: "Sua mesa esta sendo chamada",
+    concluida: "Atendimento iniciado",
+    cancelada: "Reserva cancelada",
+  }[reserva?.status] || "Acompanhamento";
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: `linear-gradient(180deg,${T.bg2} 0%,${T.bg} 52%)`,
+      }}
+    >
+      <style>{css}</style>
+      <header className="panel-header">
+        <div className="panel-header-main">
+          <Logo />
+          <div className="panel-header-copy">
+            <div className="panel-header-title">Acompanhamento</div>
+            <div className="panel-header-subtitle">{marca.nome}</div>
+          </div>
+        </div>
+      </header>
+
+      <main
+        style={{
+          width: "min(720px, calc(100% - 28px))",
+          margin: "0 auto",
+          padding: "34px 0 48px",
+        }}
+      >
+        <Card style={{ padding: 24, textAlign: "center" }}>
+          {carregando && (
+            <div style={{ color: T.muted, fontSize: 14 }}>Carregando...</div>
+          )}
+          {!carregando && erro && (
+            <>
+              <div
+                style={{
+                  fontFamily: "'Manrope',sans-serif",
+                  fontSize: 24,
+                  fontWeight: 800,
+                  marginBottom: 8,
+                }}
+              >
+                Nao encontramos esta reserva
+              </div>
+              <div style={{ color: T.red, fontSize: 13 }}>{erro}</div>
+            </>
+          )}
+          {!carregando && reserva && (
+            <>
+              <Badge status={reserva.status} />
+              <h1
+                style={{
+                  fontFamily: "'Manrope',sans-serif",
+                  fontSize: "clamp(28px, 7vw, 46px)",
+                  lineHeight: 1.05,
+                  margin: "18px 0 8px",
+                  letterSpacing: 0,
+                }}
+              >
+                {statusTexto}
+              </h1>
+              <div style={{ color: T.text2, fontSize: 15 }}>
+                {reserva.nome_cliente} · {reserva.quantidade_pessoas} pessoa(s)
+              </div>
+              <div style={{ color: T.muted, fontSize: 13, marginTop: 6 }}>
+                {formatarDataReserva(reserva.data_reserva)} as {reserva.horario}
+                {reserva.mesa_numero ? ` · Mesa ${reserva.mesa_numero}` : ""}
+              </div>
+
+              {reserva.status === "fila" && (
+                <div
+                  style={{
+                    margin: "26px auto 0",
+                    width: "min(280px, 100%)",
+                    padding: 18,
+                    borderRadius: 8,
+                    border: `1px solid ${T.border}`,
+                    background: T.card2,
+                  }}
+                >
+                  <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>
+                    SUA POSICAO
+                  </div>
+                  <div
+                    style={{
+                      color: T.accent,
+                      fontFamily: "'Manrope',sans-serif",
+                      fontSize: 54,
+                      fontWeight: 900,
+                      lineHeight: 1,
+                      marginTop: 6,
+                    }}
+                  >
+                    {reserva.posicao_fila || "-"}
+                  </div>
+                  <div style={{ color: T.text2, fontSize: 13, marginTop: 8 }}>
+                    {reserva.pessoas_antes
+                      ? `${reserva.pessoas_antes} grupo(s) na frente`
+                      : "Voce e o proximo da fila"}
+                  </div>
+                </div>
+              )}
+
+              {reserva.status === "chamada" && (
+                <div style={{ color: T.green, fontSize: 15, fontWeight: 800, marginTop: 24 }}>
+                  Procure a equipe do restaurante para ser acomodado.
+                </div>
+              )}
+
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 24 }}>
+                Atualizacao automatica a cada 15 segundos.
+              </div>
+            </>
+          )}
         </Card>
       </main>
     </div>
@@ -2617,9 +2920,11 @@ function PainelGarcom({ usuario, onLogout }) {
     (reserva) => reserva.data_reserva === dataLocalISO(),
   );
   const reservasAtivasGarcom = reservasGarcom.filter((reserva) =>
-    ["pendente", "confirmada"].includes(reserva.status),
+    ["pendente", "confirmada", "fila", "chamada"].includes(reserva.status),
   );
   const reservasSemMesaGarcom = reservasAtivasGarcom.filter((reserva) => !reserva.mesa_id);
+  const reservasFilaGarcom = reservasGarcom.filter((reserva) => reserva.status === "fila");
+  const reservasChamadasGarcom = reservasGarcom.filter((reserva) => reserva.status === "chamada");
   const mesasDisponiveisParaReserva = (reserva) =>
     mesas.filter(
       (mesa) =>
@@ -2952,7 +3257,9 @@ function PainelGarcom({ usuario, onLogout }) {
                 {[
                   ["Hoje", reservasHojeGarcom.length, T.accent],
                   ["Ativas", reservasAtivasGarcom.length, T.green],
-                  ["Sem mesa", reservasSemMesaGarcom.length, T.amber],
+                  ["Fila", reservasFilaGarcom.length, T.amber],
+                  ["Chamados", reservasChamadasGarcom.length, T.green],
+                  ["Sem mesa", reservasSemMesaGarcom.length, T.muted],
                 ].map(([label, total, cor]) => (
                   <Card key={label} style={{ background: T.card2 }}>
                     <div style={{ color: T.muted, fontSize: 12, marginBottom: 4 }}>
@@ -3041,6 +3348,15 @@ function PainelGarcom({ usuario, onLogout }) {
                             {reserva.quantidade_pessoas} pessoa(s) · {reserva.telefone}
                             {reserva.email ? ` · ${reserva.email}` : ""}
                           </div>
+                          <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
+                            {reserva.tipo === "fila" ? "Fila de espera" : "Reserva programada"}
+                            {reserva.status === "fila" && reserva.posicao_fila
+                              ? ` · Posicao ${reserva.posicao_fila}`
+                              : ""}
+                            {reserva.codigo_acompanhamento
+                              ? ` · Cod. ${reserva.codigo_acompanhamento}`
+                              : ""}
+                          </div>
                           {reserva.observacao && (
                             <div style={{ color: T.muted, fontSize: 12, marginTop: 6 }}>
                               {reserva.observacao}
@@ -3106,17 +3422,47 @@ function PainelGarcom({ usuario, onLogout }) {
                             Confirmar chegada
                           </Btn>
                         )}
-                        {reserva.status === "confirmada" && (
+                        {["pendente", "confirmada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="amber"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "fila")}
+                          >
+                            Colocar na fila
+                          </Btn>
+                        )}
+                        {reserva.status === "fila" && (
                           <Btn
                             sm
                             variant="info"
                             disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "chamada")}
+                          >
+                            Chamar cliente
+                          </Btn>
+                        )}
+                        {reserva.status === "chamada" && (
+                          <Btn
+                            sm
+                            variant="ghost"
+                            disabled={atualizando}
+                            onClick={() => alterarReservaGarcom(reserva, "fila")}
+                          >
+                            Voltar para fila
+                          </Btn>
+                        )}
+                        {["confirmada", "fila", "chamada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="success"
+                            disabled={atualizando || !reserva.mesa_id}
                             onClick={() => alterarReservaGarcom(reserva, "concluida")}
                           >
                             Acomodar
                           </Btn>
                         )}
-                        {["pendente", "confirmada"].includes(reserva.status) && (
+                        {["pendente", "confirmada", "fila", "chamada"].includes(reserva.status) && (
                           <Btn
                             sm
                             variant="danger"
@@ -3141,6 +3487,12 @@ function PainelGarcom({ usuario, onLogout }) {
                             Atualizando...
                           </span>
                         )}
+                        {!reserva.mesa_id &&
+                          ["confirmada", "fila", "chamada"].includes(reserva.status) && (
+                            <span style={{ color: T.muted, fontSize: 12, alignSelf: "center" }}>
+                              Defina uma mesa para acomodar.
+                            </span>
+                          )}
                       </div>
                     </Card>
                   );
@@ -4092,6 +4444,7 @@ function PainelAdmin({ usuario, onLogout }) {
   const [reservas, setReservas] = useState([]);
   const [reservaStatus, setReservaStatus] = useState({ tipo: "idle", mensagem: "" });
   const [novaReserva, setNovaReserva] = useState({
+    tipo: "reserva",
     nome_cliente: "",
     telefone: "",
     email: "",
@@ -4305,6 +4658,7 @@ function PainelAdmin({ usuario, onLogout }) {
       if (!r.ok) throw new Error(dados.erro || "Nao foi possivel criar reserva");
       setReservaStatus({ tipo: "success", mensagem: "Reserva criada." });
       setNovaReserva({
+        tipo: "reserva",
         nome_cliente: "",
         telefone: "",
         email: "",
@@ -4320,13 +4674,27 @@ function PainelAdmin({ usuario, onLogout }) {
     }
   };
 
-  const alterarStatusReserva = async (id, status) => {
+  const alterarTipoNovaReserva = (tipo) => {
+    setReservaStatus({ tipo: "idle", mensagem: "" });
+    setNovaReserva((atual) => ({
+      ...atual,
+      tipo,
+      data_reserva: tipo === "fila" ? dataLocalISO() : dataReservaInicial(),
+      horario: tipo === "fila" ? horaLocalHHMM() : atual.horario || "19:30",
+      mesa_id: tipo === "fila" ? "" : atual.mesa_id,
+    }));
+  };
+
+  const alterarStatusReserva = async (id, status, mesaId) => {
     setReservaStatus({ tipo: "loading", mensagem: "" });
     try {
       const r = await authFetch(`${API}/api/reservas/${id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          ...(mesaId !== undefined ? { mesa_id: mesaId || null } : {}),
+        }),
       });
       const dados = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(dados.erro || "Nao foi possivel atualizar reserva");
@@ -4336,6 +4704,12 @@ function PainelAdmin({ usuario, onLogout }) {
       setReservaStatus({ tipo: "error", mensagem: error.message });
     }
   };
+
+  const mesasDisponiveisParaReservaAdmin = (reserva) =>
+    mesas.filter(
+      (mesa) =>
+        mesa.status === "livre" || String(mesa.id) === String(reserva.mesa_id),
+    );
 
   const produtosFiltrados = cardapio.produtos.filter(
     (p) =>
@@ -4917,6 +5291,13 @@ function PainelAdmin({ usuario, onLogout }) {
                       setNovaReserva((r) => ({ ...r, email: e.target.value }))
                     }
                   />
+                  <select
+                    value={novaReserva.tipo}
+                    onChange={(e) => alterarTipoNovaReserva(e.target.value)}
+                  >
+                    <option value="reserva">Reserva programada</option>
+                    <option value="fila">Fila de espera agora</option>
+                  </select>
                   <input
                     type="date"
                     min={dataLocalISO()}
@@ -4924,6 +5305,7 @@ function PainelAdmin({ usuario, onLogout }) {
                     onChange={(e) =>
                       setNovaReserva((r) => ({ ...r, data_reserva: e.target.value }))
                     }
+                    disabled={novaReserva.tipo === "fila"}
                   />
                   <input
                     type="time"
@@ -4931,6 +5313,7 @@ function PainelAdmin({ usuario, onLogout }) {
                     onChange={(e) =>
                       setNovaReserva((r) => ({ ...r, horario: e.target.value }))
                     }
+                    disabled={novaReserva.tipo === "fila"}
                   />
                   <input
                     type="number"
@@ -4992,7 +5375,11 @@ function PainelAdmin({ usuario, onLogout }) {
                     !novaReserva.telefone.trim()
                   }
                 >
-                  {reservaStatus.tipo === "loading" ? "Salvando" : "Criar Reserva"}
+                  {reservaStatus.tipo === "loading"
+                    ? "Salvando"
+                    : novaReserva.tipo === "fila"
+                      ? "Criar Fila"
+                      : "Criar Reserva"}
                 </Btn>
               </Card>
 
@@ -5004,17 +5391,24 @@ function PainelAdmin({ usuario, onLogout }) {
                   marginBottom: 16,
                 }}
               >
-                {["pendente", "confirmada", "concluida", "cancelada"].map((status) => (
+                {[
+                  ["pendente", "Pendentes", T.accent],
+                  ["confirmada", "Confirmadas", T.green],
+                  ["fila", "Na fila", T.amber],
+                  ["chamada", "Chamados", T.blue],
+                  ["concluida", "Concluidas", T.blue],
+                  ["cancelada", "Canceladas", T.red],
+                ].map(([status, label, cor]) => (
                   <Card key={status} style={{ background: T.card2 }}>
                     <div style={{ color: T.muted, fontSize: 12, marginBottom: 4 }}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                      {label}
                     </div>
                     <div
                       style={{
                         fontFamily: "'Manrope',sans-serif",
                         fontSize: 28,
                         fontWeight: 800,
-                        color: status === "cancelada" ? T.red : T.accent,
+                        color: cor,
                       }}
                     >
                       {reservas.filter((reserva) => reserva.status === status).length}
@@ -5030,7 +5424,9 @@ function PainelAdmin({ usuario, onLogout }) {
                   </div>
                 </Card>
               ) : (
-                reservas.map((reserva) => (
+                reservas.map((reserva) => {
+                  const mesasDaReserva = mesasDisponiveisParaReservaAdmin(reserva);
+                  return (
                   <Card key={reserva.id} style={{ marginBottom: 8 }}>
                     <div className="admin-reserva-row">
                       <div className="admin-reserva-copy">
@@ -5052,6 +5448,41 @@ function PainelAdmin({ usuario, onLogout }) {
                           {reserva.quantidade_pessoas} pessoa(s)
                           {reserva.mesa_numero ? ` · Mesa ${reserva.mesa_numero}` : ""}
                         </div>
+                        <div className="admin-reserva-meta">
+                          {reserva.tipo === "fila" ? "Fila de espera" : "Reserva programada"}
+                          {reserva.status === "fila" && reserva.posicao_fila
+                            ? ` · Posicao ${reserva.posicao_fila}`
+                            : ""}
+                          {reserva.codigo_acompanhamento
+                            ? ` · Cod. ${reserva.codigo_acompanhamento}`
+                            : ""}
+                        </div>
+                      </div>
+                      <div>
+                        <select
+                          value={reserva.mesa_id || ""}
+                          disabled={["concluida", "cancelada"].includes(reserva.status)}
+                          onChange={(e) =>
+                            alterarStatusReserva(reserva.id, reserva.status, e.target.value)
+                          }
+                          style={{
+                            minWidth: 150,
+                            height: 36,
+                            border: `1px solid ${T.border2}`,
+                            borderRadius: 8,
+                            background: T.card2,
+                            color: T.text,
+                            fontSize: 13,
+                            padding: "0 10px",
+                          }}
+                        >
+                          <option value="">Sem mesa</option>
+                          {mesasDaReserva.map((mesa) => (
+                            <option key={mesa.id} value={mesa.id}>
+                              Mesa {mesa.numero}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="admin-reserva-actions">
                         {reserva.status === "pendente" && (
@@ -5063,16 +5494,44 @@ function PainelAdmin({ usuario, onLogout }) {
                             Confirmar
                           </Btn>
                         )}
-                        {reserva.status === "confirmada" && (
+                        {["pendente", "confirmada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="amber"
+                            onClick={() => alterarStatusReserva(reserva.id, "fila")}
+                          >
+                            Fila
+                          </Btn>
+                        )}
+                        {reserva.status === "fila" && (
                           <Btn
                             sm
                             variant="info"
-                            onClick={() => alterarStatusReserva(reserva.id, "concluida")}
+                            onClick={() => alterarStatusReserva(reserva.id, "chamada")}
                           >
-                            Concluir
+                            Chamar
                           </Btn>
                         )}
-                        {["pendente", "confirmada"].includes(reserva.status) && (
+                        {reserva.status === "chamada" && (
+                          <Btn
+                            sm
+                            variant="ghost"
+                            onClick={() => alterarStatusReserva(reserva.id, "fila")}
+                          >
+                            Voltar fila
+                          </Btn>
+                        )}
+                        {["confirmada", "fila", "chamada"].includes(reserva.status) && (
+                          <Btn
+                            sm
+                            variant="success"
+                            disabled={!reserva.mesa_id}
+                            onClick={() => alterarStatusReserva(reserva.id, "concluida")}
+                          >
+                            Acomodar
+                          </Btn>
+                        )}
+                        {["pendente", "confirmada", "fila", "chamada"].includes(reserva.status) && (
                           <Btn
                             sm
                             variant="danger"
@@ -5093,7 +5552,8 @@ function PainelAdmin({ usuario, onLogout }) {
                       </div>
                     </div>
                   </Card>
-                ))
+                  );
+                })
               )}
             </div>
           )}
@@ -5722,8 +6182,12 @@ function analisarRota(path, usuario) {
     : area === "cliente"
       ? "1"
       : null;
+  const reservaCodigo = area === "reservas" &&
+    (escopada ? partes[3] : partes[1]) === "acompanhar"
+    ? (escopada ? partes[4] : partes[2])
+    : null;
 
-  return { area, escopada, mesaId, slug };
+  return { area, escopada, mesaId, reservaCodigo, slug };
 }
 
 function AppContent() {
@@ -5777,6 +6241,14 @@ function AppContent() {
   }
 
   if (rota.area === "reservas") {
+    if (rota.reservaCodigo) {
+      return (
+        <TelaAcompanhamentoReserva
+          restauranteSlug={rota.slug}
+          codigo={rota.reservaCodigo}
+        />
+      );
+    }
     return <TelaReservasPublicas restauranteSlug={rota.slug} />;
   }
 
