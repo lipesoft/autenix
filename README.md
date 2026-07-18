@@ -202,6 +202,7 @@ Variaveis:
 - Relatorios
 - Reset da numeracao diaria
 - Historico de comandas
+- Importacao CSV e XLSX com mapeamento, historico e rollback
 - Fluxo mobile, tablet e notebook
 
 ## Observacoes de seguranca
@@ -224,4 +225,4 @@ Variaveis:
 - `node --check` do backend e scripts passa.
 - `npm test` do backend cobre autenticacao, RLS auxiliar, reservas, importacao,
   migrations, rate limit, upload, white label e provisionamento.
-- `npm run lint` do frontend ainda falha por problemas preexistentes em `client/src/App.jsx` nao relacionados a autenticacao.
+- `npm test`, `npm run lint` e `npm run build` do frontend passam.

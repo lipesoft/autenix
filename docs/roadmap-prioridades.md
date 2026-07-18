@@ -1,7 +1,7 @@
 # Roadmap de prioridades
 
 Status atualizado apos a base multi-restaurante, painel da plataforma, white label,
-reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
+reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
 
 ## Visao executiva
 
@@ -54,15 +54,17 @@ reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
 
 ## Prioridade 1.1 - Importacao de dados
 
-- Implementado: importacao CSV de categorias, produtos, mesas e usuarios pelo
+- Implementado: importacao CSV e XLSX de categorias, produtos, mesas e usuarios pelo
   painel administrativo do restaurante.
 - Implementado: validacao previa, preview de acoes, modelos CSV e respeito aos
   limites do plano.
-- Proxima demanda recomendada: historico formal de importacoes com usuario,
+- Implementado: mapeamento manual e automatico das colunas antes da validacao.
+- Implementado: historico formal de importacoes com usuario,
   data, tipo, quantidade de linhas, criados, atualizados, ignorados e erros.
-- Pendente: rollback de importacao recente com rastreio dos registros criados e
-  alterados.
-- Pendente: importacao direta de `.xlsx`.
+- Implementado: detalhe dos registros afetados sem expor snapshots internos ou
+  hashes de senha no frontend.
+- Implementado: rollback transacional por 24 horas, isolado por restaurante e
+  bloqueado quando o registro foi alterado ou usado depois da importacao.
 - Pendente: importadores especificos por sistema concorrente.
 - Pendente: importar imagens de produtos por arquivo e vincular ao cadastro.
 
