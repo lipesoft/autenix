@@ -22,21 +22,22 @@ reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
 - Implementado: QR Code de mesa com token de sessao, hash no banco e expiracao.
 - Implementado: `service_role` usado somente no backend para Storage, nao no
   frontend.
-- Pendente critico: revogar `SELECT` direto de `anon` e `authenticated` em
-  `categorias` e `produtos`, removendo o bypass pela Data API do Supabase.
-- Pendente critico: remover ou substituir policies publicas antigas
-  `categorias_public_read_active` e `produtos_public_read_active`, ja que o
-  cardapio publico deve passar pelo backend.
-- Pendente: revalidar usuario ativo no banco em rotas sensiveis ou criar
-  controle de sessao para revogar JWT antes do vencimento.
-- Pendente: adicionar rate limit em endpoints publicos de pedido, chamada,
-  reserva, acompanhamento e consulta de disponibilidade.
-- Pendente: fortalecer upload de imagens com validacao de assinatura real do
-  arquivo, remocao de EXIF e conversao para formato seguro.
+- Implementado: `SELECT` direto de `anon` e `authenticated` revogado em
+  `categorias` e `produtos`; o cardapio passa somente pelo backend tenant-aware.
+- Implementado: policies publicas antigas `categorias_public_read_active` e
+  `produtos_public_read_active` removidas.
+- Implementado: usuario, role e restaurante ativo revalidados no banco em cada
+  requisicao autenticada e na conexao Socket.IO.
+- Implementado: rate limit em pedido, chamada, cancelamento, reserva,
+  acompanhamento, disponibilidade e demais leituras publicas.
+- Implementado: upload com validacao da assinatura real, limite de pixels,
+  remocao de metadados e conversao segura para WebP.
 - Pendente: rotacionar tokens operacionais compartilhados fora da Vercel e
   manter somente variaveis criptografadas no provedor.
-- Pendente: executar advisors do Supabase apos migrations e corrigir alertas de
-  seguranca/performance.
+- Implementado: advisors do Supabase executados sem alertas de seguranca; as
+  chaves estrangeiras compostas apontadas pelo advisor foram indexadas.
+- Pendente: reavaliar indices marcados como nao usados depois de acumular trafego
+  real suficiente para uma decisao segura.
 
 ## Prioridade 1 - Planos e controle comercial
 
@@ -135,8 +136,8 @@ reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
   "encerrar atendimento" na Central e na aba Mesas do Admin.
 - Feito: bloquear encerramento operacional quando ainda existem pedidos abertos,
   orientando fechar a conta primeiro.
-- Pendente critico: fechar leitura direta de `categorias` e `produtos` pela
-  Data API do Supabase para impedir consulta publica fora do backend.
+- Feito: leitura direta de `categorias` e `produtos` fechada na Data API do
+  Supabase; consultas ao cardapio passam pela API do Autenix.
 - Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
   sessao ou se deve ficar sempre bloqueado como esta nesta fase.
 - Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
@@ -198,8 +199,10 @@ reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
 
 ## Prioridade 8 - Banco de dados e governanca
 
-- Pendente: corrigir fluxo de migrations para `npm run migrate` rodar limpo em
-  todos os ambientes.
+- Implementado: migrations incrementais com historico privado, checksum, lock
+  de concorrencia, status e baseline controlado para bancos existentes.
+- Implementado: indices das chaves estrangeiras compostas de reservas, eventos
+  e sessoes de mesa adicionados conforme o advisor do Supabase.
 - Pendente: criar auditoria geral para usuarios, produtos, mesas, configuracoes,
   planos, status comercial e operacoes financeiras.
 - Pendente: soft delete completo com rastreio de quem arquivou/excluiu.

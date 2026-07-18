@@ -16,6 +16,7 @@ Copie `.env.example` para `.env` e preencha valores reais somente no ambiente lo
 Obrigatorias em producao:
 
 - `DATABASE_URL`
+- `MIGRATION_DATABASE_URL` somente no ambiente que executa migrations
 - `DATABASE_SSL=true` para Supabase
 - `JWT_SECRET`
 - `CORS_ORIGIN`
@@ -28,6 +29,8 @@ Opcionais:
 - `ADMIN_LOGIN`, padrao `admin`
 - `JWT_EXPIRES_IN`, padrao `8h`
 - `TRUST_PROXY=true` em Railway/proxies
+- limites `RATE_LIMIT_*`, quando for necessario substituir os valores seguros
+  definidos por padrao
 
 Para gerar o hash inicial do admin:
 
@@ -87,14 +90,15 @@ curl http://localhost:3001/api/usuarios \
   -H "Authorization: Bearer <token>"
 ```
 
-Rotas publicas mantidas para o cliente via QR:
+Rotas publicas do cliente:
 
-- `GET /api/cardapio?restaurante_slug=...`
-- `GET /api/mesas/:id?restaurante_slug=...`
-- `GET /api/pedidos?mesa_id=...&restaurante_slug=...`
-- `POST /api/pedidos`
-- `PATCH /api/itens/:id/cancelar`
-- `POST /api/chamadas`
+- `GET /api/cardapio?restaurante_slug=...`, somente leitura via backend e com
+  rate limit
+- `GET /api/mesas/:id?restaurante_slug=...`, com token da sessao do QR
+- `GET /api/pedidos?mesa_id=...&restaurante_slug=...`, com token da sessao
+- `POST /api/pedidos`, com token da sessao
+- `PATCH /api/itens/:id/cancelar`, com token da sessao
+- `POST /api/chamadas`, com token da sessao
 
 `GET /api/qrcode/:mesa_id` exige JWT de administrador.
 
@@ -131,8 +135,10 @@ npm run migrate
 ```
 
 O backend mantem o bootstrap local por compatibilidade, mas as migrations devem
-ser executadas antes do primeiro startup. Senhas antigas em texto puro sao
-convertidas para bcrypt durante a inicializacao do tenant padrao.
+ser executadas antes do primeiro startup. O historico privado impede reaplicar
+arquivos e `npm run migrate:status` mostra o estado atual. Para bancos legados ja
+montados, use `npm run migrate -- --baseline` uma unica vez e somente apos
+validar o schema.
 
 Detalhes de migracao SQLite/Supabase: `docs/postgres-migration.md`.
 
@@ -206,11 +212,16 @@ Variaveis:
 - Rotas operacionais exigem JWT e papel autorizado.
 - CORS nao usa `origin: "*"`; em producao depende de `CORS_ORIGIN`.
 - Login tem rate limit de 5 tentativas por minuto.
+- Fluxos publicos possuem limites separados; acoes de mesa usam o hash da sessao.
+- Usuarios e roles sao revalidados no banco em cada requisicao autenticada.
+- Imagens sao verificadas, redimensionadas, limpas de metadados e salvas em WebP.
+- `categorias` e `produtos` nao podem ser lidos diretamente pela Data API.
 - Helmet esta habilitado no backend.
 
 ## Verificacoes conhecidas
 
 - `npm run build` do frontend passa.
 - `node --check` do backend e scripts passa.
-- `npm test` do backend ainda e placeholder.
+- `npm test` do backend cobre autenticacao, RLS auxiliar, reservas, importacao,
+  migrations, rate limit, upload, white label e provisionamento.
 - `npm run lint` do frontend ainda falha por problemas preexistentes em `client/src/App.jsx` nao relacionados a autenticacao.

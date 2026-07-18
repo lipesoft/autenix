@@ -11,8 +11,9 @@ A API de producao usa a role `autenix_backend`. Ela nao e superusuario, nao tem
 necessarios para operar as tabelas do sistema. A senha existe somente nas
 variaveis criptografadas da Vercel.
 
-A chave `service_role` nao e usada e nunca deve ser adicionada ao frontend. Caso
-seja adotada no futuro, deve existir apenas no backend ou em funcoes server-side.
+A chave `service_role` e usada exclusivamente pelo backend para enviar imagens
+ao Supabase Storage. Ela nunca deve ser adicionada ao frontend. Os dados
+operacionais usam a conexao PostgreSQL e nao dependem dessa chave.
 
 ## Matriz de acesso
 
@@ -70,6 +71,9 @@ e deve ser provisionada por canal seguro.
 
 A migration `011_optimize_tenant_policy_settings.sql` mantem a leitura de
 `app.restaurante_id` em um init plan reconhecido pelo advisor do Supabase.
+A migration `022_restrict_public_menu_data_api.sql` revoga a leitura direta do
+cardapio por `anon` e `authenticated`. A migration `023` indexa as chaves
+estrangeiras compostas indicadas pelo advisor de desempenho.
 
 ## Producao
 
@@ -77,7 +81,8 @@ A migration `011_optimize_tenant_policy_settings.sql` mantem a leitura de
 - API: `https://autenix-api.vercel.app`
 - Health check: `GET /api/health`
 - Variaveis da API: `DATABASE_URL`, `DATABASE_SSL`, `JWT_SECRET`,
-  `JWT_EXPIRES_IN`, `CORS_ORIGIN`, `TRUST_PROXY` e `PUBLIC_APP_URL`
+  `JWT_EXPIRES_IN`, `CORS_ORIGIN`, `TRUST_PROXY`, `PUBLIC_APP_URL`,
+  `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`
 - Variavel do frontend: `VITE_API_URL`
 
 Depois de cada migration ou deploy, execute os advisors do Supabase, valide o

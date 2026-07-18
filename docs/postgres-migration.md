@@ -12,7 +12,7 @@ O schema operacional atual foi consolidado em:
 ## Aplicar schema no Supabase
 
 1. Crie o projeto no Supabase.
-2. Configure a connection string em `DATABASE_URL`.
+2. Configure a connection string proprietaria em `MIGRATION_DATABASE_URL`.
 3. Configure `DATABASE_SSL=true`.
 4. Rode:
 
@@ -20,6 +20,26 @@ O schema operacional atual foi consolidado em:
 cd server
 npm run migrate
 ```
+
+O executor cria o historico privado `private.autenix_schema_migrations`, aplica
+somente arquivos pendentes e valida o checksum de tudo que ja foi aplicado. Um
+lock no PostgreSQL impede duas execucoes simultaneas.
+
+Para consultar o estado sem aplicar SQL:
+
+```bash
+npm run migrate:status
+```
+
+Em um banco antigo que ja possui todo o schema, inicialize o historico uma unica
+vez, depois de conferir as tabelas e colunas:
+
+```bash
+npm run migrate -- --baseline
+```
+
+O modo `--baseline` nao deve ser usado em banco vazio. Novos bancos devem rodar
+somente `npm run migrate`, que aplicara os arquivos desde `001`.
 
 ## Importar dados de um SQLite legado
 
