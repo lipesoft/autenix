@@ -3279,6 +3279,7 @@ function PainelGarcom({ usuario, onLogout }) {
   const [carrinhoPedido, setCarrinhoPedido] = useState([]);
   const [catAtiva, setCatAtiva] = useState(null);
   const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [pedidoStatusGarcom, setPedidoStatusGarcom] = useState("");
   const bellRef = useRef(null);
   const { notifs, push, dismiss } = useNotifs();
 
@@ -3348,27 +3349,40 @@ function PainelGarcom({ usuario, onLogout }) {
     setCardapioModal(mesa);
     setCarrinhoPedido([]);
     setCatAtiva(null);
+    setPedidoStatusGarcom("");
     fetchCardapio();
   };
 
   const enviarPedidoGarcom = async () => {
     if (!carrinhoPedido.length || !cardapioModal) return;
     setEnviandoPedido(true);
-    await fetch(`${API}/api/pedidos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mesa_id: cardapioModal.id,
-        itens: carrinhoPedido.map((i) => ({ ...i, observacao: "" })),
-        nome_cliente: `Garçom: ${usuario?.nome || "Garçom"}`,
-        restaurante_slug: usuario.restaurante_slug,
-      }),
-    });
-    setEnviandoPedido(false);
-    setCardapioModal(null);
-    setCarrinhoPedido([]);
-    fetchPedidos();
-    fetchMesas();
+    setPedidoStatusGarcom("");
+    try {
+      const resposta = await authFetch(`${API}/api/pedidos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mesa_id: cardapioModal.id,
+          itens: carrinhoPedido.map((i) => ({ ...i, observacao: "" })),
+          restaurante_slug: usuario.restaurante_slug,
+        }),
+      });
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Nao foi possivel enviar o pedido.");
+      }
+
+      const numeroMesa = cardapioModal.numero;
+      setCardapioModal(null);
+      setCarrinhoPedido([]);
+      push("Pedido enviado", `Mesa ${numeroMesa} enviada para a cozinha.`, "pronto");
+      await Promise.all([fetchPedidos(), fetchMesas()]);
+    } catch (error) {
+      setPedidoStatusGarcom(error.message);
+      push("Pedido nao enviado", error.message, "erro");
+    } finally {
+      setEnviandoPedido(false);
+    }
   };
 
   useEffect(() => {
@@ -4657,6 +4671,19 @@ function PainelGarcom({ usuario, onLogout }) {
               ))}
             </div>
           )}
+
+          <div
+            role="status"
+            style={{
+              minHeight: pedidoStatusGarcom ? 22 : 0,
+              marginBottom: pedidoStatusGarcom ? 10 : 0,
+              color: T.red,
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {pedidoStatusGarcom}
+          </div>
 
           <div style={{ display: "flex", gap: 8 }}>
             <Btn

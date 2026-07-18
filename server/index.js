@@ -88,6 +88,7 @@ const {
   AuthSessionError,
   revalidarUsuarioToken,
 } = require("./lib/auth-session");
+const { origemCriacaoPedido } = require("./lib/pedido-access");
 const {
   acaoMesaRateLimit,
   acompanharReservaRateLimit,
@@ -230,6 +231,13 @@ function processarUploadImagem(req, res, next) {
 function limitarSeSemAutenticacao(limitador) {
   return (req, res, next) => {
     if (req.headers.authorization) return next();
+    return limitador(req, res, next);
+  };
+}
+
+function limitarSeSemUsuario(limitador) {
+  return (req, res, next) => {
+    if (req.user) return next();
     return limitador(req, res, next);
   };
 }
@@ -1560,8 +1568,12 @@ app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req,
   }
 });
 
-// Fazer pedido (cliente)
-app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
+// Fazer pedido (cliente com sessao da mesa ou garcom autenticado)
+app.post(
+  "/api/pedidos",
+  autenticarJWTSePresente,
+  limitarSeSemUsuario(acaoMesaRateLimit),
+  async (req, res) => {
   const { mesa_id, itens, nome_cliente, restaurante_slug } = req.body;
   if (!mesa_id || !itens?.length)
     return res.status(400).json({ erro: "Dados inválidos" });
@@ -1569,11 +1581,12 @@ app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
   try {
     const contexto = await buscarRestauranteDaMesa(
       mesa_id,
-      restaurante_slug || "autenix",
+      req.user?.restaurante_slug || restaurante_slug || "autenix",
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
 
     const restauranteId = contexto.restaurante.id;
+    const origemPedido = origemCriacaoPedido(req.user, restauranteId);
     const itensValidos = itens.every(
       (item) =>
         Number.isInteger(Number(item.produto_id)) &&
@@ -1587,7 +1600,9 @@ app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
     const resultado = await withTenantTransaction(
       restauranteId,
       async (client) => {
-        await validarSessaoMesaRequest(req, contexto, client);
+        if (origemPedido === "mesa") {
+          await validarSessaoMesaRequest(req, contexto, client);
+        }
 
         const produtoIds = [...new Set(itens.map((item) => Number(item.produto_id)))];
         const { rows: produtosValidos } = await client.query(
@@ -1609,7 +1624,14 @@ app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
              (mesa_id, status, nome_cliente, numero_dia, restaurante_id)
            VALUES ($1, 'pendente', $2, $3, $4)
            RETURNING id`,
-          [mesa_id, nome_cliente || null, numeroDia, restauranteId],
+          [
+            mesa_id,
+            origemPedido === "equipe"
+              ? `Garcom: ${req.user.nome}`
+              : nome_cliente || null,
+            numeroDia,
+            restauranteId,
+          ],
         );
         const pedidoId = pedRows[0].id;
 
@@ -1653,7 +1675,8 @@ app.post("/api/pedidos", acaoMesaRateLimit, async (req, res) => {
   } catch (e) {
     res.status(e.statusCode || 500).json({ erro: e.message });
   }
-});
+  },
+);
 
 // Listar pedidos (cozinha/admin)
 app.get(
