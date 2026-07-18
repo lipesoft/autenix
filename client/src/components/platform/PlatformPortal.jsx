@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Archive,
   BadgeDollarSign,
   Building2,
+  CalendarClock,
   Check,
   CirclePause,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
+  Gauge,
   KeyRound,
   LoaderCircle,
   LockKeyhole,
@@ -22,6 +25,8 @@ import {
   ShieldCheck,
   Store,
   Table2,
+  TrendingUp,
+  UserCheck,
   UsersRound,
   X,
 } from "lucide-react";
@@ -84,11 +89,30 @@ const STATUS_COBRANCA = {
   isento: "Isento",
 };
 
+const STATUS_COMERCIAL = {
+  lead: "Lead",
+  trial: "Trial",
+  cliente: "Cliente",
+  suspenso: "Suspenso",
+  cancelado: "Cancelado",
+  isento: "Isento",
+};
+
 const CICLOS_COBRANCA = {
   mensal: "Mensal",
   anual: "Anual",
   experimental: "Experimental",
   personalizado: "Personalizado",
+};
+
+const FILTROS_RESTAURANTES = {
+  todos: "Todos",
+  ativos: "Ativos",
+  trial: "Trial",
+  alertas: "Alertas",
+  atrasados: "Atrasados",
+  suspensos: "Suspensos",
+  arquivados: "Arquivados",
 };
 
 const formatarMoeda = (centavos = 0) =>
@@ -108,6 +132,41 @@ const campoParaCentavos = (valor) => {
 const dataParaCampo = (valor) => {
   if (!valor) return "";
   return String(valor).slice(0, 10);
+};
+
+const alertasDoRestaurante = (restaurante) =>
+  Array.isArray(restaurante?.alertas_comerciais) ? restaurante.alertas_comerciais : [];
+
+const temAlertaCritico = (restaurante) =>
+  alertasDoRestaurante(restaurante).some((alerta) => alerta.severidade === "critico");
+
+const receitaMensalRestaurante = (restaurante) => {
+  if (Number.isFinite(Number(restaurante?.receita_mrr_centavos))) {
+    return Number(restaurante.receita_mrr_centavos || 0);
+  }
+  if (!restaurante?.ativo || restaurante?.excluido_em || restaurante?.status_cobranca === "isento") return 0;
+  const valor = Number(restaurante?.mensalidade_centavos || 0);
+  if (restaurante?.ciclo_cobranca === "anual") return Math.round(valor / 12);
+  if (restaurante?.ciclo_cobranca === "experimental") return 0;
+  return valor;
+};
+
+const usoPlano = (restaurante, campo, atualCampo, limiteCampo) => {
+  const uso = restaurante?.uso_plano?.[campo];
+  if (uso) return uso;
+  const atual = Number(restaurante?.[atualCampo] || 0);
+  const limite = Number(restaurante?.[limiteCampo] || 0);
+  return {
+    atual,
+    limite,
+    percentual: limite > 0 ? Math.min(999, Math.round((atual / limite) * 100)) : 0,
+  };
+};
+
+const classeUso = (percentual) => {
+  if (percentual >= 100) return "is-danger";
+  if (percentual >= 80) return "is-warning";
+  return "";
 };
 
 function aplicarPlanoAoForm(planoId, atual = {}) {
@@ -135,6 +194,11 @@ const NOVO_RESTAURANTE = {
   mensalidade: "99.00",
   ciclo_cobranca: "mensal",
   status_cobranca: "trial",
+  status_comercial: "trial",
+  data_inicio_contrato: "",
+  ultimo_contato_comercial_em: "",
+  responsavel_comercial: "",
+  motivo_suspensao: "",
   trial_termina_em: "",
   proxima_cobranca_em: "",
   observacoes_plano: "",
@@ -607,9 +671,14 @@ function NovoRestaurante({ onClose, onCreated, request }) {
             <Campo label="Mensalidade (R$)">
               <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
             </Campo>
-            <Campo label="Status comercial">
+            <Campo label="Status de cobranca">
               <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
                 {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Status comercial">
+              <select value={form.status_comercial} onChange={(event) => alterar("status_comercial", event.target.value)}>
+                {Object.entries(STATUS_COMERCIAL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </Campo>
             <Campo label="Ciclo">
@@ -617,11 +686,23 @@ function NovoRestaurante({ onClose, onCreated, request }) {
                 {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </Campo>
+            <Campo label="Inicio do contrato">
+              <input type="date" value={form.data_inicio_contrato} onChange={(event) => alterar("data_inicio_contrato", event.target.value)} />
+            </Campo>
             <Campo label="Fim do teste">
               <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
             </Campo>
             <Campo label="Proxima cobranca">
               <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
+            </Campo>
+            <Campo label="Responsavel comercial">
+              <input maxLength={120} value={form.responsavel_comercial} onChange={(event) => alterar("responsavel_comercial", event.target.value)} />
+            </Campo>
+            <Campo label="Ultimo contato">
+              <input type="date" value={form.ultimo_contato_comercial_em} onChange={(event) => alterar("ultimo_contato_comercial_em", event.target.value)} />
+            </Campo>
+            <Campo label="Motivo de suspensao" wide>
+              <input maxLength={500} value={form.motivo_suspensao} onChange={(event) => alterar("motivo_suspensao", event.target.value)} />
             </Campo>
             <Campo label="Observacoes comerciais" wide>
               <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
@@ -794,6 +875,11 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
     mensalidade: centavosParaCampo(restaurante.mensalidade_centavos),
     ciclo_cobranca: restaurante.ciclo_cobranca || "mensal",
     status_cobranca: restaurante.status_cobranca || "trial",
+    status_comercial: restaurante.status_comercial || "trial",
+    data_inicio_contrato: dataParaCampo(restaurante.data_inicio_contrato),
+    ultimo_contato_comercial_em: dataParaCampo(restaurante.ultimo_contato_comercial_em),
+    responsavel_comercial: restaurante.responsavel_comercial || "",
+    motivo_suspensao: restaurante.motivo_suspensao || "",
     trial_termina_em: dataParaCampo(restaurante.trial_termina_em),
     proxima_cobranca_em: dataParaCampo(restaurante.proxima_cobranca_em),
     observacoes_plano: restaurante.observacoes_plano || "",
@@ -855,9 +941,14 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
           <Campo label="Mensalidade (R$)">
             <input type="number" min="0" step="0.01" required value={form.mensalidade} onChange={(event) => alterar("mensalidade", event.target.value)} />
           </Campo>
-          <Campo label="Status comercial">
+          <Campo label="Status de cobranca">
             <select value={form.status_cobranca} onChange={(event) => alterar("status_cobranca", event.target.value)}>
               {Object.entries(STATUS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Status comercial">
+            <select value={form.status_comercial} onChange={(event) => alterar("status_comercial", event.target.value)}>
+              {Object.entries(STATUS_COMERCIAL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </Campo>
           <Campo label="Ciclo">
@@ -865,11 +956,23 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
               {Object.entries(CICLOS_COBRANCA).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </Campo>
+          <Campo label="Inicio do contrato">
+            <input type="date" value={form.data_inicio_contrato} onChange={(event) => alterar("data_inicio_contrato", event.target.value)} />
+          </Campo>
           <Campo label="Fim do teste">
             <input type="date" value={form.trial_termina_em} onChange={(event) => alterar("trial_termina_em", event.target.value)} />
           </Campo>
           <Campo label="Proxima cobranca">
             <input type="date" value={form.proxima_cobranca_em} onChange={(event) => alterar("proxima_cobranca_em", event.target.value)} />
+          </Campo>
+          <Campo label="Responsavel comercial">
+            <input maxLength={120} value={form.responsavel_comercial} onChange={(event) => alterar("responsavel_comercial", event.target.value)} />
+          </Campo>
+          <Campo label="Ultimo contato">
+            <input type="date" value={form.ultimo_contato_comercial_em} onChange={(event) => alterar("ultimo_contato_comercial_em", event.target.value)} />
+          </Campo>
+          <Campo label="Motivo de suspensao" wide>
+            <input maxLength={500} value={form.motivo_suspensao} onChange={(event) => alterar("motivo_suspensao", event.target.value)} />
           </Campo>
           <Campo label="Observacoes comerciais" wide>
             <textarea rows={3} maxLength={500} value={form.observacoes_plano} onChange={(event) => alterar("observacoes_plano", event.target.value)} />
@@ -989,34 +1092,74 @@ function PlatformDashboard({ session, onLogout }) {
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return restaurantes.filter((restaurante) => {
-      const estado = restaurante.excluido_em
-        ? "arquivados"
-        : restaurante.ativo
-          ? "ativos"
-          : "suspensos";
-      const correspondeFiltro = filtro === "todos" || filtro === estado;
+      const arquivado = Boolean(restaurante.excluido_em);
+      const ativo = restaurante.ativo === 1 && !arquivado;
+      const alertas = alertasDoRestaurante(restaurante);
+      const atrasado = restaurante.status_cobranca === "atrasado"
+        || alertas.some((alerta) => alerta.tipo === "cobranca" && alerta.severidade === "critico");
+      const correspondeFiltro = filtro === "todos"
+        || (filtro === "ativos" && ativo)
+        || (filtro === "trial" && !arquivado && restaurante.status_comercial === "trial")
+        || (filtro === "alertas" && !arquivado && alertas.length > 0)
+        || (filtro === "atrasados" && !arquivado && atrasado)
+        || (filtro === "suspensos" && !arquivado && !ativo)
+        || (filtro === "arquivados" && arquivado);
       const correspondeBusca = !termo || [
         restaurante.nome,
         restaurante.slug,
         restaurante.master?.login,
         PLANOS[restaurante.plano],
         STATUS_COBRANCA[restaurante.status_cobranca],
+        STATUS_COMERCIAL[restaurante.status_comercial],
         String(restaurante.id),
       ].some((valor) => String(valor || "").toLowerCase().includes(termo));
       return correspondeFiltro && correspondeBusca;
     });
   }, [busca, filtro, restaurantes]);
 
-  const totais = useMemo(() => ({
-    total: restaurantes.filter((item) => !item.excluido_em).length,
-    ativos: restaurantes.filter((item) => item.ativo && !item.excluido_em).length,
-    suspensos: restaurantes.filter((item) => !item.ativo && !item.excluido_em).length,
-    mesas: restaurantes.reduce((soma, item) => soma + Number(item.mesas_cadastradas || 0), 0),
-    receita: restaurantes.reduce((soma, item) => {
-      if (!item.ativo || item.excluido_em || item.status_cobranca === "isento") return soma;
-      return soma + Number(item.mensalidade_centavos || 0);
-    }, 0),
+  const totais = useMemo(() => restaurantes.reduce((acc, item) => {
+    const arquivado = Boolean(item.excluido_em);
+    const alertas = alertasDoRestaurante(item);
+    if (!arquivado) acc.total += 1;
+    if (item.ativo && !arquivado) acc.ativos += 1;
+    if (!item.ativo && !arquivado) acc.suspensos += 1;
+    if (item.status_comercial === "trial" && !arquivado) acc.trial += 1;
+    if (
+      !arquivado
+      && (
+        item.status_cobranca === "atrasado"
+        || alertas.some((alerta) => alerta.tipo === "cobranca" && alerta.severidade === "critico")
+      )
+    ) acc.atrasados += 1;
+    acc.mesas += Number(item.mesas_cadastradas || 0);
+    acc.receita += receitaMensalRestaurante(item);
+    acc.alertasCriticos += alertas.filter((alerta) => alerta.severidade === "critico").length;
+    acc.alertasAtencao += alertas.filter((alerta) => alerta.severidade === "atencao").length;
+    return acc;
+  }, {
+    total: 0,
+    ativos: 0,
+    suspensos: 0,
+    trial: 0,
+    atrasados: 0,
+    mesas: 0,
+    receita: 0,
+    alertasCriticos: 0,
+    alertasAtencao: 0,
   }), [restaurantes]);
+
+  const alertasPrioritarios = useMemo(() => restaurantes
+    .flatMap((restaurante) => alertasDoRestaurante(restaurante).map((alerta) => ({
+      ...alerta,
+      restauranteId: restaurante.id,
+      restauranteNome: restaurante.nome,
+      restauranteSlug: restaurante.slug,
+    })))
+    .sort((a, b) => {
+      const peso = { critico: 0, atencao: 1, info: 2 };
+      return (peso[a.severidade] ?? 9) - (peso[b.severidade] ?? 9);
+    })
+    .slice(0, 6), [restaurantes]);
 
   const atualizarItem = (item) => {
     setRestaurantes((atuais) => atuais.map((atual) => atual.id === item.id ? item : atual));
@@ -1083,18 +1226,52 @@ function PlatformDashboard({ session, onLogout }) {
 
         <section className="pf-stats" aria-label="Resumo da plataforma">
           <article><Building2 size={19} /><span>Restaurantes</span><strong>{totais.total}</strong></article>
-          <article className="is-green"><Check size={19} /><span>Ativos</span><strong>{totais.ativos}</strong></article>
-          <article className="is-orange"><CirclePause size={19} /><span>Suspensos</span><strong>{totais.suspensos}</strong></article>
-          <article className="is-blue"><Table2 size={19} /><span>Mesas</span><strong>{totais.mesas}</strong></article>
-          <article className="is-teal"><BadgeDollarSign size={19} /><span>Receita prevista</span><strong>{formatarMoeda(totais.receita)}</strong></article>
+          <article className="is-teal"><TrendingUp size={19} /><span>MRR previsto</span><strong>{formatarMoeda(totais.receita)}</strong></article>
+          <article className="is-green"><UserCheck size={19} /><span>Clientes ativos</span><strong>{totais.ativos}</strong></article>
+          <article className="is-blue"><CalendarClock size={19} /><span>Em trial</span><strong>{totais.trial}</strong></article>
+          <article className="is-red"><AlertTriangle size={19} /><span>Criticos</span><strong>{totais.alertasCriticos}</strong></article>
+          <article className="is-orange"><Gauge size={19} /><span>Atencao</span><strong>{totais.alertasAtencao}</strong></article>
+        </section>
+
+        <section className="pf-commercial-board" aria-label="Alertas comerciais">
+          <div className="pf-commercial-board-heading">
+            <div>
+              <span className="pf-kicker"><BadgeDollarSign size={15} /> Controle comercial</span>
+              <h2>Alertas SaaS</h2>
+            </div>
+            <button className="pf-button pf-button-secondary" type="button" onClick={() => setFiltro("alertas")}>
+              <AlertTriangle size={17} /> Ver alertas
+            </button>
+          </div>
+          <div className="pf-alert-strip">
+            {alertasPrioritarios.map((alerta) => (
+              <button
+                key={`${alerta.restauranteId}-${alerta.tipo}-${alerta.campo || alerta.titulo}`}
+                className={`pf-alert-chip is-${alerta.severidade}`}
+                type="button"
+                onClick={() => {
+                  setBusca(String(alerta.restauranteSlug || alerta.restauranteId));
+                  setFiltro("alertas");
+                }}
+              >
+                <strong>{alerta.titulo}</strong>
+                <span>{alerta.restauranteNome} / {alerta.detalhe}</span>
+              </button>
+            ))}
+            {!alertasPrioritarios.length && (
+              <div className="pf-alert-empty">
+                <Check size={17} /> Sem alertas comerciais agora.
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="pf-directory">
           <div className="pf-toolbar">
             <label className="pf-search"><Search size={18} /><span className="sr-only">Buscar restaurante</span><input type="search" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar por nome, slug, ID ou master" /></label>
             <div className="pf-filters" role="tablist" aria-label="Filtrar restaurantes">
-              {["todos", "ativos", "suspensos", "arquivados"].map((item) => (
-                <button key={item} className={filtro === item ? "is-active" : ""} type="button" onClick={() => setFiltro(item)}>{item}</button>
+              {Object.entries(FILTROS_RESTAURANTES).map(([id, label]) => (
+                <button key={id} className={filtro === id ? "is-active" : ""} type="button" onClick={() => setFiltro(id)}>{label}</button>
               ))}
             </div>
             <button className="pf-icon-button" type="button" onClick={carregar} title="Atualizar"><RefreshCw size={18} /></button>
@@ -1108,9 +1285,15 @@ function PlatformDashboard({ session, onLogout }) {
               {visiveis.map((restaurante) => {
                 const arquivado = Boolean(restaurante.excluido_em);
                 const ativo = restaurante.ativo === 1 && !arquivado;
-                const statusComercial = restaurante.status_cobranca || "trial";
+                const statusCobranca = restaurante.status_cobranca || "trial";
+                const statusComercial = restaurante.status_comercial || "trial";
+                const alertas = alertasDoRestaurante(restaurante);
+                const critico = temAlertaCritico(restaurante);
+                const usoMesas = usoPlano(restaurante, "mesas", "mesas_cadastradas", "limite_mesas");
+                const usoUsuarios = usoPlano(restaurante, "usuarios", "usuarios_ativos", "limite_usuarios");
+                const usoProdutos = usoPlano(restaurante, "produtos", "produtos_cadastrados", "limite_produtos");
                 return (
-                  <article className={`pf-restaurant-row ${arquivado ? "is-archived" : ""}`} key={restaurante.id}>
+                  <article className={`pf-restaurant-row ${arquivado ? "is-archived" : ""} ${critico ? "has-critical-alert" : ""}`} key={restaurante.id}>
                     <div className="pf-restaurant-name">
                       <span className="pf-restaurant-mark">{restaurante.logo_url ? <img src={restaurante.logo_url} alt="" /> : <Building2 size={20} />}</span>
                       <div><strong>{restaurante.nome}</strong><small>ID {restaurante.id} / {restaurante.slug}</small></div>
@@ -1118,13 +1301,21 @@ function PlatformDashboard({ session, onLogout }) {
                     <div className="pf-plan-cell">
                       <span className={`pf-plan is-${restaurante.plano}`}>{PLANOS[restaurante.plano] || restaurante.plano}</span>
                       <small>{formatarMoeda(restaurante.mensalidade_centavos)} / {CICLOS_COBRANCA[restaurante.ciclo_cobranca] || restaurante.ciclo_cobranca}</small>
-                      <span className={`pf-billing is-${statusComercial}`}>{STATUS_COBRANCA[statusComercial] || statusComercial}</span>
+                      <div className="pf-status-pair">
+                        <span className={`pf-billing is-${statusCobranca}`}>{STATUS_COBRANCA[statusCobranca] || statusCobranca}</span>
+                        <span className={`pf-commercial-status is-${statusComercial}`}>{STATUS_COMERCIAL[statusComercial] || statusComercial}</span>
+                      </div>
                     </div>
                     <div className="pf-operation-data">
-                      <span><Table2 size={14} /> {restaurante.mesas_cadastradas}/{restaurante.limite_mesas}</span>
-                      <span><UsersRound size={14} /> {restaurante.usuarios_ativos}/{restaurante.limite_usuarios}</span>
-                      <span><Package size={14} /> {restaurante.produtos_cadastrados || 0}/{restaurante.limite_produtos}</span>
+                      <span className={`pf-usage-pill ${classeUso(usoMesas.percentual)}`}><Table2 size={14} /> {usoMesas.atual}/{usoMesas.limite}</span>
+                      <span className={`pf-usage-pill ${classeUso(usoUsuarios.percentual)}`}><UsersRound size={14} /> {usoUsuarios.atual}/{usoUsuarios.limite}</span>
+                      <span className={`pf-usage-pill ${classeUso(usoProdutos.percentual)}`}><Package size={14} /> {usoProdutos.atual}/{usoProdutos.limite}</span>
                       <span className={`pf-status ${ativo ? "is-active" : arquivado ? "is-archived" : "is-paused"}`}>{ativo ? "Ativo" : arquivado ? "Arquivado" : "Suspenso"}</span>
+                      {alertas.slice(0, 2).map((alerta) => (
+                        <span key={`${alerta.tipo}-${alerta.campo || alerta.titulo}`} className={`pf-inline-alert is-${alerta.severidade}`}>
+                          <AlertTriangle size={13} /> {alerta.titulo}
+                        </span>
+                      ))}
                     </div>
                     <div className="pf-master"><strong>{restaurante.master?.nome || "Sem master"}</strong><small>{restaurante.master?.login || "-"}</small></div>
                     <div className="pf-row-actions">

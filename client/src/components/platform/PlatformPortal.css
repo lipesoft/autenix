@@ -355,9 +355,9 @@
 
 .pf-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
-  margin: 24px 0 30px;
+  margin: 24px 0 16px;
 }
 
 .pf-stats article {
@@ -378,6 +378,7 @@
 .pf-stats article.is-orange { border-top-color: #f2742d; }
 .pf-stats article.is-blue { border-top-color: #327ca4; }
 .pf-stats article.is-teal { border-top-color: #174b4a; }
+.pf-stats article.is-red { border-top-color: #b84234; }
 
 .pf-stats article > svg {
   color: #778592;
@@ -393,6 +394,89 @@
   color: #0b2134;
   font-family: Manrope, sans-serif;
   font-size: 24px;
+}
+
+.pf-commercial-board {
+  margin-bottom: 30px;
+  padding: 16px;
+  border: 1px solid #dce2e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.pf-commercial-board-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.pf-commercial-board-heading h2 {
+  margin: 5px 0 0;
+  color: #0b2134;
+  font-family: Manrope, sans-serif;
+  font-size: 18px;
+}
+
+.pf-alert-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.pf-alert-chip,
+.pf-alert-empty {
+  min-width: 0;
+  min-height: 66px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid #dce2e5;
+  border-radius: 8px;
+  background: #f7f8f6;
+  text-align: left;
+}
+
+.pf-alert-chip {
+  cursor: pointer;
+}
+
+.pf-alert-chip.is-critico {
+  border-color: #f1b8b2;
+  background: #fff2f0;
+}
+
+.pf-alert-chip.is-atencao {
+  border-color: #f1c79a;
+  background: #fff8df;
+}
+
+.pf-alert-chip strong {
+  overflow: hidden;
+  color: #183243;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-alert-chip span {
+  overflow: hidden;
+  color: #617281;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-alert-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  color: #176c57;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .pf-directory {
@@ -497,6 +581,10 @@
   background: #fafafa;
 }
 
+.pf-restaurant-row.has-critical-alert {
+  box-shadow: inset 3px 0 0 #b84234;
+}
+
 .pf-restaurant-name {
   min-width: 0;
   display: flex;
@@ -552,7 +640,9 @@
 
 .pf-plan,
 .pf-status,
-.pf-billing {
+.pf-billing,
+.pf-commercial-status,
+.pf-inline-alert {
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -570,6 +660,13 @@
   min-width: 0;
   display: grid;
   gap: 5px;
+}
+
+.pf-status-pair {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
 .pf-plan-cell small {
@@ -603,6 +700,35 @@
 .pf-billing.is-pendente { color: #8a5b16; background: #fff8df; }
 .pf-billing.is-atrasado { color: #b84234; background: #ffe9e6; }
 .pf-billing.is-isento { color: #68757d; background: #edf0f1; }
+.pf-commercial-status.is-lead { color: #245d7a; background: #e7f2f8; }
+.pf-commercial-status.is-trial { color: #8a5b16; background: #fff8df; }
+.pf-commercial-status.is-cliente { color: #176c57; background: #e4f3ee; }
+.pf-commercial-status.is-suspenso { color: #a64a1f; background: #fff0e7; }
+.pf-commercial-status.is-cancelado { color: #68757d; background: #edf0f1; }
+.pf-commercial-status.is-isento { color: #47525b; background: #e7ebed; }
+
+.pf-usage-pill.is-warning {
+  color: #8a5b16;
+}
+
+.pf-usage-pill.is-danger {
+  color: #b84234;
+}
+
+.pf-inline-alert {
+  gap: 4px;
+  max-width: 100%;
+}
+
+.pf-inline-alert.is-critico {
+  color: #b84234;
+  background: #ffe9e6;
+}
+
+.pf-inline-alert.is-atencao {
+  color: #8a5b16;
+  background: #fff8df;
+}
 
 .pf-row-actions {
   justify-content: flex-end;
@@ -1169,6 +1295,10 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .pf-alert-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .pf-list-head {
     display: none;
   }
@@ -1235,6 +1365,19 @@
 
   .pf-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pf-commercial-board-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pf-commercial-board-heading .pf-button {
+    width: 100%;
+  }
+
+  .pf-alert-strip {
+    grid-template-columns: 1fr;
   }
 
   .pf-toolbar {
