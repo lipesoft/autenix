@@ -277,7 +277,9 @@ async function buscarRestaurantePorSlug(slugInformado) {
   if (!slug) return null;
   const { rows } = await query(
     `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-            logo_url, cor_primaria, cor_secundaria, whatsapp_numero
+            logo_url, cor_primaria, cor_secundaria,
+            cor_texto_principal, cor_texto_secundario,
+            cor_titulo, cor_texto_inverso, whatsapp_numero
      FROM restaurantes
      WHERE slug = $1 AND ativo = 1
      LIMIT 1`,
@@ -839,6 +841,10 @@ async function initDB() {
 
     ALTER TABLE restaurantes
       ADD COLUMN IF NOT EXISTS whatsapp_numero TEXT,
+      ADD COLUMN IF NOT EXISTS cor_texto_principal TEXT,
+      ADD COLUMN IF NOT EXISTS cor_texto_secundario TEXT,
+      ADD COLUMN IF NOT EXISTS cor_titulo TEXT,
+      ADD COLUMN IF NOT EXISTS cor_texto_inverso TEXT,
       ADD COLUMN IF NOT EXISTS status_comercial TEXT NOT NULL DEFAULT 'trial',
       ADD COLUMN IF NOT EXISTS data_inicio_contrato DATE,
       ADD COLUMN IF NOT EXISTS ultimo_contato_comercial_em DATE,
@@ -3619,7 +3625,9 @@ async function listarRestaurantesPlataforma() {
             ultimo_contato_comercial_em, responsavel_comercial,
             motivo_suspensao, excluido_em,
             white_label_ativo, nome_exibicao, logo_url,
-            cor_primaria, cor_secundaria, whatsapp_numero,
+            cor_primaria, cor_secundaria, cor_texto_principal,
+            cor_texto_secundario, cor_titulo, cor_texto_inverso,
+            whatsapp_numero,
             criado_em, atualizado_em
      FROM restaurantes
      ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
@@ -3730,9 +3738,13 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
            logo_url = $20,
            cor_primaria = $21,
            cor_secundaria = $22,
-           whatsapp_numero = $23,
+           cor_texto_principal = $23,
+           cor_texto_secundario = $24,
+           cor_titulo = $25,
+           cor_texto_inverso = $26,
+           whatsapp_numero = $27,
            atualizado_em = NOW()
-       WHERE id = $24
+       WHERE id = $28
        RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
@@ -3740,7 +3752,9 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
                  ultimo_contato_comercial_em, responsavel_comercial,
                  motivo_suspensao, excluido_em,
                  white_label_ativo, nome_exibicao, logo_url,
-                 cor_primaria, cor_secundaria, whatsapp_numero,
+                 cor_primaria, cor_secundaria, cor_texto_principal,
+                 cor_texto_secundario, cor_titulo, cor_texto_inverso,
+                 whatsapp_numero,
                  criado_em, atualizado_em`,
       [
         nome,
@@ -3765,6 +3779,10 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
         marca.logo_url,
         marca.cor_primaria,
         marca.cor_secundaria,
+        marca.cor_texto_principal,
+        marca.cor_texto_secundario,
+        marca.cor_titulo,
+        marca.cor_texto_inverso,
         marca.whatsapp_numero,
         restauranteId,
       ],
@@ -3805,7 +3823,9 @@ app.patch(
                    ultimo_contato_comercial_em, responsavel_comercial,
                    motivo_suspensao, excluido_em,
                    white_label_ativo, nome_exibicao, logo_url,
-                   cor_primaria, cor_secundaria, whatsapp_numero,
+                   cor_primaria, cor_secundaria, cor_texto_principal,
+                   cor_texto_secundario, cor_titulo, cor_texto_inverso,
+                   whatsapp_numero,
                    criado_em, atualizado_em`,
         [req.body.ativo, restauranteId],
       );
@@ -3937,7 +3957,9 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-              logo_url, cor_primaria, cor_secundaria, whatsapp_numero,
+              logo_url, cor_primaria, cor_secundaria,
+              cor_texto_principal, cor_texto_secundario,
+              cor_titulo, cor_texto_inverso, whatsapp_numero,
               plano, limite_mesas,
               limite_usuarios, limite_produtos, mensalidade_centavos,
               ciclo_cobranca, status_cobranca, status_comercial, trial_termina_em,
@@ -3966,11 +3988,17 @@ app.patch(
              logo_url = $3,
              cor_primaria = $4,
              cor_secundaria = $5,
-             whatsapp_numero = $6,
+             cor_texto_principal = $6,
+             cor_texto_secundario = $7,
+             cor_titulo = $8,
+             cor_texto_inverso = $9,
+             whatsapp_numero = $10,
              atualizado_em = NOW()
-         WHERE id = $7 AND ativo = 1
+         WHERE id = $11 AND ativo = 1
          RETURNING id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-                   logo_url, cor_primaria, cor_secundaria, whatsapp_numero,
+                   logo_url, cor_primaria, cor_secundaria,
+                   cor_texto_principal, cor_texto_secundario,
+                   cor_titulo, cor_texto_inverso, whatsapp_numero,
                    atualizado_em`,
         [
           dados.white_label_ativo,
@@ -3978,6 +4006,10 @@ app.patch(
           dados.logo_url,
           dados.cor_primaria,
           dados.cor_secundaria,
+          dados.cor_texto_principal,
+          dados.cor_texto_secundario,
+          dados.cor_titulo,
+          dados.cor_texto_inverso,
           dados.whatsapp_numero,
           req.user.restaurante_id,
         ],

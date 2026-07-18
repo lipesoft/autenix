@@ -52,6 +52,10 @@ test("normaliza white label inicial do restaurante", () => {
     logo_url: "https://cdn.exemplo.com/logo.png",
     cor_primaria: "#123456",
     cor_secundaria: "#FF6600",
+    cor_texto_principal: "#111827",
+    cor_texto_secundario: "#64748B",
+    cor_titulo: "#0F172A",
+    cor_texto_inverso: "#FFFFFF",
   });
 
   assert.equal(dados.marca.white_label_ativo, true);
@@ -59,6 +63,10 @@ test("normaliza white label inicial do restaurante", () => {
   assert.equal(dados.marca.logo_url, "https://cdn.exemplo.com/logo.png");
   assert.equal(dados.marca.cor_primaria, "#123456");
   assert.equal(dados.marca.cor_secundaria, "#ff6600");
+  assert.equal(dados.marca.cor_texto_principal, "#111827");
+  assert.equal(dados.marca.cor_texto_secundario, "#64748b");
+  assert.equal(dados.marca.cor_titulo, "#0f172a");
+  assert.equal(dados.marca.cor_texto_inverso, "#ffffff");
 });
 
 test("gera senha temporaria forte quando ela nao e informada", () => {

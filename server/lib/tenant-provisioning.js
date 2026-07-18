@@ -233,16 +233,21 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
          observacoes_plano, status_comercial, data_inicio_contrato,
          ultimo_contato_comercial_em, responsavel_comercial, motivo_suspensao,
          white_label_ativo, nome_exibicao, logo_url,
-         cor_primaria, cor_secundaria, whatsapp_numero, atualizado_em
+         cor_primaria, cor_secundaria, cor_texto_principal,
+         cor_texto_secundario, cor_titulo, cor_texto_inverso,
+         whatsapp_numero, atualizado_em
        ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())
+                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                 $24, $25, $26, $27, NOW())
        RETURNING id, nome, slug, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
                  observacoes_plano, status_comercial, data_inicio_contrato,
                  ultimo_contato_comercial_em, responsavel_comercial, motivo_suspensao,
                  white_label_ativo, nome_exibicao, logo_url,
-                 cor_primaria, cor_secundaria, whatsapp_numero, ativo`,
+                 cor_primaria, cor_secundaria, cor_texto_principal,
+                 cor_texto_secundario, cor_titulo, cor_texto_inverso,
+                 whatsapp_numero, ativo`,
       [
         dados.nome,
         dados.slug,
@@ -266,6 +271,10 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
         dados.marca.logo_url,
         dados.marca.cor_primaria,
         dados.marca.cor_secundaria,
+        dados.marca.cor_texto_principal,
+        dados.marca.cor_texto_secundario,
+        dados.marca.cor_titulo,
+        dados.marca.cor_texto_inverso,
         dados.marca.whatsapp_numero,
       ],
     );

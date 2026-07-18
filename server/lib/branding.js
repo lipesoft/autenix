@@ -72,6 +72,10 @@ function normalizarWhiteLabel(payload = {}) {
     logo_url: normalizarLogoUrl(payload.logo_url),
     cor_primaria: normalizarCor(payload.cor_primaria, "Cor principal"),
     cor_secundaria: normalizarCor(payload.cor_secundaria, "Cor de destaque"),
+    cor_texto_principal: normalizarCor(payload.cor_texto_principal, "Cor do texto principal"),
+    cor_texto_secundario: normalizarCor(payload.cor_texto_secundario, "Cor do texto secundario"),
+    cor_titulo: normalizarCor(payload.cor_titulo, "Cor dos titulos"),
+    cor_texto_inverso: normalizarCor(payload.cor_texto_inverso, "Cor do texto sobre destaque"),
     whatsapp_numero: normalizarWhatsappNumero(payload.whatsapp_numero),
   };
 }
@@ -87,6 +91,10 @@ function marcaPublica(restaurante) {
     logo_url: whiteLabelAtivo ? restaurante.logo_url : null,
     cor_primaria: whiteLabelAtivo ? restaurante.cor_primaria : null,
     cor_secundaria: whiteLabelAtivo ? restaurante.cor_secundaria : null,
+    cor_texto_principal: whiteLabelAtivo ? restaurante.cor_texto_principal : null,
+    cor_texto_secundario: whiteLabelAtivo ? restaurante.cor_texto_secundario : null,
+    cor_titulo: whiteLabelAtivo ? restaurante.cor_titulo : null,
+    cor_texto_inverso: whiteLabelAtivo ? restaurante.cor_texto_inverso : null,
     whatsapp_numero: restaurante.whatsapp_numero || null,
   };
 }
