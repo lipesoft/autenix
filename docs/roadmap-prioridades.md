@@ -185,7 +185,8 @@ reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
-- Pendente: resolver lint antigo do frontend para habilitar quality gate em CI.
+- Implementado: lint antigo do frontend resolvido; `npm run lint` passa sem
+  erros ou avisos e pode ser usado como quality gate em CI.
 - Pendente: adicionar testes E2E com Playwright para login, pedidos, fechamento
   de mesa, reservas, importacao e painel da plataforma.
 - Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
