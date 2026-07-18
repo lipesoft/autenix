@@ -1,7 +1,42 @@
 # Roadmap de prioridades
 
-Status atualizado apos a base multi-restaurante, painel da plataforma, white label
-e identidade visual.
+Status atualizado apos a base multi-restaurante, painel da plataforma, white label,
+reservas, seguranca por sessao de mesa e analise tecnica de maturidade.
+
+## Visao executiva
+
+- Produto operacional para restaurante: 75% a 80% concluido.
+- Plataforma SaaS multi-restaurante: 60% a 65% concluida.
+- Produto pronto para escala comercial mais ampla: 45% a 55% concluido.
+- Estimativa para pilotos pagos com poucos restaurantes: 2 a 3 semanas.
+- Estimativa para SaaS v1 confiavel: 6 a 8 semanas.
+- Estimativa para escalar com seguranca para muitos restaurantes: 10 a 14
+  semanas.
+
+## Prioridade 0 - Seguranca e isolamento
+
+- Implementado: RLS ativado nas tabelas publicas principais do Supabase.
+- Implementado: backend tenant-aware usando `restaurante_id` e contexto
+  `app.restaurante_id` por transacao.
+- Implementado: painel da plataforma separado do login dos restaurantes.
+- Implementado: QR Code de mesa com token de sessao, hash no banco e expiracao.
+- Implementado: `service_role` usado somente no backend para Storage, nao no
+  frontend.
+- Pendente critico: revogar `SELECT` direto de `anon` e `authenticated` em
+  `categorias` e `produtos`, removendo o bypass pela Data API do Supabase.
+- Pendente critico: remover ou substituir policies publicas antigas
+  `categorias_public_read_active` e `produtos_public_read_active`, ja que o
+  cardapio publico deve passar pelo backend.
+- Pendente: revalidar usuario ativo no banco em rotas sensiveis ou criar
+  controle de sessao para revogar JWT antes do vencimento.
+- Pendente: adicionar rate limit em endpoints publicos de pedido, chamada,
+  reserva, acompanhamento e consulta de disponibilidade.
+- Pendente: fortalecer upload de imagens com validacao de assinatura real do
+  arquivo, remocao de EXIF e conversao para formato seguro.
+- Pendente: rotacionar tokens operacionais compartilhados fora da Vercel e
+  manter somente variaveis criptografadas no provedor.
+- Pendente: executar advisors do Supabase apos migrations e corrigir alertas de
+  seguranca/performance.
 
 ## Prioridade 1 - Planos e controle comercial
 
@@ -22,8 +57,13 @@ e identidade visual.
   painel administrativo do restaurante.
 - Implementado: validacao previa, preview de acoes, modelos CSV e respeito aos
   limites do plano.
-- Pendente: importacao direta de `.xlsx`, importadores especificos por sistema,
-  historico de importacoes e rollback.
+- Proxima demanda recomendada: historico formal de importacoes com usuario,
+  data, tipo, quantidade de linhas, criados, atualizados, ignorados e erros.
+- Pendente: rollback de importacao recente com rastreio dos registros criados e
+  alterados.
+- Pendente: importacao direta de `.xlsx`.
+- Pendente: importadores especificos por sistema concorrente.
+- Pendente: importar imagens de produtos por arquivo e vincular ao cadastro.
 
 ## Prioridade 2 - Onboarding de restaurante
 
@@ -91,12 +131,14 @@ e identidade visual.
 - Feito: criar tela amigavel de "sessao encerrada" ou "atendimento nao
   iniciado" quando alguem abrir link antigo.
 - Feito: proteger tambem o Socket.IO publico da mesa com o token de sessao.
-- Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
-  sessao ou se deve ficar sempre bloqueado como esta nesta fase.
 - Feito: criar botao operacional explicito de "iniciar atendimento" e
   "encerrar atendimento" na Central e na aba Mesas do Admin.
 - Feito: bloquear encerramento operacional quando ainda existem pedidos abertos,
   orientando fechar a conta primeiro.
+- Pendente critico: fechar leitura direta de `categorias` e `produtos` pela
+  Data API do Supabase para impedir consulta publica fora do backend.
+- Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
+  sessao ou se deve ficar sempre bloqueado como esta nesta fase.
 - Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
   restaurante ou dispositivo autorizado para setores internos.
 
@@ -125,6 +167,49 @@ e identidade visual.
 - Pendente: integrar gateway de pagamento.
 - Pendente: gerar cobrancas, notas/recibos e reconciliacao automatica.
 
+## Prioridade 6 - Observabilidade e operacao
+
+- Pendente: logs estruturados no backend com request id, restaurante_id, role e
+  status da resposta.
+- Pendente: monitoramento de erros em producao para frontend e API.
+- Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
+  tentativas de login.
+- Pendente: painel tecnico simples para saude da API, banco, fila de sessoes e
+  storage.
+- Pendente: rotina de limpeza de sessoes de mesa expiradas e dados temporarios.
+- Pendente: plano de backup e restore testado no Supabase.
+
+## Prioridade 7 - Escalabilidade e arquitetura
+
+- Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
+- Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
+  restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
+- Pendente: resolver lint antigo do frontend para habilitar quality gate em CI.
+- Pendente: adicionar testes E2E com Playwright para login, pedidos, fechamento
+  de mesa, reservas, importacao e painel da plataforma.
+- Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
+  ao editar categoria/produto.
+- Pendente: revisar pool de conexoes e estrategia de conexao no Supabase para
+  volume maior.
+- Pendente: criar jobs agendados para expiracao de sessoes, alertas comerciais e
+  manutencao operacional.
+- Pendente: avaliar separacao futura de servicos se o Socket.IO crescer mais que
+  o restante da API.
+
+## Prioridade 8 - Banco de dados e governanca
+
+- Pendente: corrigir fluxo de migrations para `npm run migrate` rodar limpo em
+  todos os ambientes.
+- Pendente: criar auditoria geral para usuarios, produtos, mesas, configuracoes,
+  planos, status comercial e operacoes financeiras.
+- Pendente: soft delete completo com rastreio de quem arquivou/excluiu.
+- Pendente: revisar indices com dados reais depois dos primeiros restaurantes em
+  producao.
+- Pendente: formalizar politica de retencao de historico de pedidos, chamadas,
+  reservas, logs e importacoes.
+- Pendente: criar verificacao automatica de isolamento multi-tenant usando a
+  role `autenix_backend`, nao a conexao proprietaria `postgres`.
+
 ## Fase futura - Autenticacao Google
 
 - Avaliar login com Google depois que o multi-restaurante estiver mais maduro.
@@ -136,9 +221,9 @@ e identidade visual.
 
 ## Pendencias tecnicas paralelas
 
-- Logs de auditoria gerais fora de reservas.
-- Soft delete completo.
 - Validacao com Zod nos endpoints.
-- Monitoramento de erros.
-- Backup automatico revisado no Supabase.
-- Resolver lint antigo do `client/src/App.jsx`.
+- Documentacao operacional para onboarding, suporte, backup e incidentes.
+- Tela interna de suporte para localizar restaurante, usuario, reserva e mesa
+  sem acessar dados de outro tenant indevidamente.
+- Portal publico self-service para cadastro de restaurante.
+- Convites por email/WhatsApp para masters e colaboradores.
