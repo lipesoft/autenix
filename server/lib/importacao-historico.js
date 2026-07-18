@@ -15,6 +15,14 @@ class ImportacaoHistoricoError extends Error {
   }
 }
 
+class ImportacaoRollbackError extends Error {
+  constructor(message, statusCode = 409) {
+    super(message);
+    this.name = "ImportacaoRollbackError";
+    this.statusCode = statusCode;
+  }
+}
+
 function textoLimitado(valor, limite) {
   return String(valor ?? "")
     .replace(/[\u0000-\u001f\u007f]/g, " ")
@@ -68,9 +76,28 @@ function rollbackDisponivel(importacao, agora = new Date()) {
   return agora.getTime() - criadoEm.getTime() <= limiteMs;
 }
 
+function objetosEquivalentes(atual, esperado) {
+  if (atual === esperado) return true;
+  if (
+    !atual
+    || !esperado
+    || typeof atual !== "object"
+    || typeof esperado !== "object"
+    || Array.isArray(atual)
+    || Array.isArray(esperado)
+  ) {
+    return false;
+  }
+  const chaves = Object.keys(esperado);
+  return chaves.length === Object.keys(atual).length
+    && chaves.every((chave) => objetosEquivalentes(atual[chave], esperado[chave]));
+}
+
 module.exports = {
   ImportacaoHistoricoError,
+  ImportacaoRollbackError,
   JANELA_ROLLBACK_HORAS,
   normalizarMetadadosImportacao,
+  objetosEquivalentes,
   rollbackDisponivel,
 };

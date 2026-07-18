@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
   normalizarMetadadosImportacao,
+  objetosEquivalentes,
   rollbackDisponivel,
 } = require("../lib/importacao-historico");
 
@@ -36,6 +37,17 @@ test("limita rollback a importacao concluida nas ultimas 24 horas", () => {
   );
   assert.equal(
     rollbackDisponivel({ status: "revertida", criado_em: "2026-07-18T11:00:00.000Z" }, agora),
+    false,
+  );
+});
+
+test("compara snapshots sem aceitar campos extras ou valores alterados", () => {
+  const esperado = { nome: "Burger", preco: 34.9, imagem: null };
+
+  assert.equal(objetosEquivalentes({ nome: "Burger", preco: 34.9, imagem: null }, esperado), true);
+  assert.equal(objetosEquivalentes({ nome: "Burger", preco: 35, imagem: null }, esperado), false);
+  assert.equal(
+    objetosEquivalentes({ nome: "Burger", preco: 34.9, imagem: null, extra: true }, esperado),
     false,
   );
 });

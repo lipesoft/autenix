@@ -486,6 +486,66 @@
   padding: 0 10px;
 }
 
+.import-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-rollback-button {
+  min-height: 34px;
+  border-color: rgba(184, 66, 52, 0.3);
+  padding: 0 10px;
+  color: #a43b30;
+}
+
+.import-rollback-confirm {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-left: 3px solid #a96318;
+  background: rgba(169, 99, 24, 0.08);
+}
+
+.import-rollback-confirm > svg {
+  color: #a96318;
+}
+
+.import-rollback-confirm > div:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.import-rollback-confirm strong {
+  overflow: hidden;
+  color: #503814;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-rollback-confirm span {
+  color: #6c5b37;
+  font-size: 11px;
+}
+
+.import-rollback-confirm > div:last-child {
+  display: flex;
+  gap: 7px;
+}
+
+.import-rollback-confirm .import-secondary,
+.import-rollback-confirm .import-primary {
+  min-height: 36px;
+}
+
+.import-rollback-confirm-button {
+  background: #a43b30;
+}
+
 .import-history-error {
   color: #b84234;
   font-size: 12px;
@@ -570,5 +630,22 @@
   .import-history-detail > div:first-child {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .import-history-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .import-rollback-confirm {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .import-rollback-confirm > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .import-rollback-confirm > div:last-child > button {
+    flex: 1;
   }
 }

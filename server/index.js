@@ -39,8 +39,10 @@ const {
 } = require("./lib/importacao");
 const {
   ImportacaoHistoricoError,
+  ImportacaoRollbackError,
   JANELA_ROLLBACK_HORAS,
   normalizarMetadadosImportacao,
+  objetosEquivalentes,
   rollbackDisponivel,
 } = require("./lib/importacao-historico");
 const {
@@ -2893,7 +2895,10 @@ app.post(
         return res.status(409).json({ erro: "Registro duplicado na importacao" });
       }
       console.error("Falha na importacao:", error.message);
-      return res.status(500).json({ erro: "Nao foi possivel executar a importacao" });
+      return res.status(500).json({
+        erro: "Nao foi possivel executar a importacao",
+        ...(isProduction ? {} : { detalhe: error.message }),
+      });
     }
   },
 );
@@ -2972,6 +2977,49 @@ app.get(
     } catch (error) {
       console.error("Falha ao detalhar importacao:", error.message);
       return res.status(500).json({ erro: "Nao foi possivel carregar a importacao" });
+    }
+  },
+);
+
+app.post(
+  "/api/importacoes/:id/rollback",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const importacaoId = Number(req.params.id);
+      if (!Number.isInteger(importacaoId) || importacaoId <= 0) {
+        return res.status(400).json({ erro: "Importacao invalida" });
+      }
+      const importacao = await withTenantTransaction(
+        req.user.restaurante_id,
+        (client, restauranteId) => executarRollbackImportacao(
+          client,
+          restauranteId,
+          importacaoId,
+          req.user,
+        ),
+      );
+      if (["categorias", "produtos"].includes(importacao.tipo)) {
+        emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
+      }
+      return res.json({ sucesso: true, importacao });
+    } catch (error) {
+      if (error instanceof ImportacaoRollbackError) {
+        return res.status(error.statusCode).json({ erro: error.message });
+      }
+      if (error.code === "23503") {
+        return res.status(409).json({
+          erro: "Nao e possivel desfazer porque um registro importado ja esta em uso",
+        });
+      }
+      if (error.code === "23505") {
+        return res.status(409).json({
+          erro: "Nao e possivel restaurar porque os dados anteriores agora estao em uso",
+        });
+      }
+      console.error("Falha no rollback da importacao:", error.message);
+      return res.status(500).json({ erro: "Nao foi possivel desfazer a importacao" });
     }
   },
 );
@@ -3319,6 +3367,10 @@ function mapearPorChave(rows, campo) {
   return mapa;
 }
 
+function mapearPorId(rows) {
+  return new Map(rows.map((row) => [Number(row.id), row]));
+}
+
 async function carregarEstadoImportacao(client, restauranteId, tipo) {
   if (tipo === "categorias" || tipo === "produtos") {
     const { rows } = await client.query(
@@ -3329,7 +3381,8 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
       [restauranteId],
     );
     const categorias = mapearPorChave(rows, "nome");
-    if (tipo === "categorias") return { categorias };
+    const categoriasPorId = mapearPorId(rows);
+    if (tipo === "categorias") return { categorias, categoriasPorId };
 
     const { rows: produtos } = await client.query(
       `SELECT id, categoria_id, nome, descricao, preco, imagem, disponivel
@@ -3338,7 +3391,12 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
        ORDER BY id`,
       [restauranteId],
     );
-    return { categorias, produtos: mapearPorChave(produtos, "nome") };
+    return {
+      categorias,
+      categoriasPorId,
+      produtos: mapearPorChave(produtos, "nome"),
+      produtosPorId: mapearPorId(produtos),
+    };
   }
 
   if (tipo === "mesas") {
@@ -3349,7 +3407,7 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
        ORDER BY id`,
       [restauranteId],
     );
-    return { mesas: mapearPorChave(rows, "numero") };
+    return { mesas: mapearPorChave(rows, "numero"), mesasPorId: mapearPorId(rows) };
   }
 
   if (tipo === "usuarios") {
@@ -3360,7 +3418,7 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
        ORDER BY id`,
       [restauranteId],
     );
-    return { usuarios: mapearPorChave(rows, "login") };
+    return { usuarios: mapearPorChave(rows, "login"), usuariosPorId: mapearPorId(rows) };
   }
 
   return {};
@@ -3522,6 +3580,7 @@ async function garantirCategoriaImportacao(client, restauranteId, estado, nomeCa
     [nome, 99, restauranteId],
   );
   estado.categorias.set(chave, rows[0]);
+  estado.categoriasPorId.set(Number(rows[0].id), rows[0]);
   return {
     id: rows[0].id,
     historico: itemHistorico(
@@ -3537,7 +3596,7 @@ async function garantirCategoriaImportacao(client, restauranteId, estado, nomeCa
 async function executarImportacaoCategoria(client, restauranteId, item, estado) {
   const { dados } = item;
   if (item.acao === "atualizar") {
-    const anterior = estado.categorias.get(item.chave);
+    const anterior = estado.categoriasPorId.get(Number(item.existente_id));
     await client.query(
       `UPDATE categorias
        SET nome = $1, ordem = $2
@@ -3570,6 +3629,7 @@ async function executarImportacaoCategoria(client, restauranteId, item, estado) 
     [dados.nome, dados.ordem, restauranteId],
   );
   estado.categorias.set(normalizarBusca(rows[0].nome), rows[0]);
+  estado.categoriasPorId.set(Number(rows[0].id), rows[0]);
   return {
     acao: "criar",
     login: null,
@@ -3602,7 +3662,7 @@ async function executarImportacaoProduto(client, restauranteId, item, estado) {
   ];
 
   if (item.acao === "atualizar") {
-    const anterior = estado.produtos.get(item.chave);
+    const anterior = estado.produtosPorId.get(Number(item.existente_id));
     await client.query(
       `UPDATE produtos
        SET categoria_id = $1,
@@ -3665,7 +3725,7 @@ async function executarImportacaoProduto(client, restauranteId, item, estado) {
 async function executarImportacaoMesa(client, restauranteId, item, estado) {
   const { dados } = item;
   if (item.acao === "atualizar") {
-    const anterior = estado.mesas.get(item.chave);
+    const anterior = estado.mesasPorId.get(Number(item.existente_id));
     await client.query(
       `UPDATE mesas
        SET numero = $1, status = $2
@@ -3713,7 +3773,7 @@ async function executarImportacaoUsuario(client, restauranteId, item, estado) {
   const senhaFinal = dados.senha_informada ? dados.senha : senhaTemporaria;
 
   if (item.acao === "atualizar") {
-    const anterior = estado.usuarios.get(item.chave);
+    const anterior = estado.usuariosPorId.get(Number(item.existente_id));
     const senhaSql = dados.senha_informada ? ", senha = $6" : "";
     const params = [
       dados.nome,
@@ -3779,7 +3839,7 @@ async function executarImportacaoUsuario(client, restauranteId, item, estado) {
       "criar",
       rows[0],
       null,
-      snapshotUsuario(rows[0]),
+      snapshotUsuario(rows[0], true),
     )],
   };
 }
@@ -3803,7 +3863,7 @@ function importacaoHistoricoPublica(row) {
     revertido_em: row.revertido_em,
     revertido_por: row.revertido_por_nome,
     itens_afetados: row.itens_afetados,
-    rollback_disponivel: rollbackDisponivel(row),
+    rollback_disponivel: Number(row.itens_afetados || 0) > 0 && rollbackDisponivel(row),
     rollback_expira_em: Number.isNaN(criadoEm.getTime())
       ? null
       : new Date(
@@ -3956,6 +4016,249 @@ async function executarImportacao(client, restauranteId, analise, contexto = {})
     contexto,
   );
   return { ...resultado, ...historico };
+}
+
+function snapshotEntidadeRollback(entidade, row, esperado) {
+  if (entidade === "categorias") return snapshotCategoria(row);
+  if (entidade === "produtos") return snapshotProduto(row);
+  if (entidade === "mesas") return snapshotMesa(row);
+  if (entidade === "usuarios") {
+    return snapshotUsuario(
+      row,
+      Object.prototype.hasOwnProperty.call(esperado || {}, "senha"),
+    );
+  }
+  throw new ImportacaoRollbackError("Entidade de rollback invalida");
+}
+
+async function carregarRegistroRollback(client, restauranteId, item) {
+  let resultado;
+  if (item.entidade === "categorias") {
+    resultado = await client.query(
+      `SELECT id, nome, ordem, ativo
+       FROM categorias
+       WHERE id = $1 AND restaurante_id = $2
+       FOR UPDATE`,
+      [item.registro_id, restauranteId],
+    );
+  } else if (item.entidade === "produtos") {
+    resultado = await client.query(
+      `SELECT id, categoria_id, nome, descricao, preco, imagem, disponivel
+       FROM produtos
+       WHERE id = $1 AND restaurante_id = $2
+       FOR UPDATE`,
+      [item.registro_id, restauranteId],
+    );
+  } else if (item.entidade === "mesas") {
+    resultado = await client.query(
+      `SELECT id, numero, status
+       FROM mesas
+       WHERE id = $1 AND restaurante_id = $2
+       FOR UPDATE`,
+      [item.registro_id, restauranteId],
+    );
+  } else if (item.entidade === "usuarios") {
+    resultado = await client.query(
+      `SELECT id, nome, login, role, ativo, senha
+       FROM usuarios
+       WHERE id = $1 AND restaurante_id = $2
+       FOR UPDATE`,
+      [item.registro_id, restauranteId],
+    );
+  } else {
+    throw new ImportacaoRollbackError("Entidade de rollback invalida");
+  }
+
+  if (!resultado.rows[0]) {
+    throw new ImportacaoRollbackError(
+      `O registro ${item.entidade} #${item.registro_id} nao existe mais`,
+    );
+  }
+  const atual = snapshotEntidadeRollback(
+    item.entidade,
+    resultado.rows[0],
+    item.dados_novos,
+  );
+  if (!objetosEquivalentes(atual, item.dados_novos)) {
+    throw new ImportacaoRollbackError(
+      `O registro ${item.entidade} #${item.registro_id} foi alterado depois da importacao`,
+    );
+  }
+}
+
+async function apagarRegistroRollback(client, restauranteId, item) {
+  if (item.entidade === "categorias") {
+    return client.query(
+      "DELETE FROM categorias WHERE id = $1 AND restaurante_id = $2",
+      [item.registro_id, restauranteId],
+    );
+  }
+  if (item.entidade === "produtos") {
+    return client.query(
+      "DELETE FROM produtos WHERE id = $1 AND restaurante_id = $2",
+      [item.registro_id, restauranteId],
+    );
+  }
+  if (item.entidade === "mesas") {
+    return client.query(
+      "DELETE FROM mesas WHERE id = $1 AND restaurante_id = $2",
+      [item.registro_id, restauranteId],
+    );
+  }
+  if (item.entidade === "usuarios") {
+    return client.query(
+      "DELETE FROM usuarios WHERE id = $1 AND restaurante_id = $2",
+      [item.registro_id, restauranteId],
+    );
+  }
+  throw new ImportacaoRollbackError("Entidade de rollback invalida");
+}
+
+async function restaurarRegistroRollback(client, restauranteId, item) {
+  const dados = item.dados_anteriores;
+  if (!dados) throw new ImportacaoRollbackError("Snapshot anterior nao encontrado");
+
+  if (item.entidade === "categorias") {
+    return client.query(
+      `UPDATE categorias
+       SET nome = $1, ordem = $2, ativo = $3
+       WHERE id = $4 AND restaurante_id = $5`,
+      [dados.nome, dados.ordem, dados.ativo, item.registro_id, restauranteId],
+    );
+  }
+  if (item.entidade === "produtos") {
+    return client.query(
+      `UPDATE produtos
+       SET categoria_id = $1,
+           nome = $2,
+           descricao = $3,
+           preco = $4,
+           imagem = $5,
+           disponivel = $6
+       WHERE id = $7 AND restaurante_id = $8`,
+      [
+        dados.categoria_id,
+        dados.nome,
+        dados.descricao,
+        dados.preco,
+        dados.imagem,
+        dados.disponivel,
+        item.registro_id,
+        restauranteId,
+      ],
+    );
+  }
+  if (item.entidade === "mesas") {
+    return client.query(
+      `UPDATE mesas
+       SET numero = $1, status = $2
+       WHERE id = $3 AND restaurante_id = $4`,
+      [dados.numero, dados.status, item.registro_id, restauranteId],
+    );
+  }
+  if (item.entidade === "usuarios") {
+    if (Object.prototype.hasOwnProperty.call(dados, "senha")) {
+      return client.query(
+        `UPDATE usuarios
+         SET nome = $1, login = $2, role = $3, ativo = $4, senha = $5
+         WHERE id = $6 AND restaurante_id = $7`,
+        [
+          dados.nome,
+          dados.login,
+          dados.role,
+          dados.ativo,
+          dados.senha,
+          item.registro_id,
+          restauranteId,
+        ],
+      );
+    }
+    return client.query(
+      `UPDATE usuarios
+       SET nome = $1, login = $2, role = $3, ativo = $4
+       WHERE id = $5 AND restaurante_id = $6`,
+      [
+        dados.nome,
+        dados.login,
+        dados.role,
+        dados.ativo,
+        item.registro_id,
+        restauranteId,
+      ],
+    );
+  }
+  throw new ImportacaoRollbackError("Entidade de rollback invalida");
+}
+
+async function executarRollbackImportacao(
+  client,
+  restauranteId,
+  importacaoId,
+  usuario,
+) {
+  const { rows } = await client.query(
+    `SELECT *
+     FROM importacoes
+     WHERE id = $1 AND restaurante_id = $2
+     FOR UPDATE`,
+    [importacaoId, restauranteId],
+  );
+  const importacao = rows[0];
+  if (!importacao) {
+    throw new ImportacaoRollbackError("Importacao nao encontrada", 404);
+  }
+  if (importacao.status !== "concluida") {
+    throw new ImportacaoRollbackError("Esta importacao ja foi revertida");
+  }
+  if (!rollbackDisponivel(importacao)) {
+    throw new ImportacaoRollbackError(
+      `O prazo de ${JANELA_ROLLBACK_HORAS} horas para rollback expirou`,
+    );
+  }
+
+  const { rows: itens } = await client.query(
+    `SELECT ordem, entidade, registro_id, acao, dados_anteriores, dados_novos
+     FROM importacao_itens
+     WHERE importacao_id = $1 AND restaurante_id = $2
+     ORDER BY ordem DESC`,
+    [importacaoId, restauranteId],
+  );
+  if (!itens.length) {
+    throw new ImportacaoRollbackError("A importacao nao possui alteracoes para desfazer");
+  }
+
+  for (const item of itens) {
+    await carregarRegistroRollback(client, restauranteId, item);
+  }
+  for (const item of itens) {
+    if (item.acao === "criar") {
+      await apagarRegistroRollback(client, restauranteId, item);
+    } else if (item.acao === "atualizar") {
+      await restaurarRegistroRollback(client, restauranteId, item);
+    } else {
+      throw new ImportacaoRollbackError("Acao de rollback invalida");
+    }
+  }
+
+  const { rows: atualizadas } = await client.query(
+    `UPDATE importacoes
+     SET status = 'revertida',
+         revertido_em = NOW(),
+         revertido_por_usuario_id = $1,
+         revertido_por_nome = $2
+     WHERE id = $3 AND restaurante_id = $4
+     RETURNING *`,
+    [
+      Number(usuario.id),
+      String(usuario.nome || usuario.login || "Admin").slice(0, 120),
+      importacaoId,
+      restauranteId,
+    ],
+  );
+  return importacaoHistoricoPublica({
+    ...atualizadas[0],
+    itens_afetados: itens.length,
+  });
 }
 
 function responderErroPlataforma(res, error) {

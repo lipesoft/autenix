@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   Columns3,
   Download,
@@ -8,6 +9,7 @@ import {
   History,
   LoaderCircle,
   RefreshCw,
+  Undo2,
   Upload,
 } from "lucide-react";
 import { API_URL } from "../../services/api.js";
@@ -101,6 +103,8 @@ export default function ImportacaoDados({ onImported }) {
   const [historico, setHistorico] = useState([]);
   const [historicoStatus, setHistoricoStatus] = useState("loading");
   const [detalhe, setDetalhe] = useState(null);
+  const [rollbackPendente, setRollbackPendente] = useState(null);
+  const [rollbackStatus, setRollbackStatus] = useState({ tipo: "idle", mensagem: "" });
 
   const campos = TIPOS[tipo].campos;
   const errosMapeamento = useMemo(
@@ -147,6 +151,27 @@ export default function ImportacaoDados({ onImported }) {
       setHistoricoStatus("success");
     } catch {
       setHistoricoStatus("error");
+    }
+  };
+
+  const executarRollback = async () => {
+    if (!rollbackPendente) return;
+    setRollbackStatus({ tipo: "loading", mensagem: "Desfazendo importacao..." });
+    try {
+      const resposta = await authFetch(
+        `${API_URL}/api/importacoes/${rollbackPendente.id}/rollback`,
+        { method: "POST" },
+      );
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || "Falha ao desfazer importacao.");
+      const tipoRevertido = rollbackPendente.tipo;
+      setRollbackPendente(null);
+      setDetalhe(null);
+      setRollbackStatus({ tipo: "success", mensagem: "Importacao desfeita com sucesso." });
+      onImported?.(tipoRevertido);
+      await carregarHistorico();
+    } catch (error) {
+      setRollbackStatus({ tipo: "error", mensagem: error.message });
     }
   };
 
@@ -597,20 +622,74 @@ export default function ImportacaoDados({ onImported }) {
                       </span>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="import-secondary import-detail-button"
-                        onClick={() => abrirDetalhe(item.id)}
-                        disabled={historicoStatus === "loading-detail"}
-                      >
-                        <Eye size={15} />
-                        {detalhe?.id === item.id ? "Fechar" : "Itens"}
-                      </button>
+                      <div className="import-history-actions">
+                        <button
+                          type="button"
+                          className="import-secondary import-detail-button"
+                          onClick={() => abrirDetalhe(item.id)}
+                          disabled={historicoStatus === "loading-detail"}
+                        >
+                          <Eye size={15} />
+                          {detalhe?.id === item.id ? "Fechar" : "Itens"}
+                        </button>
+                        {item.rollback_disponivel && (
+                          <button
+                            type="button"
+                            className="import-secondary import-rollback-button"
+                            onClick={() => {
+                              setRollbackPendente(item);
+                              setRollbackStatus({ tipo: "idle", mensagem: "" });
+                            }}
+                          >
+                            <Undo2 size={15} />
+                            Desfazer
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {rollbackPendente && (
+          <div className="import-rollback-confirm" role="alert">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>Desfazer {rollbackPendente.arquivo_nome}?</strong>
+              <span>
+                Os {rollbackPendente.itens_afetados} registro(s) serao restaurados ao estado anterior.
+              </span>
+            </div>
+            <div>
+              <button
+                type="button"
+                className="import-secondary"
+                onClick={() => setRollbackPendente(null)}
+                disabled={rollbackStatus.tipo === "loading"}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="import-primary import-rollback-confirm-button"
+                onClick={executarRollback}
+                disabled={rollbackStatus.tipo === "loading"}
+              >
+                {rollbackStatus.tipo === "loading"
+                  ? <LoaderCircle className="import-spin" size={16} />
+                  : <Undo2 size={16} />}
+                Confirmar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {rollbackStatus.mensagem && (
+          <div className={`import-status import-status-${rollbackStatus.tipo}`} role="status">
+            {rollbackStatus.mensagem}
           </div>
         )}
 
