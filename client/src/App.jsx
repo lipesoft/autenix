@@ -167,14 +167,6 @@ let T = {
   inputBg: "#f8f9f8",
 };
 
-// Stub para compatibilidade (tema fixo, sem alternância)
-function getTema() {
-  return T;
-}
-function useTema() {
-  return "claro";
-}
-
 // ─── SOM ─────────────────────────────────────────────────────────────────────
 function playBeep(freq = 880, dur = 0.18, vol = 0.4) {
   try {
@@ -189,7 +181,9 @@ function playBeep(freq = 880, dur = 0.18, vol = 0.4) {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + dur);
-  } catch (e) {}
+  } catch {
+    // Alguns navegadores bloqueiam audio sem interacao previa do usuario.
+  }
 }
 function playNotifSound(type = "chamada") {
   if (type === "chamada") {
@@ -485,8 +479,6 @@ function gerarCSS(t = T) {
   }
 `;
 }
-const css = gerarCSS(T);
-
 // ─── COMPONENTES BASE ─────────────────────────────────────────────────────────
 function Btn({
   children,
@@ -571,7 +563,6 @@ function Card({
   onDrop,
   onDragLeave,
 }) {
-  useTema();
   return (
     <div
       className={["app-card", className].filter(Boolean).join(" ")}
@@ -611,7 +602,6 @@ function Badge({ status }) {
 }
 
 function Modal({ children, onClose }) {
-  useTema();
   return (
     <div
       className="fade-in"
@@ -2136,8 +2126,6 @@ function HistoricoReservaModal({
 
 // ─── BOAS-VINDAS MESA ─────────────────────────────────────────────────────────
 function TelaBoasVindas({ mesaNumero, onContinuar }) {
-  const tema = useTema();
-  const css = gerarCSS(T);
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
   const entrar = () => {
@@ -2325,7 +2313,6 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
   const [sessaoBloqueada, setSessaoBloqueada] = useState(null);
   const [verificandoSessao, setVerificandoSessao] = useState(true);
 
-  const tema = useTema();
   const css = gerarCSS(T);
   const mesaNumero = mesa?.numero || mesa_id;
   useEffect(() => {
@@ -2697,9 +2684,6 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
               >
                 {produtos.map((p, i) => {
                   const q = qtd(p.id);
-                  const ei = cardapio.categorias.findIndex(
-                    (c) => c.id === p.categoria_id,
-                  );
                   return (
                     <div
                       key={p.id}
@@ -3298,7 +3282,6 @@ function PainelGarcom({ usuario, onLogout }) {
   const bellRef = useRef(null);
   const { notifs, push, dismiss } = useNotifs();
 
-  const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Garçom - ${marca.nome}`;
@@ -3423,7 +3406,7 @@ function PainelGarcom({ usuario, onLogout }) {
     });
 
     // Pedido pronto na cozinha
-    s.on("pedido_pronto", (data) => {
+    s.on("pedido_pronto", () => {
       fetchPedidos();
       playNotifSound("pronto");
     });
@@ -4704,7 +4687,6 @@ function PainelCozinha({ usuario, onLogout }) {
   const [chamadas, setChamadas] = useState([]);
   const [dragging, setDragging] = useState(null);
 
-  const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Cozinha - ${marca.nome}`;
@@ -4725,30 +4707,23 @@ function PainelCozinha({ usuario, onLogout }) {
   }, []);
 
   useEffect(() => {
-    fetchPedidos();
-    fetchChamadas();
+    const carregamentoInicial = window.setTimeout(() => {
+      fetchPedidos();
+      fetchChamadas();
+    }, 0);
     const s = getSocket();
     s.on("novo_pedido", fetchPedidos);
     s.on("pedido_atualizado", fetchPedidos);
     s.on("chamada_garcom", fetchChamadas);
     s.on("chamada_atendida", fetchChamadas);
     return () => {
+      window.clearTimeout(carregamentoInicial);
       s.off("novo_pedido");
       s.off("pedido_atualizado");
       s.off("chamada_garcom");
       s.off("chamada_atendida");
     };
   }, [fetchPedidos, fetchChamadas]);
-
-  // Item 8: moverItem aceita qualquer direção
-  const moverItem = async (itemId, novoStatus) => {
-    await authFetch(`${API}/api/itens/${itemId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: novoStatus }),
-    });
-    fetchPedidos();
-  };
 
   // Move todos os itens do pedido para um status
   const moverTudo = async (pedido, novoStatus) => {
@@ -5176,7 +5151,6 @@ function PainelAdmin({ usuario, onLogout }) {
     observacao: "",
   });
 
-  const tema = useTema();
   const css = gerarCSS(T);
   useEffect(() => {
     document.title = `Admin - ${marca.nome}`;
@@ -7702,7 +7676,6 @@ function PainelFinanceiro({ usuario, onLogout }) {
   const [carregando, setCarregando] = useState(false);
   const [comandaModal, setComandaModal] = useState(null);
   const [comandaHistModal, setComandaHistModal] = useState(null);
-  const tema = useTema();
   const css = gerarCSS(T);
 
   useEffect(() => {
@@ -7731,22 +7704,29 @@ function PainelFinanceiro({ usuario, onLogout }) {
   }, []);
 
   useEffect(() => {
-    fetchMesas();
-    fetchPedidos();
-    fetchHistorico("hoje");
+    const carregamentoInicial = window.setTimeout(() => {
+      fetchMesas();
+      fetchPedidos();
+      fetchHistorico("hoje");
+    }, 0);
+    return () => window.clearTimeout(carregamentoInicial);
+  }, [fetchMesas, fetchPedidos, fetchHistorico]);
+
+  useEffect(() => {
     const s = getSocket();
-    s.on("mesa_atualizada", () => {
+    const atualizarMesa = () => {
       fetchMesas();
       fetchHistorico(periodo, dataInicio, dataFim);
-    });
+    };
+    s.on("mesa_atualizada", atualizarMesa);
     s.on("novo_pedido", fetchPedidos);
     s.on("pedido_atualizado", fetchPedidos);
     return () => {
-      s.off("mesa_atualizada");
-      s.off("novo_pedido");
-      s.off("pedido_atualizado");
+      s.off("mesa_atualizada", atualizarMesa);
+      s.off("novo_pedido", fetchPedidos);
+      s.off("pedido_atualizado", fetchPedidos);
     };
-  }, [fetchMesas, fetchPedidos, fetchHistorico]);
+  }, [dataFim, dataInicio, fetchHistorico, fetchMesas, fetchPedidos, periodo]);
 
   const mudarPeriodo = (p) => {
     setPeriodo(p);
