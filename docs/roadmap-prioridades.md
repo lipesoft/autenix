@@ -61,7 +61,8 @@ e identidade visual.
   email quando informado e copia do link de acompanhamento.
 - Implementado: historico/auditoria de reservas com eventos de criacao,
   mudanca de status, troca de mesa e compartilhamento.
-- Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
+- Implementado: regras avancadas de disponibilidade por horario, capacidade e
+  salao, com configuracao no Admin e bloqueio no backend.
 - Pendente: confirmacao automatica por email/WhatsApp com provedor dedicado.
 
 ## Prioridade 3.1 - Seguranca do cardapio publico
