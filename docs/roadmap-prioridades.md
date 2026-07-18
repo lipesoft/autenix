@@ -59,9 +59,10 @@ e identidade visual.
 - Implementado: WhatsApp do restaurante no white label para contato do cliente.
 - Implementado: compartilhamento de reserva no garcom/admin com WhatsApp,
   email quando informado e copia do link de acompanhamento.
+- Implementado: historico/auditoria de reservas com eventos de criacao,
+  mudanca de status, troca de mesa e compartilhamento.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
 - Pendente: confirmacao automatica por email/WhatsApp com provedor dedicado.
-- Pendente: historico/auditoria detalhada de alteracoes de status.
 
 ## Prioridade 3.1 - Seguranca do cardapio publico
 
@@ -124,7 +125,7 @@ e identidade visual.
 
 ## Pendencias tecnicas paralelas
 
-- Logs de auditoria.
+- Logs de auditoria gerais fora de reservas.
 - Soft delete completo.
 - Validacao com Zod nos endpoints.
 - Monitoramento de erros.
