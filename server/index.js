@@ -49,6 +49,12 @@ const {
   normalizarStatusReserva,
 } = require("./lib/reservas");
 const {
+  ReservaEventoValidationError,
+  descricaoCompartilhamentoReserva,
+  normalizarEventoReserva,
+  origemEventoPorUsuario,
+} = require("./lib/reserva-eventos");
+const {
   MesaSessionValidationError,
   calcularExpiracaoSessaoMesa,
   criarTokenSessaoMesa,
@@ -761,6 +767,24 @@ async function initDB() {
       chamada_em TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS reservas_eventos (
+      id SERIAL PRIMARY KEY,
+      restaurante_id INTEGER NOT NULL,
+      reserva_id INTEGER NOT NULL,
+      usuario_id INTEGER,
+      usuario_nome TEXT,
+      usuario_role TEXT,
+      origem TEXT NOT NULL DEFAULT 'sistema',
+      tipo TEXT NOT NULL,
+      descricao TEXT NOT NULL,
+      status_anterior TEXT,
+      status_novo TEXT,
+      mesa_id_anterior INTEGER,
+      mesa_id_novo INTEGER,
+      detalhes JSONB NOT NULL DEFAULT '{}'::jsonb,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY,
       valor TEXT
@@ -781,6 +805,9 @@ async function initDB() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_reservas_restaurante_codigo_acompanhamento
       ON reservas (restaurante_id, codigo_acompanhamento)
       WHERE codigo_acompanhamento IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_reservas_eventos_reserva_criado
+      ON reservas_eventos (restaurante_id, reserva_id, criado_em DESC);
   `);
 
   const restaurantePadrao = await buscarRestaurantePorSlug("autenix");
@@ -1032,8 +1059,77 @@ function urlAcompanhamentoReserva(restauranteSlug, codigo) {
   return `${PUBLIC_APP_URL}/r/${restauranteSlug}/reservas/acompanhar/${encodeURIComponent(codigo)}`;
 }
 
+function dadosUsuarioEventoReserva(usuario, origemPadrao = "sistema") {
+  return {
+    usuario_id: usuario?.id || null,
+    usuario_nome: usuario?.nome || null,
+    usuario_role: usuario?.role || null,
+    origem: origemEventoPorUsuario(usuario, origemPadrao),
+  };
+}
+
+async function dadosUsuarioEventoReservaComNome(
+  client,
+  restauranteId,
+  usuario,
+  origemPadrao = "sistema",
+) {
+  const dados = dadosUsuarioEventoReserva(usuario, origemPadrao);
+  if (!dados.usuario_nome && dados.usuario_id) {
+    const { rows } = await client.query(
+      "SELECT nome FROM usuarios WHERE id = $1 AND restaurante_id = $2",
+      [dados.usuario_id, restauranteId],
+    );
+    dados.usuario_nome = rows[0]?.nome || null;
+  }
+  return dados;
+}
+
+async function registrarEventoReserva(client, restauranteId, reservaId, payload = {}) {
+  const evento = normalizarEventoReserva(payload);
+  await client.query(
+    `INSERT INTO reservas_eventos
+       (restaurante_id, reserva_id, usuario_id, usuario_nome, usuario_role,
+        origem, tipo, descricao, status_anterior, status_novo,
+        mesa_id_anterior, mesa_id_novo, detalhes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
+    [
+      restauranteId,
+      reservaId,
+      payload.usuario_id || null,
+      payload.usuario_nome || null,
+      payload.usuario_role || null,
+      evento.origem,
+      evento.tipo,
+      evento.descricao,
+      evento.status_anterior,
+      evento.status_novo,
+      evento.mesa_id_anterior,
+      evento.mesa_id_novo,
+      JSON.stringify(evento.detalhes),
+    ],
+  );
+}
+
+async function listarEventosReserva(restauranteId, reservaId) {
+  const { rows } = await tenantQuery(
+    restauranteId,
+    `SELECT id, reserva_id, usuario_id, usuario_nome, usuario_role,
+            origem, tipo, descricao, status_anterior, status_novo,
+            mesa_id_anterior, mesa_id_novo, detalhes, criado_em
+     FROM reservas_eventos
+     WHERE restaurante_id = $1 AND reserva_id = $2
+     ORDER BY criado_em DESC, id DESC`,
+    [restauranteId, reservaId],
+  );
+  return rows;
+}
+
 function responderErroReserva(res, error) {
-  if (error instanceof ReservasValidationError) {
+  if (
+    error instanceof ReservasValidationError ||
+    error instanceof ReservaEventoValidationError
+  ) {
     return res.status(error.statusCode || 400).json({ erro: error.message });
   }
   console.error("Falha em reservas:", error.message);
@@ -1718,7 +1814,15 @@ app.post("/api/reservas", async (req, res) => {
             codigoAcompanhamento,
           ],
         );
-        return buscarReservaCompleta(restauranteId, rows[0].id, client);
+        const reservaId = rows[0].id;
+        await registrarEventoReserva(client, restauranteId, reservaId, {
+          tipo: "criada",
+          origem: "publica",
+          status_novo: statusInicial,
+          mesa_id_novo: dados.mesa_id,
+          detalhes: { tipo: dados.tipo, origem: dados.origem },
+        });
+        return buscarReservaCompleta(restauranteId, reservaId, client);
       },
     );
 
@@ -1922,7 +2026,20 @@ app.post(
               codigoAcompanhamento,
             ],
           );
-          return buscarReservaCompleta(restauranteId, rows[0].id, client);
+          const reservaId = rows[0].id;
+          await registrarEventoReserva(client, restauranteId, reservaId, {
+            tipo: "criada",
+            ...(await dadosUsuarioEventoReservaComNome(
+              client,
+              restauranteId,
+              req.user,
+              "admin",
+            )),
+            status_novo: statusInicial,
+            mesa_id_novo: dados.mesa_id,
+            detalhes: { tipo: dados.tipo, origem: dados.origem },
+          });
+          return buscarReservaCompleta(restauranteId, reservaId, client);
         },
       );
 
@@ -1979,6 +2096,16 @@ app.patch(
           if (deveAtualizarMesa && mesaId) {
             await validarMesaReserva(client, restauranteId, mesaId);
           }
+          const reservaAnterior = await buscarReservaCompleta(
+            restauranteId,
+            reservaId,
+            client,
+          );
+          if (!reservaAnterior) {
+            const error = new ReservasValidationError("Reserva nao encontrada");
+            error.statusCode = 404;
+            throw error;
+          }
           const { rows } = await client.query(
             `UPDATE reservas
              SET status = $1,
@@ -1995,12 +2122,12 @@ app.patch(
             error.statusCode = 404;
             throw error;
           }
+          const reservaAtualizada = await buscarReservaCompleta(
+            restauranteId,
+            reservaId,
+            client,
+          );
           if (status === "concluida") {
-            const reservaAtualizada = await buscarReservaCompleta(
-              restauranteId,
-              reservaId,
-              client,
-            );
             if (reservaAtualizada?.mesa_id) {
               await client.query(
                 `UPDATE mesas
@@ -2009,9 +2136,33 @@ app.patch(
                 [reservaAtualizada.mesa_id, restauranteId],
               );
             }
-            return reservaAtualizada;
           }
-          return buscarReservaCompleta(restauranteId, reservaId, client);
+          const usuarioEvento = await dadosUsuarioEventoReservaComNome(
+            client,
+            restauranteId,
+            req.user,
+            "garcom",
+          );
+          if (reservaAnterior.status !== reservaAtualizada.status) {
+            await registrarEventoReserva(client, restauranteId, reservaId, {
+              tipo: "status_alterado",
+              ...usuarioEvento,
+              status_anterior: reservaAnterior.status,
+              status_novo: reservaAtualizada.status,
+            });
+          }
+          if (
+            String(reservaAnterior.mesa_id || "") !==
+            String(reservaAtualizada.mesa_id || "")
+          ) {
+            await registrarEventoReserva(client, restauranteId, reservaId, {
+              tipo: "mesa_alterada",
+              ...usuarioEvento,
+              mesa_id_anterior: reservaAnterior.mesa_id,
+              mesa_id_novo: reservaAtualizada.mesa_id,
+            });
+          }
+          return reservaAtualizada;
         },
       );
 
@@ -2025,6 +2176,71 @@ app.patch(
         if (mesas[0]) emitirEquipe(req.user.restaurante_id, "mesa_atualizada", mesas[0]);
       }
       return res.json({ sucesso: true, reserva });
+    } catch (error) {
+      return responderErroReserva(res, error);
+    }
+  },
+);
+
+app.get(
+  "/api/reservas/:id/eventos",
+  autenticarJWT,
+  autorizarRoles("garcom", "financeiro"),
+  async (req, res) => {
+    try {
+      const reservaId = Number(req.params.id);
+      if (!Number.isInteger(reservaId) || reservaId <= 0) {
+        throw new ReservasValidationError("Reserva invalida");
+      }
+      const reserva = await buscarReservaCompleta(req.user.restaurante_id, reservaId);
+      if (!reserva) {
+        const error = new ReservasValidationError("Reserva nao encontrada");
+        error.statusCode = 404;
+        throw error;
+      }
+      const eventos = await listarEventosReserva(req.user.restaurante_id, reservaId);
+      return res.json({ reserva_id: reservaId, eventos });
+    } catch (error) {
+      return responderErroReserva(res, error);
+    }
+  },
+);
+
+app.post(
+  "/api/reservas/:id/eventos",
+  autenticarJWT,
+  autorizarRoles("garcom"),
+  async (req, res) => {
+    try {
+      const reservaId = Number(req.params.id);
+      if (!Number.isInteger(reservaId) || reservaId <= 0) {
+        throw new ReservasValidationError("Reserva invalida");
+      }
+      const canal = req.body?.canal;
+      const resultado = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const reserva = await buscarReservaCompleta(restauranteId, reservaId, client);
+          if (!reserva) {
+            const error = new ReservasValidationError("Reserva nao encontrada");
+            error.statusCode = 404;
+            throw error;
+          }
+          await registrarEventoReserva(client, restauranteId, reservaId, {
+            tipo: "compartilhamento",
+            ...(await dadosUsuarioEventoReservaComNome(
+              client,
+              restauranteId,
+              req.user,
+              "garcom",
+            )),
+            descricao: descricaoCompartilhamentoReserva(canal),
+            detalhes: { canal },
+          });
+          return reserva;
+        },
+      );
+      return res.status(201).json({ sucesso: true, reserva: resultado });
     } catch (error) {
       return responderErroReserva(res, error);
     }
