@@ -22,6 +22,18 @@ function criarMarca(restaurante, slug, carregando = false) {
   const corDestaque = whiteLabelAtivo && restaurante.cor_secundaria
     ? restaurante.cor_secundaria
     : MARCA_PADRAO.corDestaque;
+  const corTextoPrincipal = whiteLabelAtivo && restaurante.cor_texto_principal
+    ? restaurante.cor_texto_principal
+    : MARCA_PADRAO.corTextoPrincipal;
+  const corTextoSecundario = whiteLabelAtivo && restaurante.cor_texto_secundario
+    ? restaurante.cor_texto_secundario
+    : MARCA_PADRAO.corTextoSecundario;
+  const corTitulo = whiteLabelAtivo && restaurante.cor_titulo
+    ? restaurante.cor_titulo
+    : MARCA_PADRAO.corTitulo;
+  const corTextoInverso = whiteLabelAtivo && restaurante.cor_texto_inverso
+    ? restaurante.cor_texto_inverso
+    : MARCA_PADRAO.corTextoInverso;
 
   return {
     whiteLabelAtivo,
@@ -33,6 +45,10 @@ function criarMarca(restaurante, slug, carregando = false) {
     corPrimaria,
     corDestaque,
     corDestaqueEscura: escurecerCor(corDestaque),
+    corTextoPrincipal,
+    corTextoSecundario,
+    corTitulo,
+    corTextoInverso,
     whatsappNumero: restaurante?.whatsapp_numero || "",
     slug: restaurante?.slug || slug || "autenix",
     carregando,
@@ -88,6 +104,10 @@ export default function BrandingProvider({ children, slug = "autenix", ativo = t
     "--app-primary": marca.corPrimaria,
     "--app-accent": marca.corDestaque,
     "--app-accent-dark": marca.corDestaqueEscura || "#c9511c",
+    "--app-text": marca.corTextoPrincipal,
+    "--app-text-secondary": marca.corTextoSecundario,
+    "--app-heading": marca.corTitulo,
+    "--app-on-primary": marca.corTextoInverso,
   };
 
   return (

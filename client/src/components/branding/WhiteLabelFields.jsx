@@ -20,7 +20,39 @@ export default function WhiteLabelFields({
   const corDestaqueSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_secundaria)
     ? dados.cor_secundaria
     : WHITE_LABEL_PADRAO.cor_secundaria;
+  const corTextoPrincipalSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_texto_principal)
+    ? dados.cor_texto_principal
+    : WHITE_LABEL_PADRAO.cor_texto_principal;
+  const corTextoSecundarioSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_texto_secundario)
+    ? dados.cor_texto_secundario
+    : WHITE_LABEL_PADRAO.cor_texto_secundario;
+  const corTituloSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_titulo)
+    ? dados.cor_titulo
+    : WHITE_LABEL_PADRAO.cor_titulo;
+  const corTextoInversoSegura = /^#[0-9a-f]{6}$/i.test(dados.cor_texto_inverso)
+    ? dados.cor_texto_inverso
+    : WHITE_LABEL_PADRAO.cor_texto_inverso;
   const alterar = (campo, novoValor) => onChange({ ...dados, [campo]: novoValor });
+
+  const renderColorControl = (campo, valorSeguro, label, aria) => (
+    <label className="wl-field">
+      <span><Palette size={15} /> {label}</span>
+      <div className="wl-color-control">
+        <input
+          type="color"
+          value={valorSeguro}
+          onChange={(event) => alterar(campo, event.target.value)}
+          aria-label={`Selecionar ${aria}`}
+        />
+        <input
+          value={dados[campo]}
+          onChange={(event) => alterar(campo, event.target.value)}
+          maxLength={7}
+          aria-label={`${aria} hexadecimal`}
+        />
+      </div>
+    </label>
+  );
 
   return (
     <div className="wl-fields">
@@ -72,41 +104,27 @@ export default function WhiteLabelFields({
           <small>Usado nos links de contato da reserva e no acompanhamento do cliente.</small>
         </label>
 
-        <label className="wl-field">
-          <span><Palette size={15} /> Cor principal</span>
-          <div className="wl-color-control">
-            <input
-              type="color"
-              value={corPrincipalSegura}
-              onChange={(event) => alterar("cor_primaria", event.target.value)}
-              aria-label="Selecionar cor principal"
-            />
-            <input
-              value={dados.cor_primaria}
-              onChange={(event) => alterar("cor_primaria", event.target.value)}
-              maxLength={7}
-              aria-label="Cor principal hexadecimal"
-            />
-          </div>
-        </label>
-
-        <label className="wl-field">
-          <span><Palette size={15} /> Cor de destaque</span>
-          <div className="wl-color-control">
-            <input
-              type="color"
-              value={corDestaqueSegura}
-              onChange={(event) => alterar("cor_secundaria", event.target.value)}
-              aria-label="Selecionar cor de destaque"
-            />
-            <input
-              value={dados.cor_secundaria}
-              onChange={(event) => alterar("cor_secundaria", event.target.value)}
-              maxLength={7}
-              aria-label="Cor de destaque hexadecimal"
-            />
-          </div>
-        </label>
+        {renderColorControl("cor_primaria", corPrincipalSegura, "Cor principal", "cor principal")}
+        {renderColorControl("cor_secundaria", corDestaqueSegura, "Cor de destaque", "cor de destaque")}
+        {renderColorControl("cor_titulo", corTituloSegura, "Cor dos titulos", "cor dos titulos")}
+        {renderColorControl(
+          "cor_texto_principal",
+          corTextoPrincipalSegura,
+          "Texto principal",
+          "cor do texto principal",
+        )}
+        {renderColorControl(
+          "cor_texto_secundario",
+          corTextoSecundarioSegura,
+          "Texto secundario",
+          "cor do texto secundario",
+        )}
+        {renderColorControl(
+          "cor_texto_inverso",
+          corTextoInversoSegura,
+          "Texto sobre destaque",
+          "cor do texto sobre destaque",
+        )}
       </div>
 
       <div
@@ -114,6 +132,10 @@ export default function WhiteLabelFields({
         style={{
           "--wl-primary": dados.cor_primaria,
           "--wl-accent": dados.cor_secundaria,
+          "--wl-text": dados.cor_texto_principal,
+          "--wl-muted": dados.cor_texto_secundario,
+          "--wl-heading": dados.cor_titulo,
+          "--wl-on-primary": dados.cor_texto_inverso,
         }}
       >
         <div className="wl-preview-brand">
@@ -128,6 +150,19 @@ export default function WhiteLabelFields({
           </div>
         </div>
         <div className="wl-preview-action"><CheckCircle2 size={16} /> Pedido confirmado</div>
+      </div>
+      <div
+        className="wl-text-preview"
+        style={{
+          "--wl-accent": dados.cor_secundaria,
+          "--wl-text": dados.cor_texto_principal,
+          "--wl-muted": dados.cor_texto_secundario,
+          "--wl-heading": dados.cor_titulo,
+        }}
+      >
+        <strong>Cardapio digital</strong>
+        <span>Texto principal da experiencia do cliente.</span>
+        <small>Texto secundario para descricoes, horarios e observacoes.</small>
       </div>
     </div>
   );

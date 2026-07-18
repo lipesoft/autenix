@@ -146,7 +146,7 @@
   border-left: 4px solid var(--wl-accent, #f2742d);
   border-radius: 0 8px 8px 0;
   background: var(--wl-primary, #0b2134);
-  color: #ffffff;
+  color: var(--wl-on-primary, #ffffff);
 }
 
 .wl-preview-brand {
@@ -185,6 +185,7 @@
 
 .wl-preview-brand strong {
   overflow: hidden;
+  color: var(--wl-on-primary, #ffffff);
   font-family: Manrope, sans-serif;
   font-size: 13px;
   text-overflow: ellipsis;
@@ -192,7 +193,7 @@
 }
 
 .wl-preview-brand small {
-  color: rgba(255, 255, 255, 0.68);
+  color: color-mix(in srgb, var(--wl-on-primary, #ffffff) 70%, transparent);
   font-size: 10px;
 }
 
@@ -200,7 +201,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #ffffff;
+  color: var(--wl-on-primary, #ffffff);
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -208,6 +209,32 @@
 
 .wl-preview-action svg {
   color: var(--wl-accent, #f2742d);
+}
+
+.wl-text-preview {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #dce2e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.wl-text-preview strong {
+  color: var(--wl-heading, #0b2134);
+  font-family: Manrope, sans-serif;
+  font-size: 14px;
+}
+
+.wl-text-preview span {
+  color: var(--wl-text, #132331);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wl-text-preview small {
+  color: var(--wl-muted, #4f6070);
+  font-size: 11px;
 }
 
 @media (max-width: 560px) {

@@ -496,6 +496,18 @@ function NovoRestaurante({ onClose, onCreated, request }) {
   const corDestaqueSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_secundaria)
     ? marca.cor_secundaria
     : WHITE_LABEL_PADRAO.cor_secundaria;
+  const corTituloSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_titulo)
+    ? marca.cor_titulo
+    : WHITE_LABEL_PADRAO.cor_titulo;
+  const corTextoPrincipalSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_texto_principal)
+    ? marca.cor_texto_principal
+    : WHITE_LABEL_PADRAO.cor_texto_principal;
+  const corTextoSecundarioSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_texto_secundario)
+    ? marca.cor_texto_secundario
+    : WHITE_LABEL_PADRAO.cor_texto_secundario;
+  const corTextoInversoSegura = /^#[0-9a-f]{6}$/i.test(marca.cor_texto_inverso)
+    ? marca.cor_texto_inverso
+    : WHITE_LABEL_PADRAO.cor_texto_inverso;
 
   useEffect(() => () => {
     if (logoPreview) URL.revokeObjectURL(logoPreview);
@@ -525,8 +537,21 @@ function NovoRestaurante({ onClose, onCreated, request }) {
         && (!form.senha || form.senha.length >= 12);
     }
     return /^#[0-9a-f]{6}$/i.test(marca.cor_primaria)
-      && /^#[0-9a-f]{6}$/i.test(marca.cor_secundaria);
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_secundaria)
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_titulo)
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_texto_principal)
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_texto_secundario)
+      && /^#[0-9a-f]{6}$/i.test(marca.cor_texto_inverso);
   };
+
+  const renderCampoCor = (label, campo, valorSeguro) => (
+    <Campo label={label}>
+      <div className="pf-color-row">
+        <input type="color" value={valorSeguro} onChange={(event) => alterar(campo, event.target.value)} />
+        <input value={form[campo]} maxLength={7} onChange={(event) => alterar(campo, event.target.value)} />
+      </div>
+    </Campo>
+  );
 
   const avancar = () => {
     if (!etapaValida()) {
@@ -771,18 +796,12 @@ function NovoRestaurante({ onClose, onCreated, request }) {
           <Campo label="WhatsApp do restaurante" wide>
             <input value={form.whatsapp_numero} maxLength={32} onChange={(event) => alterar("whatsapp_numero", event.target.value)} placeholder="Ex.: (11) 98888-7777" />
           </Campo>
-          <Campo label="Cor principal">
-            <div className="pf-color-row">
-              <input type="color" value={corPrimariaSegura} onChange={(event) => alterar("cor_primaria", event.target.value)} />
-              <input value={form.cor_primaria} maxLength={7} onChange={(event) => alterar("cor_primaria", event.target.value)} />
-            </div>
-          </Campo>
-          <Campo label="Cor de destaque">
-            <div className="pf-color-row">
-              <input type="color" value={corDestaqueSegura} onChange={(event) => alterar("cor_secundaria", event.target.value)} />
-              <input value={form.cor_secundaria} maxLength={7} onChange={(event) => alterar("cor_secundaria", event.target.value)} />
-            </div>
-          </Campo>
+          {renderCampoCor("Cor principal", "cor_primaria", corPrimariaSegura)}
+          {renderCampoCor("Cor de destaque", "cor_secundaria", corDestaqueSegura)}
+          {renderCampoCor("Cor dos titulos", "cor_titulo", corTituloSegura)}
+          {renderCampoCor("Texto principal", "cor_texto_principal", corTextoPrincipalSegura)}
+          {renderCampoCor("Texto secundario", "cor_texto_secundario", corTextoSecundarioSegura)}
+          {renderCampoCor("Texto sobre destaque", "cor_texto_inverso", corTextoInversoSegura)}
         </div>
         <div className="pf-logo-picker">
           <div className="pf-logo-preview">

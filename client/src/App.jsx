@@ -146,9 +146,11 @@ let T = {
   border: "#dde3ea",
   border2: "#c8d0da",
   // Textos
-  text: "#132331",
-  text2: "#4f6070",
-  muted: "#778592",
+  text: "var(--app-text, #132331)",
+  text2: "var(--app-text-secondary, #4f6070)",
+  muted: "color-mix(in srgb, var(--app-text-secondary, #4f6070) 72%, transparent)",
+  heading: "var(--app-heading, #0b2134)",
+  onPrimary: "var(--app-on-primary, #ffffff)",
   // Cores da logo
   accent: "var(--app-accent, #f2742d)",
   accent2: "var(--app-accent-dark, #c9511c)",
@@ -229,7 +231,7 @@ function NotifBanner({ notifs, onDismiss }) {
           className="notif-in"
           style={{
             background: cores[n.type] || T.accent,
-            color: "#ffffff",
+            color: T.onPrimary,
             borderRadius: 8,
             padding: "13px 16px",
             display: "flex",
@@ -258,7 +260,7 @@ function NotifBanner({ notifs, onDismiss }) {
               background: "rgba(0,0,0,.18)",
               border: "none",
               borderRadius: 8,
-              color: "#ffffff",
+              color: T.onPrimary,
               cursor: "pointer",
               padding: "3px 10px",
               fontWeight: 700,
@@ -300,6 +302,11 @@ function gerarCSS(t = T) {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { -webkit-text-size-adjust: 100%; }
   body { background: ${t.bg}; color: ${t.text}; font-family: 'Inter', sans-serif; font-size: 16px; line-height: 1.5; min-height: 100vh; overflow-x: hidden; }
+  .autenix-brand-scope { color: ${t.text}; }
+  .autenix-brand-scope h1,
+  .autenix-brand-scope h2,
+  .autenix-brand-scope h3,
+  .autenix-brand-scope h4 { color: ${t.heading}; }
   ::-webkit-scrollbar { width: 3px; height: 3px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: ${t.border2}; border-radius: 2px; }
@@ -511,10 +518,10 @@ function Btn({
   const v = {
     primary: {
       background: T.accent,
-      color: "#fff",
+      color: T.onPrimary,
       boxShadow: "0 5px 14px rgba(242,116,45,0.18)",
     },
-    navy: { background: T.navy, color: "#fff" },
+    navy: { background: T.navy, color: T.onPrimary },
     ghost: {
       background: "transparent",
       color: T.text2,
@@ -670,7 +677,7 @@ function Logo({ size = "md", center = false }) {
           fontFamily: "'Manrope',sans-serif",
           fontWeight: 800,
           fontSize: fs,
-          color: T.navy,
+          color: T.heading,
         }}
       >
         {marca.nome}
@@ -6809,7 +6816,7 @@ function PainelAdmin({ usuario, onLogout }) {
                     alignItems: "center",
                     gap: 9,
                     marginBottom: 18,
-                    color: T.navy,
+                    color: T.heading,
                     fontFamily: "'Manrope',sans-serif",
                     fontSize: 17,
                     fontWeight: 800,
