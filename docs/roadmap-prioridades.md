@@ -55,10 +55,12 @@ e identidade visual.
   quantidade de grupos na frente e atualizacao automatica.
 - Implementado: garcom e admin podem colocar reserva na fila, chamar cliente,
   voltar para fila, vincular mesa e acomodar.
+- Implementado: tela publica de reserva simplificada e objetiva.
+- Implementado: WhatsApp do restaurante no white label para contato do cliente.
+- Implementado: compartilhamento de reserva no garcom/admin com WhatsApp,
+  email quando informado e copia do link de acompanhamento.
 - Pendente: regras avancadas de disponibilidade por horario, capacidade e salao.
-- Pendente: confirmacao automatica por email/WhatsApp.
-- Pendente: avaliar o melhor fluxo de notificacao entre WhatsApp do restaurante,
-  email do cliente e link publico de acompanhamento da reserva.
+- Pendente: confirmacao automatica por email/WhatsApp com provedor dedicado.
 - Pendente: historico/auditoria detalhada de alteracoes de status.
 
 ## Prioridade 3.1 - Seguranca do cardapio publico
