@@ -42,6 +42,7 @@ const {
 } = require("./lib/storage");
 const {
   ReservasValidationError,
+  gerarCodigoAcompanhamentoReserva,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
   normalizarMesaId,
@@ -749,11 +750,15 @@ async function initDB() {
       status TEXT NOT NULL DEFAULT 'pendente',
       observacao TEXT,
       origem TEXT NOT NULL DEFAULT 'publica',
+      tipo TEXT NOT NULL DEFAULT 'reserva',
+      codigo_acompanhamento TEXT,
       criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       confirmada_em TIMESTAMP,
       cancelada_em TIMESTAMP,
-      concluida_em TIMESTAMP
+      concluida_em TIMESTAMP,
+      entrou_fila_em TIMESTAMP,
+      chamada_em TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS configuracoes (
@@ -763,6 +768,16 @@ async function initDB() {
 
     ALTER TABLE categorias
       ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
+
+    ALTER TABLE reservas
+      ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'reserva',
+      ADD COLUMN IF NOT EXISTS codigo_acompanhamento TEXT,
+      ADD COLUMN IF NOT EXISTS entrou_fila_em TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS chamada_em TIMESTAMP;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reservas_restaurante_codigo_acompanhamento
+      ON reservas (restaurante_id, codigo_acompanhamento)
+      WHERE codigo_acompanhamento IS NOT NULL;
   `);
 
   const restaurantePadrao = await buscarRestaurantePorSlug("autenix");
@@ -922,7 +937,8 @@ async function buscarReservaCompleta(restauranteId, reservaId, client = null) {
        r.id, r.restaurante_id, r.mesa_id, r.nome_cliente, r.telefone, r.email,
        to_char(r.data_reserva, 'YYYY-MM-DD') AS data_reserva,
        to_char(r.horario, 'HH24:MI') AS horario,
-       r.quantidade_pessoas, r.status, r.observacao, r.origem,
+       r.quantidade_pessoas, r.status, r.observacao, r.origem, r.tipo,
+       r.codigo_acompanhamento, r.entrou_fila_em, r.chamada_em,
        r.criado_em, r.atualizado_em, r.confirmada_em, r.cancelada_em,
        r.concluida_em, m.numero AS mesa_numero
      FROM reservas r
@@ -931,7 +947,7 @@ async function buscarReservaCompleta(restauranteId, reservaId, client = null) {
      WHERE r.id = $1 AND r.restaurante_id = $2`,
     [reservaId, restauranteId],
   );
-  return rows[0] || null;
+  return anexarPosicaoFila(restauranteId, rows[0] || null, executor);
 }
 
 async function validarMesaReserva(client, restauranteId, mesaId) {
@@ -946,6 +962,71 @@ async function validarMesaReserva(client, restauranteId, mesaId) {
     throw error;
   }
   return rows[0];
+}
+
+async function gerarCodigoReservaUnico(client, restauranteId) {
+  for (let tentativa = 0; tentativa < 5; tentativa += 1) {
+    const codigo = gerarCodigoAcompanhamentoReserva();
+    const { rows } = await client.query(
+      `SELECT id
+       FROM reservas
+       WHERE restaurante_id = $1 AND codigo_acompanhamento = $2
+       LIMIT 1`,
+      [restauranteId, codigo],
+    );
+    if (!rows[0]) return codigo;
+  }
+
+  const error = new ReservasValidationError("Nao foi possivel gerar o acompanhamento da reserva");
+  error.statusCode = 500;
+  throw error;
+}
+
+async function calcularPosicaoFilaReserva(client, restauranteId, reservaId) {
+  const { rows } = await client.query(
+    `WITH alvo AS (
+       SELECT id, data_reserva, horario, COALESCE(entrou_fila_em, criado_em) AS entrada_fila
+       FROM reservas
+       WHERE restaurante_id = $1 AND id = $2 AND status = 'fila'
+       LIMIT 1
+     )
+     SELECT (count(r.id) + 1)::integer AS posicao
+     FROM alvo a
+     LEFT JOIN reservas r
+       ON r.restaurante_id = $1
+      AND r.status = 'fila'
+      AND r.id <> a.id
+      AND (
+        r.data_reserva,
+        r.horario,
+        COALESCE(r.entrou_fila_em, r.criado_em),
+        r.id
+      ) < (
+        a.data_reserva,
+        a.horario,
+        a.entrada_fila,
+        a.id
+      )`,
+    [restauranteId, reservaId],
+  );
+  return rows[0]?.posicao || null;
+}
+
+async function anexarPosicaoFila(restauranteId, reserva, client = null) {
+  if (!reserva || reserva.status !== "fila") return reserva;
+  const executor = client || {
+    query: (sql, params) => tenantQuery(restauranteId, sql, params),
+  };
+  const posicao = await calcularPosicaoFilaReserva(executor, restauranteId, reserva.id);
+  return {
+    ...reserva,
+    posicao_fila: posicao,
+    pessoas_antes: posicao ? Math.max(posicao - 1, 0) : null,
+  };
+}
+
+function urlAcompanhamentoReserva(restauranteSlug, codigo) {
+  return `${PUBLIC_APP_URL}/r/${restauranteSlug}/reservas/acompanhar/${encodeURIComponent(codigo)}`;
 }
 
 function responderErroReserva(res, error) {
@@ -1605,11 +1686,18 @@ app.post("/api/reservas", async (req, res) => {
       restaurante.id,
       async (client, restauranteId) => {
         await validarMesaReserva(client, restauranteId, dados.mesa_id);
+        const codigoAcompanhamento = await gerarCodigoReservaUnico(
+          client,
+          restauranteId,
+        );
+        const statusInicial = dados.tipo === "fila" ? "fila" : "pendente";
         const { rows } = await client.query(
           `INSERT INTO reservas
              (restaurante_id, mesa_id, nome_cliente, telefone, email,
-              data_reserva, horario, quantidade_pessoas, observacao, origem)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10)
+              data_reserva, horario, quantidade_pessoas, observacao, origem,
+              tipo, status, codigo_acompanhamento, entrou_fila_em)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10,
+                   $11, $12, $13, CASE WHEN $12 = 'fila' THEN NOW() ELSE NULL END)
            RETURNING id`,
           [
             restauranteId,
@@ -1622,6 +1710,9 @@ app.post("/api/reservas", async (req, res) => {
             dados.quantidade_pessoas,
             dados.observacao,
             dados.origem,
+            dados.tipo,
+            statusInicial,
+            codigoAcompanhamento,
           ],
         );
         return buscarReservaCompleta(restauranteId, rows[0].id, client);
@@ -1629,7 +1720,89 @@ app.post("/api/reservas", async (req, res) => {
     );
 
     emitirEquipe(restaurante.id, "nova_reserva", reserva);
-    return res.status(201).json({ sucesso: true, reserva });
+    return res.status(201).json({
+      sucesso: true,
+      reserva,
+      acompanhamento_url: urlAcompanhamentoReserva(
+        restaurante.slug,
+        reserva.codigo_acompanhamento,
+      ),
+    });
+  } catch (error) {
+    return responderErroReserva(res, error);
+  }
+});
+
+app.get("/api/reservas/acompanhar/:codigo", async (req, res) => {
+  try {
+    const restaurante = await buscarRestaurantePorSlug(
+      req.query.restaurante_slug || "autenix",
+    );
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    const codigo = String(req.params.codigo || "").trim();
+    if (!/^[A-Za-z0-9_-]{8,40}$/.test(codigo)) {
+      return res.status(400).json({ erro: "Codigo de acompanhamento invalido" });
+    }
+
+    const { rows } = await tenantQuery(
+      restaurante.id,
+      `SELECT id
+       FROM reservas
+       WHERE restaurante_id = $1 AND codigo_acompanhamento = $2
+       LIMIT 1`,
+      [restaurante.id, codigo],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ erro: "Reserva nao encontrada" });
+    }
+
+    const reserva = await buscarReservaCompleta(restaurante.id, rows[0].id);
+    return res.json({
+      restaurante: marcaPublica(restaurante),
+      reserva: {
+        ...reserva,
+        pessoas_antes: reserva.posicao_fila
+          ? Math.max(Number(reserva.posicao_fila) - 1, 0)
+          : null,
+      },
+    });
+  } catch (error) {
+    return responderErroReserva(res, error);
+  }
+});
+
+app.get("/api/reservas/disponibilidade", async (req, res) => {
+  try {
+    const restaurante = await buscarRestaurantePorSlug(
+      req.query.restaurante_slug || "autenix",
+    );
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    const { rows } = await tenantQuery(
+      restaurante.id,
+      `SELECT
+         count(*)::integer AS total_mesas,
+         count(*) FILTER (WHERE status = 'livre')::integer AS mesas_livres,
+         count(*) FILTER (WHERE status = 'ocupada')::integer AS mesas_ocupadas
+       FROM mesas
+       WHERE restaurante_id = $1`,
+      [restaurante.id],
+    );
+    const resumo = rows[0] || {
+      total_mesas: 0,
+      mesas_livres: 0,
+      mesas_ocupadas: 0,
+    };
+    return res.json({
+      ...resumo,
+      restaurante_cheio:
+        Number(resumo.total_mesas) > 0 && Number(resumo.mesas_livres) === 0,
+    });
   } catch (error) {
     return responderErroReserva(res, error);
   }
@@ -1649,9 +1822,28 @@ app.get(
           r.id, r.restaurante_id, r.mesa_id, r.nome_cliente, r.telefone, r.email,
           to_char(r.data_reserva, 'YYYY-MM-DD') AS data_reserva,
           to_char(r.horario, 'HH24:MI') AS horario,
-          r.quantidade_pessoas, r.status, r.observacao, r.origem,
+          r.quantidade_pessoas, r.status, r.observacao, r.origem, r.tipo,
+          r.codigo_acompanhamento, r.entrou_fila_em, r.chamada_em,
           r.criado_em, r.atualizado_em, r.confirmada_em, r.cancelada_em,
-          r.concluida_em, m.numero AS mesa_numero
+          r.concluida_em, m.numero AS mesa_numero,
+          CASE WHEN r.status = 'fila' THEN (
+            SELECT (count(f.id) + 1)::integer
+            FROM reservas f
+            WHERE f.restaurante_id = r.restaurante_id
+              AND f.status = 'fila'
+              AND f.id <> r.id
+              AND (
+                f.data_reserva,
+                f.horario,
+                COALESCE(f.entrou_fila_em, f.criado_em),
+                f.id
+              ) < (
+                r.data_reserva,
+                r.horario,
+                COALESCE(r.entrou_fila_em, r.criado_em),
+                r.id
+              )
+          ) ELSE NULL END AS posicao_fila
         FROM reservas r
         LEFT JOIN mesas m
           ON m.id = r.mesa_id AND m.restaurante_id = r.restaurante_id
@@ -1660,6 +1852,10 @@ app.get(
       if (filtros.status) {
         sql += ` AND r.status = $${index++}`;
         params.push(filtros.status);
+      }
+      if (filtros.tipo) {
+        sql += ` AND r.tipo = $${index++}`;
+        params.push(filtros.tipo);
       }
       if (filtros.data) {
         sql += ` AND r.data_reserva = $${index++}`;
@@ -1694,11 +1890,18 @@ app.post(
         req.user.restaurante_id,
         async (client, restauranteId) => {
           await validarMesaReserva(client, restauranteId, dados.mesa_id);
+          const codigoAcompanhamento = await gerarCodigoReservaUnico(
+            client,
+            restauranteId,
+          );
+          const statusInicial = dados.tipo === "fila" ? "fila" : "pendente";
           const { rows } = await client.query(
             `INSERT INTO reservas
                (restaurante_id, mesa_id, nome_cliente, telefone, email,
-                data_reserva, horario, quantidade_pessoas, observacao, origem)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10)
+                data_reserva, horario, quantidade_pessoas, observacao, origem,
+                tipo, status, codigo_acompanhamento, entrou_fila_em)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8, $9, $10,
+                     $11, $12, $13, CASE WHEN $12 = 'fila' THEN NOW() ELSE NULL END)
              RETURNING id`,
             [
               restauranteId,
@@ -1711,6 +1914,9 @@ app.post(
               dados.quantidade_pessoas,
               dados.observacao,
               dados.origem,
+              dados.tipo,
+              statusInicial,
+              codigoAcompanhamento,
             ],
           );
           return buscarReservaCompleta(restauranteId, rows[0].id, client);
@@ -1718,7 +1924,14 @@ app.post(
       );
 
       emitirEquipe(req.user.restaurante_id, "nova_reserva", reserva);
-      return res.status(201).json({ sucesso: true, reserva });
+      return res.status(201).json({
+        sucesso: true,
+        reserva,
+        acompanhamento_url: urlAcompanhamentoReserva(
+          req.user.restaurante_slug,
+          reserva.codigo_acompanhamento,
+        ),
+      });
     } catch (error) {
       return responderErroReserva(res, error);
     }
@@ -1745,12 +1958,16 @@ app.patch(
         : null;
       const colunasTimestamp = {
         confirmada: "confirmada_em",
+        chamada: "chamada_em",
         cancelada: "cancelada_em",
         concluida: "concluida_em",
       };
       const colunaTimestamp = colunasTimestamp[status];
       const atualizarTimestamp = colunaTimestamp
         ? `, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW())`
+        : "";
+      const atualizarEntradaFila = status === "fila"
+        ? ", entrou_fila_em = COALESCE(entrou_fila_em, NOW()), tipo = 'fila'"
         : "";
 
       const reserva = await withTenantTransaction(
@@ -1765,6 +1982,7 @@ app.patch(
                  mesa_id = CASE WHEN $4::boolean THEN $5::INTEGER ELSE mesa_id END,
                  atualizado_em = NOW()
                  ${atualizarTimestamp}
+                 ${atualizarEntradaFila}
              WHERE id = $2 AND restaurante_id = $3
              RETURNING id`,
             [status, reservaId, restauranteId, deveAtualizarMesa, mesaId],
@@ -1774,11 +1992,35 @@ app.patch(
             error.statusCode = 404;
             throw error;
           }
+          if (status === "concluida") {
+            const reservaAtualizada = await buscarReservaCompleta(
+              restauranteId,
+              reservaId,
+              client,
+            );
+            if (reservaAtualizada?.mesa_id) {
+              await client.query(
+                `UPDATE mesas
+                 SET status = 'ocupada'
+                 WHERE id = $1 AND restaurante_id = $2`,
+                [reservaAtualizada.mesa_id, restauranteId],
+              );
+            }
+            return reservaAtualizada;
+          }
           return buscarReservaCompleta(restauranteId, reservaId, client);
         },
       );
 
       emitirEquipe(req.user.restaurante_id, "reserva_atualizada", reserva);
+      if (status === "concluida" && reserva.mesa_id) {
+        const { rows: mesas } = await tenantQuery(
+          req.user.restaurante_id,
+          "SELECT * FROM mesas WHERE id = $1 AND restaurante_id = $2",
+          [reserva.mesa_id, req.user.restaurante_id],
+        );
+        if (mesas[0]) emitirEquipe(req.user.restaurante_id, "mesa_atualizada", mesas[0]);
+      }
       return res.json({ sucesso: true, reserva });
     } catch (error) {
       return responderErroReserva(res, error);

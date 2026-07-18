@@ -1,5 +1,15 @@
-const STATUS_RESERVA = ["pendente", "confirmada", "cancelada", "concluida"];
+const crypto = require("crypto");
+
+const STATUS_RESERVA = [
+  "pendente",
+  "confirmada",
+  "fila",
+  "chamada",
+  "cancelada",
+  "concluida",
+];
 const ORIGENS_RESERVA = ["publica", "admin"];
+const TIPOS_RESERVA = ["reserva", "fila"];
 
 class ReservasValidationError extends Error {
   constructor(message) {
@@ -83,12 +93,24 @@ function normalizarOrigem(origem) {
   return valor;
 }
 
+function normalizarTipoReserva(tipo) {
+  const valor = texto(tipo || "reserva").toLowerCase();
+  if (!TIPOS_RESERVA.includes(valor)) {
+    throw new ReservasValidationError("Tipo de reserva invalido");
+  }
+  return valor;
+}
+
 function normalizarStatusReserva(status) {
   const valor = texto(status).toLowerCase();
   if (!STATUS_RESERVA.includes(valor)) {
     throw new ReservasValidationError("Status de reserva invalido");
   }
   return valor;
+}
+
+function gerarCodigoAcompanhamentoReserva() {
+  return crypto.randomBytes(9).toString("base64url");
 }
 
 function normalizarCriacaoReserva(payload = {}, options = {}) {
@@ -107,12 +129,14 @@ function normalizarCriacaoReserva(payload = {}, options = {}) {
     observacao: textoOpcional(payload.observacao, "Observacao", 500),
     mesa_id: normalizarMesaId(payload.mesa_id),
     origem: normalizarOrigem(options.origem || payload.origem || "publica"),
+    tipo: normalizarTipoReserva(payload.tipo),
   };
 }
 
 function normalizarFiltrosReservas(query = {}) {
   const filtros = {};
   if (query.status) filtros.status = normalizarStatusReserva(query.status);
+  if (query.tipo) filtros.tipo = normalizarTipoReserva(query.tipo);
   if (query.data) filtros.data = normalizarData(query.data, "Data");
   if (query.de) filtros.de = normalizarData(query.de, "Data inicial");
   if (query.ate) filtros.ate = normalizarData(query.ate, "Data final");
@@ -121,9 +145,12 @@ function normalizarFiltrosReservas(query = {}) {
 
 module.exports = {
   STATUS_RESERVA,
+  TIPOS_RESERVA,
   ReservasValidationError,
+  gerarCodigoAcompanhamentoReserva,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
   normalizarMesaId,
   normalizarStatusReserva,
+  normalizarTipoReserva,
 };

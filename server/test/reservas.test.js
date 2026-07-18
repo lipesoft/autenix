@@ -2,10 +2,12 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
   ReservasValidationError,
+  gerarCodigoAcompanhamentoReserva,
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
   normalizarMesaId,
   normalizarStatusReserva,
+  normalizarTipoReserva,
 } = require("../lib/reservas");
 
 test("normaliza reserva publica valida", () => {
@@ -57,10 +59,33 @@ test("rejeita dados invalidos de reserva", () => {
 
 test("normaliza status e filtros de reservas", () => {
   assert.equal(normalizarStatusReserva(" Confirmada "), "confirmada");
-  assert.deepEqual(normalizarFiltrosReservas({ status: "pendente", data: "2026-07-20" }), {
+  assert.equal(normalizarStatusReserva(" fila "), "fila");
+  assert.equal(normalizarStatusReserva(" chamada "), "chamada");
+  assert.deepEqual(normalizarFiltrosReservas({ status: "pendente", tipo: "reserva", data: "2026-07-20" }), {
     status: "pendente",
+    tipo: "reserva",
     data: "2026-07-20",
   });
+});
+
+test("normaliza tipo de reserva e fila de espera", () => {
+  assert.equal(normalizarTipoReserva(" Fila "), "fila");
+  const reserva = normalizarCriacaoReserva({
+    nome_cliente: "Carlos",
+    telefone: "11999990000",
+    data_reserva: "2026-08-01",
+    horario: "20:00",
+    tipo: "fila",
+  });
+
+  assert.equal(reserva.tipo, "fila");
+});
+
+test("gera codigo publico de acompanhamento seguro para URL", () => {
+  const codigo = gerarCodigoAcompanhamentoReserva();
+
+  assert.match(codigo, /^[A-Za-z0-9_-]+$/);
+  assert.ok(codigo.length >= 12);
 });
 
 test("normaliza mesa opcional para atualizacao de reserva", () => {
