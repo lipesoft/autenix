@@ -184,6 +184,11 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
 
 ## Prioridade 7 - Escalabilidade e arquitetura
 
+- Critico: corrigir o canal de tempo real em producao. O smoke de 18/07/2026
+  encontrou resposta `400` no handshake do Socket.IO e o cliente atualmente
+  forca apenas o transporte WebSocket. Migrar o realtime para um servico
+  persistente compativel ou para Supabase Realtime e validar garcom, cozinha,
+  mesas, chamadas e pedidos simultaneos.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
