@@ -3,6 +3,7 @@ import { io } from "socket.io-client";
 import {
   Copy,
   ExternalLink,
+  History,
   LayoutGrid,
   LogOut,
   Mail,
@@ -1021,6 +1022,44 @@ function formatarDataReserva(data) {
   return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
 
+function formatarDataHoraReservaEvento(valor) {
+  if (!valor) return "-";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return "-";
+  return data.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function rotuloEventoReserva(tipo) {
+  return {
+    criada: "Reserva criada",
+    status_alterado: "Status alterado",
+    mesa_alterada: "Mesa alterada",
+    compartilhamento: "Compartilhamento",
+  }[tipo] || "Evento";
+}
+
+function rotuloOrigemEventoReserva(origem) {
+  return {
+    publica: "Cliente",
+    admin: "Administracao",
+    garcom: "Garcom",
+    sistema: "Sistema",
+  }[origem] || origem || "Sistema";
+}
+
+function textoAutorEventoReserva(evento) {
+  if (evento?.usuario_nome) {
+    return `${evento.usuario_nome} (${roleLabel(evento.usuario_role)})`;
+  }
+  return rotuloOrigemEventoReserva(evento?.origem);
+}
+
 function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   const marca = useBranding();
   const css = gerarCSS(T);
@@ -1675,6 +1714,7 @@ function AcoesCompartilhamentoReserva({
   restauranteSlug,
   nomeRestaurante,
   onFeedback,
+  onShare,
 }) {
   const [copiado, setCopiado] = useState(false);
   const link = linkAcompanhamentoReserva(reserva, restauranteSlug);
@@ -1701,6 +1741,7 @@ function AcoesCompartilhamentoReserva({
         onClick={async () => {
           await copiarTexto(link);
           setCopiado(true);
+          onShare?.("link");
           onFeedback?.("Link de acompanhamento copiado.");
         }}
       >
@@ -1712,7 +1753,10 @@ function AcoesCompartilhamentoReserva({
           sm
           variant="success"
           type="button"
-          onClick={() => window.open(whatsapp, "_blank")}
+          onClick={() => {
+            onShare?.("whatsapp");
+            window.open(whatsapp, "_blank");
+          }}
         >
           <MessageCircle size={14} />
           WhatsApp
@@ -1723,13 +1767,155 @@ function AcoesCompartilhamentoReserva({
           sm
           variant="info"
           type="button"
-          onClick={() => window.open(email, "_blank")}
+          onClick={() => {
+            onShare?.("email");
+            window.open(email, "_blank");
+          }}
         >
           <Mail size={14} />
           Email
         </Btn>
       )}
     </>
+  );
+}
+
+function HistoricoReservaModal({
+  reserva,
+  eventos,
+  carregando,
+  erro,
+  onClose,
+}) {
+  return (
+    <Modal onClose={onClose}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: T.text,
+              fontFamily: "'Manrope',sans-serif",
+              fontSize: 20,
+              fontWeight: 800,
+            }}
+          >
+            <History size={19} color={T.accent} />
+            Historico
+          </div>
+          <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
+            {reserva?.nome_cliente} · {formatarDataReserva(reserva?.data_reserva)} as{" "}
+            {reserva?.horario}
+          </div>
+        </div>
+        {reserva?.status && <Badge status={reserva.status} />}
+      </div>
+
+      {carregando ? (
+        <div style={{ color: T.muted, fontSize: 13, padding: "12px 0" }}>
+          Carregando historico...
+        </div>
+      ) : erro ? (
+        <div style={{ color: T.red, fontSize: 13, padding: "12px 0" }}>
+          {erro}
+        </div>
+      ) : !eventos?.length ? (
+        <div style={{ color: T.muted, fontSize: 13, padding: "12px 0" }}>
+          Nenhum evento registrado para esta reserva.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {eventos.map((evento) => (
+            <div
+              key={evento.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "14px 1fr",
+                gap: 10,
+                alignItems: "start",
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 99,
+                  marginTop: 6,
+                  background: T.accent,
+                  boxShadow: `0 0 0 4px ${T.accentGlow}`,
+                }}
+              />
+              <div
+                style={{
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 8,
+                  padding: 11,
+                  background: T.card2,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginBottom: 5,
+                  }}
+                >
+                  <strong style={{ color: T.text, fontSize: 13 }}>
+                    {rotuloEventoReserva(evento.tipo)}
+                  </strong>
+                  <span style={{ color: T.muted, fontSize: 11 }}>
+                    {formatarDataHoraReservaEvento(evento.criado_em)}
+                  </span>
+                </div>
+                <div style={{ color: T.text2, fontSize: 13 }}>
+                  {evento.descricao}
+                </div>
+                <div style={{ color: T.muted, fontSize: 12, marginTop: 6 }}>
+                  {textoAutorEventoReserva(evento)}
+                </div>
+                {(evento.status_anterior ||
+                  evento.status_novo ||
+                  evento.mesa_id_anterior ||
+                  evento.mesa_id_novo) && (
+                  <div style={{ color: T.muted, fontSize: 11, marginTop: 6 }}>
+                    {[
+                      evento.status_anterior || evento.status_novo
+                        ? `Status: ${evento.status_anterior || "-"} -> ${evento.status_novo || "-"}`
+                        : "",
+                      evento.mesa_id_anterior || evento.mesa_id_novo
+                        ? `Mesa: ${evento.mesa_id_anterior || "-"} -> ${evento.mesa_id_novo || "-"}`
+                        : "",
+                    ].filter(Boolean).join(" · ")}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Btn
+        variant="ghost"
+        type="button"
+        full
+        style={{ marginTop: 16 }}
+        onClick={onClose}
+      >
+        Fechar
+      </Btn>
+    </Modal>
   );
 }
 
@@ -2886,6 +3072,7 @@ function PainelGarcom({ usuario, onLogout }) {
     mensagem: "",
   });
   const [reservaAtualizando, setReservaAtualizando] = useState(null);
+  const [historicoReservaGarcom, setHistoricoReservaGarcom] = useState(null);
 
   // Cardápio para fazer pedido
   const [cardapioModal, setCardapioModal] = useState(null); // mesa selecionada
@@ -3114,6 +3301,47 @@ function PainelGarcom({ usuario, onLogout }) {
       push("Reservas", error.message, "conta");
     } finally {
       setReservaAtualizando(null);
+    }
+  };
+
+  const abrirHistoricoReservaGarcom = async (reserva) => {
+    setHistoricoReservaGarcom({
+      reserva,
+      eventos: [],
+      carregando: true,
+      erro: "",
+    });
+    try {
+      const r = await authFetch(`${API}/api/reservas/${reserva.id}/eventos`);
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(dados.erro || "Nao foi possivel carregar o historico");
+      }
+      setHistoricoReservaGarcom({
+        reserva,
+        eventos: Array.isArray(dados.eventos) ? dados.eventos : [],
+        carregando: false,
+        erro: "",
+      });
+    } catch (error) {
+      setHistoricoReservaGarcom({
+        reserva,
+        eventos: [],
+        carregando: false,
+        erro: error.message,
+      });
+    }
+  };
+
+  const registrarCompartilhamentoReservaGarcom = async (reserva, canal) => {
+    try {
+      await authFetch(`${API}/api/reservas/${reserva.id}/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ canal }),
+      });
+    } catch (error) {
+      console.warn("Nao foi possivel registrar compartilhamento:", error);
     }
   };
 
@@ -3717,12 +3945,24 @@ function PainelGarcom({ usuario, onLogout }) {
                             Reabrir
                           </Btn>
                         )}
+                        <Btn
+                          sm
+                          variant="ghost"
+                          type="button"
+                          onClick={() => abrirHistoricoReservaGarcom(reserva)}
+                        >
+                          <History size={14} />
+                          Historico
+                        </Btn>
                         <AcoesCompartilhamentoReserva
                           reserva={reserva}
                           restauranteSlug={usuario.restaurante_slug}
                           nomeRestaurante={marca.nome}
                           onFeedback={(mensagem) =>
                             setReservaStatusGarcom({ tipo: "success", mensagem })
+                          }
+                          onShare={(canal) =>
+                            registrarCompartilhamentoReservaGarcom(reserva, canal)
                           }
                         />
                         {atualizando && (
@@ -3744,6 +3984,16 @@ function PainelGarcom({ usuario, onLogout }) {
             </div>
           )}
         </div>
+
+        {historicoReservaGarcom && (
+          <HistoricoReservaModal
+            reserva={historicoReservaGarcom.reserva}
+            eventos={historicoReservaGarcom.eventos}
+            carregando={historicoReservaGarcom.carregando}
+            erro={historicoReservaGarcom.erro}
+            onClose={() => setHistoricoReservaGarcom(null)}
+          />
+        )}
 
         {/* Modal ver pedidos da mesa */}
         {pedidosModal && (
@@ -4686,6 +4936,7 @@ function PainelAdmin({ usuario, onLogout }) {
   const [marcaStatus, setMarcaStatus] = useState({ tipo: "idle", mensagem: "" });
   const [reservas, setReservas] = useState([]);
   const [reservaStatus, setReservaStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [historicoReservaAdmin, setHistoricoReservaAdmin] = useState(null);
   const [novaReserva, setNovaReserva] = useState({
     tipo: "reserva",
     nome_cliente: "",
@@ -4945,6 +5196,47 @@ function PainelAdmin({ usuario, onLogout }) {
       recarregarReservas();
     } catch (error) {
       setReservaStatus({ tipo: "error", mensagem: error.message });
+    }
+  };
+
+  const abrirHistoricoReservaAdmin = async (reserva) => {
+    setHistoricoReservaAdmin({
+      reserva,
+      eventos: [],
+      carregando: true,
+      erro: "",
+    });
+    try {
+      const r = await authFetch(`${API}/api/reservas/${reserva.id}/eventos`);
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(dados.erro || "Nao foi possivel carregar o historico");
+      }
+      setHistoricoReservaAdmin({
+        reserva,
+        eventos: Array.isArray(dados.eventos) ? dados.eventos : [],
+        carregando: false,
+        erro: "",
+      });
+    } catch (error) {
+      setHistoricoReservaAdmin({
+        reserva,
+        eventos: [],
+        carregando: false,
+        erro: error.message,
+      });
+    }
+  };
+
+  const registrarCompartilhamentoReservaAdmin = async (reserva, canal) => {
+    try {
+      await authFetch(`${API}/api/reservas/${reserva.id}/eventos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ canal }),
+      });
+    } catch (error) {
+      console.warn("Nao foi possivel registrar compartilhamento:", error);
     }
   };
 
@@ -5792,12 +6084,24 @@ function PainelAdmin({ usuario, onLogout }) {
                             Reabrir
                           </Btn>
                         )}
+                        <Btn
+                          sm
+                          variant="ghost"
+                          type="button"
+                          onClick={() => abrirHistoricoReservaAdmin(reserva)}
+                        >
+                          <History size={14} />
+                          Historico
+                        </Btn>
                         <AcoesCompartilhamentoReserva
                           reserva={reserva}
                           restauranteSlug={usuario.restaurante_slug}
                           nomeRestaurante={marca.nome}
                           onFeedback={(mensagem) =>
                             setReservaStatus({ tipo: "success", mensagem })
+                          }
+                          onShare={(canal) =>
+                            registrarCompartilhamentoReservaAdmin(reserva, canal)
                           }
                         />
                       </div>
@@ -5807,6 +6111,16 @@ function PainelAdmin({ usuario, onLogout }) {
                 })
               )}
             </div>
+          )}
+
+          {historicoReservaAdmin && (
+            <HistoricoReservaModal
+              reserva={historicoReservaAdmin.reserva}
+              eventos={historicoReservaAdmin.eventos}
+              carregando={historicoReservaAdmin.carregando}
+              erro={historicoReservaAdmin.erro}
+              onClose={() => setHistoricoReservaAdmin(null)}
+            />
           )}
 
           {aba === "marca" && (
