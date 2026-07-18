@@ -7,6 +7,7 @@ export const MARCA_PADRAO = {
   logoUrl: "/logoAutenix.png",
   corPrimaria: "#0b2134",
   corDestaque: "#f2742d",
+  whatsappNumero: "",
   slug: "autenix",
   carregando: false,
 };

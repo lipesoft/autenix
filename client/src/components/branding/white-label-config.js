@@ -4,6 +4,7 @@ export const WHITE_LABEL_PADRAO = {
   logo_url: "",
   cor_primaria: "#0b2134",
   cor_secundaria: "#f2742d",
+  whatsapp_numero: "",
 };
 
 export function normalizarWhiteLabel(value = {}) {
@@ -16,5 +17,6 @@ export function normalizarWhiteLabel(value = {}) {
     logo_url: dados.logo_url ?? "",
     cor_primaria: dados.cor_primaria || WHITE_LABEL_PADRAO.cor_primaria,
     cor_secundaria: dados.cor_secundaria || WHITE_LABEL_PADRAO.cor_secundaria,
+    whatsapp_numero: dados.whatsapp_numero ?? "",
   };
 }

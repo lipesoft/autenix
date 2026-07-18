@@ -14,6 +14,7 @@ test("normaliza a configuracao de white label", () => {
       logo_url: "https://cdn.example.com/logo.png",
       cor_primaria: "#0B2134",
       cor_secundaria: "#F2742D",
+      whatsapp_numero: "(11) 98888-7777",
     }),
     {
       white_label_ativo: true,
@@ -21,6 +22,7 @@ test("normaliza a configuracao de white label", () => {
       logo_url: "https://cdn.example.com/logo.png",
       cor_primaria: "#0b2134",
       cor_secundaria: "#f2742d",
+      whatsapp_numero: "5511988887777",
     },
   );
 });
@@ -39,6 +41,13 @@ test("recusa cor fora do formato hexadecimal", () => {
   );
 });
 
+test("recusa whatsapp fora do formato esperado", () => {
+  assert.throws(
+    () => normalizarWhiteLabel({ whatsapp_numero: "123" }),
+    BrandingValidationError,
+  );
+});
+
 test("nao expoe a marca personalizada quando o white label esta desligado", () => {
   const publico = marcaPublica({
     id: 1,
@@ -49,11 +58,12 @@ test("nao expoe a marca personalizada quando o white label esta desligado", () =
     logo_url: "https://cdn.example.com/logo.png",
     cor_primaria: "#0b2134",
     cor_secundaria: "#f2742d",
+    whatsapp_numero: "5511988887777",
   });
 
   assert.equal(publico.white_label_ativo, false);
   assert.equal(publico.logo_url, null);
   assert.equal(publico.cor_primaria, null);
   assert.equal(publico.cor_secundaria, null);
+  assert.equal(publico.whatsapp_numero, "5511988887777");
 });
-

@@ -255,7 +255,7 @@ async function buscarRestaurantePorSlug(slugInformado) {
   if (!slug) return null;
   const { rows } = await query(
     `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-            logo_url, cor_primaria, cor_secundaria
+            logo_url, cor_primaria, cor_secundaria, whatsapp_numero
      FROM restaurantes
      WHERE slug = $1 AND ativo = 1
      LIMIT 1`,
@@ -768,6 +768,9 @@ async function initDB() {
 
     ALTER TABLE categorias
       ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
+
+    ALTER TABLE restaurantes
+      ADD COLUMN IF NOT EXISTS whatsapp_numero TEXT;
 
     ALTER TABLE reservas
       ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'reserva',
@@ -2879,7 +2882,8 @@ app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => 
               status_cobranca, trial_termina_em, proxima_cobranca_em,
               observacoes_plano, excluido_em,
               white_label_ativo, nome_exibicao, logo_url,
-              cor_primaria, cor_secundaria, criado_em, atualizado_em
+              cor_primaria, cor_secundaria, whatsapp_numero,
+              criado_em, atualizado_em
        FROM restaurantes
        ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
     );
@@ -2953,14 +2957,16 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
            logo_url = $15,
            cor_primaria = $16,
            cor_secundaria = $17,
+           whatsapp_numero = $18,
            atualizado_em = NOW()
-       WHERE id = $18
+       WHERE id = $19
        RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
                  observacoes_plano, excluido_em,
                  white_label_ativo, nome_exibicao, logo_url,
-                 cor_primaria, cor_secundaria, criado_em, atualizado_em`,
+                 cor_primaria, cor_secundaria, whatsapp_numero,
+                 criado_em, atualizado_em`,
       [
         nome,
         slug,
@@ -2979,6 +2985,7 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
         marca.logo_url,
         marca.cor_primaria,
         marca.cor_secundaria,
+        marca.whatsapp_numero,
         restauranteId,
       ],
     );
@@ -3011,7 +3018,8 @@ app.patch(
                    status_cobranca, trial_termina_em, proxima_cobranca_em,
                    observacoes_plano, excluido_em,
                    white_label_ativo, nome_exibicao, logo_url,
-                   cor_primaria, cor_secundaria, criado_em, atualizado_em`,
+                   cor_primaria, cor_secundaria, whatsapp_numero,
+                   criado_em, atualizado_em`,
         [req.body.ativo, restauranteId],
       );
       if (!rows[0]) {
@@ -3139,7 +3147,8 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-              logo_url, cor_primaria, cor_secundaria, plano, limite_mesas,
+              logo_url, cor_primaria, cor_secundaria, whatsapp_numero,
+              plano, limite_mesas,
               limite_usuarios, limite_produtos, mensalidade_centavos,
               ciclo_cobranca, status_cobranca, trial_termina_em,
               proxima_cobranca_em, atualizado_em
@@ -3167,16 +3176,19 @@ app.patch(
              logo_url = $3,
              cor_primaria = $4,
              cor_secundaria = $5,
+             whatsapp_numero = $6,
              atualizado_em = NOW()
-         WHERE id = $6 AND ativo = 1
+         WHERE id = $7 AND ativo = 1
          RETURNING id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-                   logo_url, cor_primaria, cor_secundaria, atualizado_em`,
+                   logo_url, cor_primaria, cor_secundaria, whatsapp_numero,
+                   atualizado_em`,
         [
           dados.white_label_ativo,
           dados.nome_exibicao,
           dados.logo_url,
           dados.cor_primaria,
           dados.cor_secundaria,
+          dados.whatsapp_numero,
           req.user.restaurante_id,
         ],
       );

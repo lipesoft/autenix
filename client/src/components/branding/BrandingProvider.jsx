@@ -33,6 +33,7 @@ function criarMarca(restaurante, slug, carregando = false) {
     corPrimaria,
     corDestaque,
     corDestaqueEscura: escurecerCor(corDestaque),
+    whatsappNumero: restaurante?.whatsapp_numero || "",
     slug: restaurante?.slug || slug || "autenix",
     carregando,
   };

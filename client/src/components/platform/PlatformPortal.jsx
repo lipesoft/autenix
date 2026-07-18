@@ -687,6 +687,9 @@ function NovoRestaurante({ onClose, onCreated, request }) {
           <Campo label="Nome exibido" wide>
             <input value={form.nome_exibicao} maxLength={80} onChange={(event) => alterar("nome_exibicao", event.target.value)} placeholder={form.nome || "Nome do restaurante"} />
           </Campo>
+          <Campo label="WhatsApp do restaurante" wide>
+            <input value={form.whatsapp_numero} maxLength={32} onChange={(event) => alterar("whatsapp_numero", event.target.value)} placeholder="Ex.: (11) 98888-7777" />
+          </Campo>
           <Campo label="Cor principal">
             <div className="pf-color-row">
               <input type="color" value={corPrimariaSegura} onChange={(event) => alterar("cor_primaria", event.target.value)} />

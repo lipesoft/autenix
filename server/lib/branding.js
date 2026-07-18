@@ -43,6 +43,23 @@ function normalizarLogoUrl(valor) {
   return url.toString();
 }
 
+function normalizarWhatsappNumero(valor) {
+  const informado = textoOpcional(valor, "WhatsApp", 32);
+  if (!informado) return null;
+
+  let digitos = informado.replace(/\D/g, "");
+  if (digitos.length === 10 || digitos.length === 11) {
+    digitos = `55${digitos}`;
+  }
+
+  if (!/^[0-9]{12,15}$/.test(digitos)) {
+    throw new BrandingValidationError(
+      "WhatsApp deve incluir DDD e numero, preferencialmente com codigo do pais",
+    );
+  }
+  return digitos;
+}
+
 function normalizarWhiteLabel(payload = {}) {
   const nomeExibicao = textoOpcional(payload.nome_exibicao, "Nome de exibicao", 80);
   if (nomeExibicao && nomeExibicao.length < 2) {
@@ -55,6 +72,7 @@ function normalizarWhiteLabel(payload = {}) {
     logo_url: normalizarLogoUrl(payload.logo_url),
     cor_primaria: normalizarCor(payload.cor_primaria, "Cor principal"),
     cor_secundaria: normalizarCor(payload.cor_secundaria, "Cor de destaque"),
+    whatsapp_numero: normalizarWhatsappNumero(payload.whatsapp_numero),
   };
 }
 
@@ -69,6 +87,7 @@ function marcaPublica(restaurante) {
     logo_url: whiteLabelAtivo ? restaurante.logo_url : null,
     cor_primaria: whiteLabelAtivo ? restaurante.cor_primaria : null,
     cor_secundaria: whiteLabelAtivo ? restaurante.cor_secundaria : null,
+    whatsapp_numero: restaurante.whatsapp_numero || null,
   };
 }
 
@@ -77,4 +96,3 @@ module.exports = {
   marcaPublica,
   normalizarWhiteLabel,
 };
-

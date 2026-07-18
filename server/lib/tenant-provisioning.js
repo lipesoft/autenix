@@ -226,14 +226,14 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
          limite_produtos, mensalidade_centavos, ciclo_cobranca,
          status_cobranca, trial_termina_em, proxima_cobranca_em,
          observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
-         cor_primaria, cor_secundaria, atualizado_em
+         cor_primaria, cor_secundaria, whatsapp_numero, atualizado_em
        ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 $13, $14, $15, $16, $17, NOW())
+                 $13, $14, $15, $16, $17, $18, NOW())
        RETURNING id, nome, slug, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
                  observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
-                 cor_primaria, cor_secundaria, ativo`,
+                 cor_primaria, cor_secundaria, whatsapp_numero, ativo`,
       [
         dados.nome,
         dados.slug,
@@ -252,6 +252,7 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
         dados.marca.logo_url,
         dados.marca.cor_primaria,
         dados.marca.cor_secundaria,
+        dados.marca.whatsapp_numero,
       ],
     );
     const restaurante = restaurantes[0];

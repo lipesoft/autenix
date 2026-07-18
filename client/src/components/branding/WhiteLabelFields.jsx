@@ -1,4 +1,4 @@
-import { Building2, CheckCircle2, Palette } from "lucide-react";
+import { Building2, CheckCircle2, MessageCircle, Palette } from "lucide-react";
 import ImageUploadField from "../upload/ImageUploadField.jsx";
 import {
   normalizarWhiteLabel,
@@ -60,6 +60,17 @@ export default function WhiteLabelFields({
             previewAlt="Previa da logo"
           />
         </div>
+
+        <label className="wl-field wl-field-wide">
+          <span><MessageCircle size={15} /> WhatsApp do restaurante</span>
+          <input
+            value={dados.whatsapp_numero}
+            onChange={(event) => alterar("whatsapp_numero", event.target.value)}
+            placeholder="Ex.: (11) 98888-7777"
+            maxLength={32}
+          />
+          <small>Usado nos links de contato da reserva e no acompanhamento do cliente.</small>
+        </label>
 
         <label className="wl-field">
           <span><Palette size={15} /> Cor principal</span>
