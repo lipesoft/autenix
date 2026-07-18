@@ -1,6 +1,15 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
-import { CalendarCheck, LayoutGrid, LogOut, Palette, Save } from "lucide-react";
+import {
+  Copy,
+  ExternalLink,
+  LayoutGrid,
+  LogOut,
+  Mail,
+  MessageCircle,
+  Palette,
+  Save,
+} from "lucide-react";
 import BrandingProvider from "./components/branding/BrandingProvider.jsx";
 import {
   notificarMarcaAtualizada,
@@ -455,6 +464,7 @@ function Btn({
   disabled,
   style,
   full,
+  type,
 }) {
   const base = {
     display: "inline-flex",
@@ -508,6 +518,7 @@ function Btn({
   };
   return (
     <button
+      type={type}
       className={`app-btn app-btn-${variant}`}
       style={{ ...base, ...v[variant], ...style }}
       onClick={onClick}
@@ -932,6 +943,78 @@ function urlAbsoluta(caminho) {
   return new URL(caminho, window.location.origin).toString();
 }
 
+function copiarTexto(texto) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(texto);
+  }
+  const area = document.createElement("textarea");
+  area.value = texto;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  document.body.removeChild(area);
+  return Promise.resolve();
+}
+
+function normalizarNumeroWhatsApp(numero) {
+  let digitos = String(numero || "").replace(/\D/g, "");
+  if (digitos.length === 10 || digitos.length === 11) digitos = `55${digitos}`;
+  return /^[0-9]{12,15}$/.test(digitos) ? digitos : "";
+}
+
+function linkAcompanhamentoReserva(reserva, restauranteSlug = "autenix") {
+  if (!reserva?.codigo_acompanhamento) return "";
+  return urlAbsoluta(
+    rotaRestaurante(
+      restauranteSlug,
+      `reservas/acompanhar/${reserva.codigo_acompanhamento}`,
+    ),
+  );
+}
+
+function textoStatusReserva(status) {
+  return {
+    pendente: "solicitacao recebida",
+    confirmada: "reserva confirmada",
+    fila: "na fila de espera",
+    chamada: "mesa sendo chamada",
+    concluida: "atendimento iniciado",
+    cancelada: "reserva cancelada",
+  }[status] || "reserva";
+}
+
+function mensagemReservaParaCliente(reserva, restauranteSlug, nomeRestaurante) {
+  const link = linkAcompanhamentoReserva(reserva, restauranteSlug);
+  const partes = [
+    `Ola, ${reserva.nome_cliente}.`,
+    `Sua reserva no ${nomeRestaurante || "restaurante"} esta como ${textoStatusReserva(reserva.status)}.`,
+    `Data: ${formatarDataReserva(reserva.data_reserva)} as ${reserva.horario}.`,
+  ];
+  if (reserva.status === "fila" && reserva.posicao_fila) {
+    partes.push(`Posicao na fila: ${reserva.posicao_fila}.`);
+  }
+  if (reserva.status === "chamada") {
+    partes.push("Procure a equipe para ser acomodado.");
+  }
+  if (link) partes.push(`Acompanhe aqui: ${link}`);
+  return partes.join("\n");
+}
+
+function linkWhatsApp(numero, mensagem) {
+  const destino = normalizarNumeroWhatsApp(numero);
+  if (!destino) return "";
+  return `https://wa.me/${destino}?text=${encodeURIComponent(mensagem)}`;
+}
+
+function linkEmail(destino, assunto, mensagem) {
+  const email = String(destino || "").trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
+  return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(mensagem)}`;
+}
+
 function formatarDataReserva(data) {
   const partes = String(data || "").split("-");
   if (partes.length !== 3) return data || "-";
@@ -954,6 +1037,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
   const [disponibilidade, setDisponibilidade] = useState(null);
   const [acompanhamento, setAcompanhamento] = useState(null);
+  const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
     document.title = `Reservas - ${marca.nome}`;
@@ -982,6 +1066,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     setModo(novoModo);
     setStatus({ tipo: "idle", mensagem: "" });
     setAcompanhamento(null);
+    setCopiado(false);
     if (novoModo === "fila") {
       setForm((atual) => ({
         ...atual,
@@ -1001,6 +1086,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
     event.preventDefault();
     setStatus({ tipo: "loading", mensagem: "" });
     setAcompanhamento(null);
+    setCopiado(false);
     try {
       const resposta = await fetch(`${API}/api/reservas`, {
         method: "POST",
@@ -1030,8 +1116,8 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
         tipo: "success",
         mensagem:
           modo === "fila"
-            ? "Voce entrou na fila de espera. Acompanhe sua posicao pelo link abaixo."
-            : `Reserva recebida para ${formatarDataReserva(form.data_reserva)} as ${form.horario}.`,
+            ? "Voce entrou na fila. Use o link abaixo para acompanhar."
+            : "Reserva recebida. Use o link abaixo para acompanhar.",
       });
       setForm((atual) => ({
         ...atual,
@@ -1044,6 +1130,21 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
       setStatus({ tipo: "error", mensagem: error.message });
     }
   };
+
+  const linkAcompanhamento = acompanhamento?.caminho
+    ? urlAbsoluta(acompanhamento.caminho)
+    : "";
+  const mensagemParaRestaurante = acompanhamento?.reserva
+    ? [
+        `Ola, sou ${acompanhamento.reserva.nome_cliente}.`,
+        `Quero acompanhar minha ${acompanhamento.reserva.tipo === "fila" ? "fila de espera" : "reserva"}.`,
+        linkAcompanhamento,
+      ].filter(Boolean).join("\n")
+    : "";
+  const whatsappRestaurante = linkWhatsApp(
+    marca.whatsappNumero,
+    mensagemParaRestaurante,
+  );
 
   return (
     <div
@@ -1058,7 +1159,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
           <Logo />
           <div className="panel-header-copy">
             <div className="panel-header-title">Reservas</div>
-            <div className="panel-header-subtitle">Solicitacao de mesa</div>
+            <div className="panel-header-subtitle">{marca.nome}</div>
           </div>
         </div>
         <div className="panel-header-actions">
@@ -1079,112 +1180,74 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
       <main
         style={{
           width: "100%",
-          maxWidth: 1060,
+          maxWidth: 640,
           margin: "0 auto",
-          padding: "34px 16px 48px",
+          padding: "28px 14px 42px",
         }}
-        className="public-reserva-layout"
       >
-        <section
-          style={{
-            background: T.navy,
-            color: "#fff",
-            borderRadius: 8,
-            padding: 28,
-            minHeight: 420,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "space-between",
-            boxShadow: "0 18px 52px rgba(6,19,31,.16)",
-          }}
-        >
-          <div>
+        <Card style={{ padding: "clamp(18px, 4vw, 28px)" }}>
+          <div style={{ marginBottom: 20 }}>
             <div
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
                 color: T.accent,
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: 800,
                 textTransform: "uppercase",
                 letterSpacing: 0.8,
-                marginBottom: 16,
+                marginBottom: 8,
               }}
             >
-              <CalendarCheck size={17} /> Agenda do restaurante
+              Reserva online
             </div>
             <h1
               style={{
                 fontFamily: "'Manrope',sans-serif",
-                fontSize: "clamp(30px, 5vw, 52px)",
-                lineHeight: 1.02,
+                fontSize: "clamp(28px, 7vw, 42px)",
+                lineHeight: 1.05,
                 letterSpacing: 0,
-                maxWidth: 620,
+                marginBottom: 10,
               }}
             >
-              Reserve sua mesa ou entre na fila.
+              Reserve sua mesa.
             </h1>
             <p
               style={{
-                color: "rgba(255,255,255,.76)",
-                fontSize: 16,
-                marginTop: 18,
+                color: T.text2,
+                fontSize: 14,
                 maxWidth: 520,
               }}
             >
-              Escolha uma reserva programada ou entre na fila de espera quando
-              chegar ao restaurante.
+              Escolha uma data ou entre na fila de espera agora. Depois acompanhe
+              tudo pelo link.
             </p>
-          </div>
-          <div className="public-reserva-highlights">
-            {[
-              ["Tempo real", "Equipe recebe na hora"],
-              [
-                "Fila",
-                disponibilidade?.restaurante_cheio
-                  ? "Restaurante cheio agora"
-                  : disponibilidade
-                    ? `${disponibilidade.mesas_livres} mesa(s) livres`
-                    : "Acompanhamento publico",
-              ],
-              ["Status", "Cliente acompanha pelo link"],
-            ].map(([titulo, texto]) => (
-              <div
-                key={titulo}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                marginTop: 14,
+                padding: "7px 10px",
+                borderRadius: 999,
+                background: T.card2,
+                color: disponibilidade?.restaurante_cheio ? T.amber : T.green,
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              <span
                 style={{
-                  border: "1px solid rgba(255,255,255,.13)",
-                  background: "rgba(255,255,255,.06)",
-                  borderRadius: 8,
-                  padding: 12,
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "currentColor",
                 }}
-              >
-                <div style={{ color: T.accent, fontWeight: 800, fontSize: 12 }}>
-                  {titulo}
-                </div>
-                <div style={{ color: "rgba(255,255,255,.72)", fontSize: 12 }}>
-                  {texto}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <Card style={{ padding: 22 }}>
-          <div
-            style={{
-              fontFamily: "'Manrope',sans-serif",
-              fontSize: 24,
-              fontWeight: 800,
-              marginBottom: 4,
-            }}
-          >
-            Dados da reserva
-          </div>
-          <div style={{ color: T.text2, fontSize: 13, marginBottom: 18 }}>
-            {modo === "fila"
-              ? "Use esta opcao para atendimento imediato quando o restaurante estiver cheio."
-              : "Preencha os campos para solicitar a reserva."}
+              />
+              {disponibilidade
+                ? disponibilidade.restaurante_cheio
+                  ? "Restaurante cheio agora"
+                  : `${disponibilidade.mesas_livres} mesa(s) livres agora`
+                : "Consulta de disponibilidade ativa"}
+            </div>
           </div>
           <div
             style={{
@@ -1264,10 +1327,10 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
               />
               <textarea
                 className="is-full"
-                placeholder="Observacao (opcional)"
+                placeholder="Observacao (opcional: area, aniversario, acessibilidade...)"
                 value={form.observacao}
                 onChange={(e) => atualizar("observacao", e.target.value)}
-                style={{ minHeight: 92, resize: "vertical" }}
+                style={{ minHeight: 72, resize: "vertical" }}
               />
             </div>
             <div
@@ -1291,7 +1354,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
               <div
                 style={{
                   display: "grid",
-                  gap: 8,
+                  gap: 10,
                   padding: 12,
                   marginBottom: 12,
                   border: `1px solid ${T.border}`,
@@ -1311,8 +1374,42 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                     overflowWrap: "anywhere",
                   }}
                 >
-                  {urlAbsoluta(acompanhamento.caminho)}
+                  {linkAcompanhamento}
                 </a>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn
+                    sm
+                    variant="ghost"
+                    type="button"
+                    onClick={async () => {
+                      await copiarTexto(linkAcompanhamento);
+                      setCopiado(true);
+                    }}
+                  >
+                    <Copy size={14} />
+                    {copiado ? "Copiado" : "Copiar link"}
+                  </Btn>
+                  <Btn
+                    sm
+                    variant="info"
+                    type="button"
+                    onClick={() => window.open(acompanhamento.caminho, "_self")}
+                  >
+                    <ExternalLink size={14} />
+                    Acompanhar
+                  </Btn>
+                  {whatsappRestaurante && (
+                    <Btn
+                      sm
+                      variant="success"
+                      type="button"
+                      onClick={() => window.open(whatsappRestaurante, "_blank")}
+                    >
+                      <MessageCircle size={14} />
+                      WhatsApp
+                    </Btn>
+                  )}
+                </div>
               </div>
             )}
             <Btn
@@ -1342,6 +1439,7 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(true);
+  const [copiado, setCopiado] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -1372,6 +1470,20 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
   }, [carregar]);
 
   const reserva = dados?.reserva;
+  const linkAtual = reserva
+    ? linkAcompanhamentoReserva(reserva, restauranteSlug)
+    : "";
+  const contatoRestaurante = dados?.restaurante?.whatsapp_numero || marca.whatsappNumero;
+  const whatsappRestaurante = reserva
+    ? linkWhatsApp(
+        contatoRestaurante,
+        [
+          `Ola, sou ${reserva.nome_cliente}.`,
+          `Estou acompanhando minha ${reserva.tipo === "fila" ? "fila de espera" : "reserva"}.`,
+          linkAtual,
+        ].filter(Boolean).join("\n"),
+      )
+    : "";
   const statusTexto = {
     pendente: "Solicitacao recebida",
     confirmada: "Reserva confirmada",
@@ -1380,6 +1492,14 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
     concluida: "Atendimento iniciado",
     cancelada: "Reserva cancelada",
   }[reserva?.status] || "Acompanhamento";
+  const proximoPasso = {
+    pendente: "Aguarde a confirmacao da equipe.",
+    confirmada: "Chegue no horario combinado e informe o nome da reserva.",
+    fila: "Acompanhe sua posicao. A equipe chamara quando houver mesa disponivel.",
+    chamada: "Procure a equipe do restaurante para ser acomodado.",
+    concluida: "Seu atendimento foi iniciado.",
+    cancelada: "Fale com o restaurante se quiser fazer uma nova reserva.",
+  }[reserva?.status] || "Acompanhe as atualizacoes por aqui.";
 
   return (
     <div
@@ -1487,6 +1607,58 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
                 </div>
               )}
 
+              <div
+                style={{
+                  marginTop: 22,
+                  padding: 14,
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  background: T.card2,
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ color: T.muted, fontSize: 11, fontWeight: 800 }}>
+                  PROXIMO PASSO
+                </div>
+                <div style={{ color: T.text2, fontSize: 14, marginTop: 4 }}>
+                  {proximoPasso}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginTop: 16,
+                }}
+              >
+                <Btn
+                  sm
+                  variant="ghost"
+                  type="button"
+                  onClick={async () => {
+                    await copiarTexto(linkAtual);
+                    setCopiado(true);
+                  }}
+                >
+                  <Copy size={14} />
+                  {copiado ? "Copiado" : "Copiar link"}
+                </Btn>
+                {whatsappRestaurante && (
+                  <Btn
+                    sm
+                    variant="success"
+                    type="button"
+                    onClick={() => window.open(whatsappRestaurante, "_blank")}
+                  >
+                    <MessageCircle size={14} />
+                    WhatsApp
+                  </Btn>
+                )}
+              </div>
+
               <div style={{ color: T.muted, fontSize: 12, marginTop: 24 }}>
                 Atualizacao automatica a cada 15 segundos.
               </div>
@@ -1495,6 +1667,69 @@ function TelaAcompanhamentoReserva({ restauranteSlug = "autenix", codigo }) {
         </Card>
       </main>
     </div>
+  );
+}
+
+function AcoesCompartilhamentoReserva({
+  reserva,
+  restauranteSlug,
+  nomeRestaurante,
+  onFeedback,
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const link = linkAcompanhamentoReserva(reserva, restauranteSlug);
+  const mensagem = mensagemReservaParaCliente(
+    reserva,
+    restauranteSlug,
+    nomeRestaurante,
+  );
+  const whatsapp = linkWhatsApp(reserva?.telefone, mensagem);
+  const email = linkEmail(
+    reserva?.email,
+    `Reserva - ${nomeRestaurante || "Restaurante"}`,
+    mensagem,
+  );
+
+  if (!link) return null;
+
+  return (
+    <>
+      <Btn
+        sm
+        variant="ghost"
+        type="button"
+        onClick={async () => {
+          await copiarTexto(link);
+          setCopiado(true);
+          onFeedback?.("Link de acompanhamento copiado.");
+        }}
+      >
+        <Copy size={14} />
+        {copiado ? "Link copiado" : "Copiar link"}
+      </Btn>
+      {whatsapp && (
+        <Btn
+          sm
+          variant="success"
+          type="button"
+          onClick={() => window.open(whatsapp, "_blank")}
+        >
+          <MessageCircle size={14} />
+          WhatsApp
+        </Btn>
+      )}
+      {email && (
+        <Btn
+          sm
+          variant="info"
+          type="button"
+          onClick={() => window.open(email, "_blank")}
+        >
+          <Mail size={14} />
+          Email
+        </Btn>
+      )}
+    </>
   );
 }
 
@@ -3482,6 +3717,14 @@ function PainelGarcom({ usuario, onLogout }) {
                             Reabrir
                           </Btn>
                         )}
+                        <AcoesCompartilhamentoReserva
+                          reserva={reserva}
+                          restauranteSlug={usuario.restaurante_slug}
+                          nomeRestaurante={marca.nome}
+                          onFeedback={(mensagem) =>
+                            setReservaStatusGarcom({ tipo: "success", mensagem })
+                          }
+                        />
                         {atualizando && (
                           <span style={{ color: T.muted, fontSize: 12, alignSelf: "center" }}>
                             Atualizando...
@@ -5549,6 +5792,14 @@ function PainelAdmin({ usuario, onLogout }) {
                             Reabrir
                           </Btn>
                         )}
+                        <AcoesCompartilhamentoReserva
+                          reserva={reserva}
+                          restauranteSlug={usuario.restaurante_slug}
+                          nomeRestaurante={marca.nome}
+                          onFeedback={(mensagem) =>
+                            setReservaStatus({ tipo: "success", mensagem })
+                          }
+                        />
                       </div>
                     </div>
                   </Card>
