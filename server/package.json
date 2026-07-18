@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "migrate": "node migrate.js",
+    "migrate:status": "node migrate.js --status",
     "hash:password": "node scripts/hash-password.js",
     "tenant:create": "node scripts/create-restaurant.js",
     "test:rls": "node scripts/verify-tenant-rls.js",
