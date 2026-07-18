@@ -76,6 +76,10 @@ const {
   criarTokenSessaoMesa,
   hashTokenSessaoMesa,
 } = require("./lib/mesa-session");
+const {
+  AuthSessionError,
+  revalidarUsuarioToken,
+} = require("./lib/auth-session");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 require("dotenv").config();
@@ -530,7 +534,15 @@ function gerarTokenPlataforma(usuario) {
   );
 }
 
-function autenticarJWT(req, res, next) {
+function responderErroAutenticacao(res, error, contexto = "sessao") {
+  if (error instanceof AuthSessionError) {
+    return res.status(401).json({ erro: error.message });
+  }
+  console.error(`Falha ao validar ${contexto}:`, error.message);
+  return res.status(503).json({ erro: "Nao foi possivel validar o acesso agora" });
+}
+
+async function autenticarJWT(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const [tipo, token] = authHeader.split(" ");
   if (tipo !== "Bearer" || !token) {
@@ -538,33 +550,23 @@ function autenticarJWT(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    const restauranteId = Number(payload.restaurante_id);
-    if (!Number.isInteger(restauranteId) || restauranteId <= 0) {
-      return res.status(401).json({ erro: "Token sem contexto de restaurante" });
-    }
-    req.user = {
-      id: Number(payload.sub || payload.id),
-      role: payload.role,
-      restaurante_id: restauranteId,
-      restaurante_slug: payload.restaurante_slug,
-    };
+    req.user = await revalidarUsuarioToken({ token, secret: JWT_SECRET, tenantQuery });
     return next();
-  } catch (e) {
-    return res.status(401).json({ erro: "Token invalido ou expirado" });
+  } catch (error) {
+    return responderErroAutenticacao(res, error);
   }
 }
 
-function autenticarJWTSePresente(req, res, next) {
+async function autenticarJWTSePresente(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const [tipo, token] = authHeader.split(" ");
   if (tipo !== "Bearer" || !token) return next();
 
   try {
-    req.user = usuarioDoToken(token);
+    req.user = await revalidarUsuarioToken({ token, secret: JWT_SECRET, tenantQuery });
     return next();
-  } catch {
-    return res.status(401).json({ erro: "Token invalido ou expirado" });
+  } catch (error) {
+    return responderErroAutenticacao(res, error);
   }
 }
 
@@ -595,21 +597,6 @@ async function autenticarPlataforma(req, res, next) {
   } catch {
     return res.status(401).json({ erro: "Token da plataforma invalido ou expirado" });
   }
-}
-
-function usuarioDoToken(token) {
-  if (!token) return null;
-  const payload = jwt.verify(token, JWT_SECRET);
-  const restauranteId = Number(payload.restaurante_id);
-  if (!Number.isInteger(restauranteId) || restauranteId <= 0) {
-    throw new Error("Token sem contexto de restaurante");
-  }
-  return {
-    id: Number(payload.sub || payload.id),
-    role: payload.role,
-    restaurante_id: restauranteId,
-    restaurante_slug: payload.restaurante_slug,
-  };
 }
 
 function autorizarRoles(...rolesPermitidas) {
@@ -4164,7 +4151,11 @@ io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   try {
     if (token) {
-      socket.user = usuarioDoToken(token);
+      socket.user = await revalidarUsuarioToken({
+        token,
+        secret: JWT_SECRET,
+        tenantQuery,
+      });
       socket.publicContext = null;
       return next();
     }
