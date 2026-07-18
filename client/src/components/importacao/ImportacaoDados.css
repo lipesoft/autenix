@@ -445,7 +445,13 @@
 }
 
 .import-history-table {
-  min-width: 980px;
+  min-width: 760px;
+}
+
+.import-history-table th,
+.import-history-table td {
+  padding-right: 7px;
+  padding-left: 7px;
 }
 
 .import-history-table td > strong,
