@@ -85,6 +85,11 @@ function normalizarMesaId(valor) {
   return normalizarInteiro(valor, "Mesa", 1, Number.MAX_SAFE_INTEGER);
 }
 
+function normalizarSalaoId(valor) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  return normalizarInteiro(valor, "Salao", 1, Number.MAX_SAFE_INTEGER);
+}
+
 function normalizarOrigem(origem) {
   const valor = texto(origem || "publica").toLowerCase();
   if (!ORIGENS_RESERVA.includes(valor)) {
@@ -128,6 +133,7 @@ function normalizarCriacaoReserva(payload = {}, options = {}) {
     ),
     observacao: textoOpcional(payload.observacao, "Observacao", 500),
     mesa_id: normalizarMesaId(payload.mesa_id),
+    salao_id: normalizarSalaoId(payload.salao_id),
     origem: normalizarOrigem(options.origem || payload.origem || "publica"),
     tipo: normalizarTipoReserva(payload.tipo),
   };
@@ -151,6 +157,7 @@ module.exports = {
   normalizarCriacaoReserva,
   normalizarFiltrosReservas,
   normalizarMesaId,
+  normalizarSalaoId,
   normalizarStatusReserva,
   normalizarTipoReserva,
 };
