@@ -412,6 +412,117 @@
   word-break: break-word;
 }
 
+.import-history-heading,
+.import-history-heading > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.import-history-heading > div {
+  justify-content: flex-start;
+}
+
+.import-history-heading > div > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--app-accent, #f2742d);
+}
+
+.import-history-heading small,
+.import-history-table td small,
+.import-history-detail span,
+.import-history-empty {
+  color: #71808d;
+  font-size: 11px;
+}
+
+.import-icon-button {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
+.import-history-table {
+  min-width: 980px;
+}
+
+.import-history-table td > strong,
+.import-history-table td > small {
+  display: block;
+}
+
+.import-history-table td > strong {
+  max-width: 210px;
+  overflow: hidden;
+  color: #132331;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-history-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.import-history-status.is-concluida {
+  color: #166b58;
+  background: rgba(33, 140, 114, 0.12);
+}
+
+.import-history-status.is-revertida {
+  color: #6c5b37;
+  background: rgba(169, 99, 24, 0.12);
+}
+
+.import-detail-button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.import-history-error {
+  color: #b84234;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.import-history-detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #e3e9ee;
+}
+
+.import-history-detail > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.import-history-detail strong {
+  color: #132331;
+  font-family: Manrope, sans-serif;
+  font-size: 13px;
+}
+
+.import-history-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.import-history-items span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .import-spin {
   animation: import-spin 900ms linear infinite;
 }
@@ -446,5 +557,18 @@
   .import-primary,
   .import-secondary {
     width: 100%;
+  }
+
+  .import-icon-button {
+    width: 40px;
+  }
+
+  .import-history-items {
+    grid-template-columns: 1fr;
+  }
+
+  .import-history-detail > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

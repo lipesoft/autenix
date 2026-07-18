@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Columns3,
   Download,
+  Eye,
   FileSpreadsheet,
+  History,
   LoaderCircle,
   RefreshCw,
   Upload,
@@ -77,6 +79,14 @@ function resumoTexto(resumo) {
   return `${resumo.criar} criar, ${resumo.atualizar} atualizar, ${resumo.ignorar} ignorar, ${resumo.invalidas} invalidas`;
 }
 
+function formatarData(valor) {
+  if (!valor) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(valor));
+}
+
 export default function ImportacaoDados({ onImported }) {
   const [tipo, setTipo] = useState("produtos");
   const [csvText, setCsvText] = useState("");
@@ -88,6 +98,9 @@ export default function ImportacaoDados({ onImported }) {
   const [analise, setAnalise] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [historico, setHistorico] = useState([]);
+  const [historicoStatus, setHistoricoStatus] = useState("loading");
+  const [detalhe, setDetalhe] = useState(null);
 
   const campos = TIPOS[tipo].campos;
   const errosMapeamento = useMemo(
@@ -102,6 +115,40 @@ export default function ImportacaoDados({ onImported }) {
   );
   const linhasValidas = linhasMapeadas.length;
   const preview = useMemo(() => analise?.preview?.slice(0, 80) || [], [analise]);
+
+  const carregarHistorico = useCallback(async () => {
+    setHistoricoStatus("loading");
+    try {
+      const resposta = await authFetch(`${API_URL}/api/importacoes?limite=20`);
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || "Falha ao carregar historico.");
+      setHistorico(dados.historico || []);
+      setHistoricoStatus("success");
+    } catch {
+      setHistoricoStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarHistorico();
+  }, [carregarHistorico]);
+
+  const abrirDetalhe = async (importacaoId) => {
+    if (detalhe?.id === importacaoId) {
+      setDetalhe(null);
+      return;
+    }
+    setHistoricoStatus("loading-detail");
+    try {
+      const resposta = await authFetch(`${API_URL}/api/importacoes/${importacaoId}`);
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || "Falha ao abrir importacao.");
+      setDetalhe(dados);
+      setHistoricoStatus("success");
+    } catch {
+      setHistoricoStatus("error");
+    }
+  };
 
   const resetAnalise = () => {
     setAnalise(null);
@@ -250,6 +297,8 @@ export default function ImportacaoDados({ onImported }) {
       setAnalise(dados.analise);
       setStatus({ tipo: "success", mensagem: "Importacao concluida." });
       onImported?.(tipo);
+      setDetalhe(null);
+      await carregarHistorico();
     } catch (error) {
       setStatus({ tipo: "error", mensagem: error.message });
     }
@@ -485,6 +534,102 @@ export default function ImportacaoDados({ onImported }) {
           )}
         </div>
       )}
+
+      <div className="import-card import-history">
+        <div className="import-history-heading">
+          <div>
+            <History size={17} />
+            <div>
+              <div className="import-card-title">Historico de importacoes</div>
+              <small>Ultimas operacoes realizadas neste restaurante.</small>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="import-secondary import-icon-button"
+            onClick={carregarHistorico}
+            disabled={historicoStatus === "loading"}
+            aria-label="Atualizar historico"
+            title="Atualizar historico"
+          >
+            <RefreshCw size={16} />
+          </button>
+        </div>
+
+        {historicoStatus === "loading" && historico.length === 0 && (
+          <div className="import-history-empty">Carregando historico...</div>
+        )}
+        {historicoStatus === "error" && (
+          <div className="import-history-error">Nao foi possivel carregar o historico.</div>
+        )}
+        {historicoStatus !== "loading" && historicoStatus !== "error" && historico.length === 0 && (
+          <div className="import-history-empty">Nenhuma importacao realizada.</div>
+        )}
+
+        {historico.length > 0 && (
+          <div className="import-table-wrap">
+            <table className="import-table import-history-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Arquivo</th>
+                  <th>Tipo</th>
+                  <th>Resultado</th>
+                  <th>Responsavel</th>
+                  <th>Status</th>
+                  <th aria-label="Acoes" />
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map((item) => (
+                  <tr key={item.id}>
+                    <td>{formatarData(item.criado_em)}</td>
+                    <td>
+                      <strong>{item.arquivo_nome}</strong>
+                      <small>{String(item.formato).toUpperCase()}</small>
+                    </td>
+                    <td>{TIPOS[item.tipo]?.label || item.tipo}</td>
+                    <td>{resumoTexto(item)}</td>
+                    <td>{item.usuario}</td>
+                    <td>
+                      <span className={`import-history-status is-${item.status}`}>
+                        {item.status === "revertida" ? "Revertida" : "Concluida"}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="import-secondary import-detail-button"
+                        onClick={() => abrirDetalhe(item.id)}
+                        disabled={historicoStatus === "loading-detail"}
+                      >
+                        <Eye size={15} />
+                        {detalhe?.id === item.id ? "Fechar" : "Itens"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {detalhe && (
+          <div className="import-history-detail">
+            <div>
+              <strong>{detalhe.arquivo_nome}</strong>
+              <span>{detalhe.itens_afetados} registro(s) alterado(s)</span>
+            </div>
+            <div className="import-history-items">
+              {detalhe.itens.map((item) => (
+                <span key={`${item.ordem}-${item.entidade}-${item.registro_id}`}>
+                  {item.ordem}. {acaoLabel(item.acao)} {TIPOS[item.entidade]?.label || item.entidade} #{item.registro_id}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

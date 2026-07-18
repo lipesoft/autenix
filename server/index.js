@@ -38,6 +38,12 @@ const {
   normalizarLinhasImportacao,
 } = require("./lib/importacao");
 const {
+  ImportacaoHistoricoError,
+  JANELA_ROLLBACK_HORAS,
+  normalizarMetadadosImportacao,
+  rollbackDisponivel,
+} = require("./lib/importacao-historico");
+const {
   ALLOWED_IMAGE_MIMES,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_MB,
@@ -2859,7 +2865,12 @@ app.post(
             erro.analise = analise;
             throw erro;
           }
-          const importacao = await executarImportacao(client, restauranteId, analise);
+          const importacao = await executarImportacao(
+            client,
+            restauranteId,
+            analise,
+            { payload: req.body, usuario: req.user },
+          );
           return { analise, importacao };
         },
       );
@@ -2869,7 +2880,10 @@ app.post(
       }
       return res.json(resultado);
     } catch (error) {
-      if (error instanceof ImportacaoValidationError) {
+      if (
+        error instanceof ImportacaoValidationError
+        || error instanceof ImportacaoHistoricoError
+      ) {
         return res.status(error.statusCode).json({
           erro: error.message,
           analise: error.analise,
@@ -2880,6 +2894,84 @@ app.post(
       }
       console.error("Falha na importacao:", error.message);
       return res.status(500).json({ erro: "Nao foi possivel executar a importacao" });
+    }
+  },
+);
+
+app.get(
+  "/api/importacoes",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const limite = Math.min(Math.max(Number.parseInt(req.query.limite, 10) || 20, 1), 50);
+      const historico = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const { rows } = await client.query(
+            `SELECT i.*,
+                    COUNT(ii.id)::int AS itens_afetados
+             FROM importacoes AS i
+             LEFT JOIN importacao_itens AS ii
+               ON ii.importacao_id = i.id
+              AND ii.restaurante_id = i.restaurante_id
+             WHERE i.restaurante_id = $1
+             GROUP BY i.id
+             ORDER BY i.criado_em DESC, i.id DESC
+             LIMIT $2`,
+            [restauranteId, limite],
+          );
+          return rows.map(importacaoHistoricoPublica);
+        },
+      );
+      return res.json({ historico });
+    } catch (error) {
+      console.error("Falha ao listar importacoes:", error.message);
+      return res.status(500).json({ erro: "Nao foi possivel carregar o historico" });
+    }
+  },
+);
+
+app.get(
+  "/api/importacoes/:id",
+  autenticarJWT,
+  autorizarRoles("admin"),
+  async (req, res) => {
+    try {
+      const importacaoId = Number(req.params.id);
+      if (!Number.isInteger(importacaoId) || importacaoId <= 0) {
+        return res.status(400).json({ erro: "Importacao invalida" });
+      }
+      const detalhe = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const { rows } = await client.query(
+            `SELECT i.*,
+                    COUNT(ii.id)::int AS itens_afetados
+             FROM importacoes AS i
+             LEFT JOIN importacao_itens AS ii
+               ON ii.importacao_id = i.id
+              AND ii.restaurante_id = i.restaurante_id
+             WHERE i.id = $1 AND i.restaurante_id = $2
+             GROUP BY i.id`,
+            [importacaoId, restauranteId],
+          );
+          if (!rows[0]) return null;
+          const { rows: itens } = await client.query(
+            `SELECT ordem, entidade, registro_id, acao
+             FROM importacao_itens
+             WHERE importacao_id = $1 AND restaurante_id = $2
+             ORDER BY ordem`,
+            [importacaoId, restauranteId],
+          );
+          return { ...importacaoHistoricoPublica(rows[0]), itens };
+        },
+      );
+      if (!detalhe) return res.status(404).json({ erro: "Importacao nao encontrada" });
+      return res.json(detalhe);
+    } catch (error) {
+      console.error("Falha ao detalhar importacao:", error.message);
+      return res.status(500).json({ erro: "Nao foi possivel carregar a importacao" });
     }
   },
 );
@@ -3230,14 +3322,20 @@ function mapearPorChave(rows, campo) {
 async function carregarEstadoImportacao(client, restauranteId, tipo) {
   if (tipo === "categorias" || tipo === "produtos") {
     const { rows } = await client.query(
-      "SELECT id, nome, ordem FROM categorias WHERE restaurante_id = $1 ORDER BY ordem, nome",
+      `SELECT id, nome, ordem, ativo
+       FROM categorias
+       WHERE restaurante_id = $1
+       ORDER BY ordem, nome`,
       [restauranteId],
     );
     const categorias = mapearPorChave(rows, "nome");
     if (tipo === "categorias") return { categorias };
 
     const { rows: produtos } = await client.query(
-      "SELECT id, nome FROM produtos WHERE restaurante_id = $1 ORDER BY id",
+      `SELECT id, categoria_id, nome, descricao, preco, imagem, disponivel
+       FROM produtos
+       WHERE restaurante_id = $1
+       ORDER BY id`,
       [restauranteId],
     );
     return { categorias, produtos: mapearPorChave(produtos, "nome") };
@@ -3245,7 +3343,10 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
 
   if (tipo === "mesas") {
     const { rows } = await client.query(
-      "SELECT id, numero FROM mesas WHERE restaurante_id = $1 ORDER BY id",
+      `SELECT id, numero, status
+       FROM mesas
+       WHERE restaurante_id = $1
+       ORDER BY id`,
       [restauranteId],
     );
     return { mesas: mapearPorChave(rows, "numero") };
@@ -3253,7 +3354,10 @@ async function carregarEstadoImportacao(client, restauranteId, tipo) {
 
   if (tipo === "usuarios") {
     const { rows } = await client.query(
-      "SELECT id, login, ativo FROM usuarios WHERE restaurante_id = $1 ORDER BY id",
+      `SELECT id, nome, login, role, ativo, senha
+       FROM usuarios
+       WHERE restaurante_id = $1
+       ORDER BY id`,
       [restauranteId],
     );
     return { usuarios: mapearPorChave(rows, "login") };
@@ -3356,56 +3460,139 @@ async function analisarImportacao(client, restauranteId, payload = {}) {
   };
 }
 
+function snapshotCategoria(row) {
+  return {
+    nome: row.nome,
+    ordem: row.ordem,
+    ativo: Number(row.ativo ?? 1),
+  };
+}
+
+function snapshotProduto(row) {
+  return {
+    categoria_id: row.categoria_id,
+    nome: row.nome,
+    descricao: row.descricao,
+    preco: Number(row.preco),
+    imagem: row.imagem,
+    disponivel: Number(row.disponivel ?? 1),
+  };
+}
+
+function snapshotMesa(row) {
+  return {
+    numero: row.numero,
+    status: row.status,
+  };
+}
+
+function snapshotUsuario(row, incluirSenha = false) {
+  const snapshot = {
+    nome: row.nome,
+    login: row.login,
+    role: row.role,
+    ativo: Number(row.ativo ?? 1),
+  };
+  if (incluirSenha) snapshot.senha = row.senha;
+  return snapshot;
+}
+
+function itemHistorico(entidade, acao, row, dadosAnteriores, dadosNovos) {
+  return {
+    entidade,
+    acao,
+    registro_id: Number(row.id),
+    dados_anteriores: dadosAnteriores || null,
+    dados_novos: dadosNovos,
+  };
+}
+
 async function garantirCategoriaImportacao(client, restauranteId, estado, nomeCategoria) {
   const nome = String(nomeCategoria || "").trim();
-  if (!nome) return null;
+  if (!nome) return { id: null, historico: null };
 
   const chave = normalizarBusca(nome);
   const existente = estado.categorias?.get(chave);
-  if (existente) return existente.id;
+  if (existente) return { id: existente.id, historico: null };
 
   const { rows } = await client.query(
     `INSERT INTO categorias (nome, ordem, restaurante_id)
      VALUES ($1, $2, $3)
-     RETURNING id, nome, ordem`,
+     RETURNING id, nome, ordem, ativo`,
     [nome, 99, restauranteId],
   );
   estado.categorias.set(chave, rows[0]);
-  return rows[0].id;
+  return {
+    id: rows[0].id,
+    historico: itemHistorico(
+      "categorias",
+      "criar",
+      rows[0],
+      null,
+      snapshotCategoria(rows[0]),
+    ),
+  };
 }
 
 async function executarImportacaoCategoria(client, restauranteId, item, estado) {
   const { dados } = item;
   if (item.acao === "atualizar") {
+    const anterior = estado.categorias.get(item.chave);
     await client.query(
       `UPDATE categorias
        SET nome = $1, ordem = $2
        WHERE id = $3 AND restaurante_id = $4`,
       [dados.nome, dados.ordem, item.existente_id, restauranteId],
     );
-    return { acao: "atualizar", login: null };
+    const atualizado = {
+      ...anterior,
+      nome: dados.nome,
+      ordem: dados.ordem,
+    };
+    estado.categorias.set(normalizarBusca(atualizado.nome), atualizado);
+    return {
+      acao: "atualizar",
+      login: null,
+      historico: [itemHistorico(
+        "categorias",
+        "atualizar",
+        atualizado,
+        snapshotCategoria(anterior),
+        snapshotCategoria(atualizado),
+      )],
+    };
   }
 
   const { rows } = await client.query(
     `INSERT INTO categorias (nome, ordem, restaurante_id)
      VALUES ($1, $2, $3)
-     RETURNING id, nome, ordem`,
+     RETURNING id, nome, ordem, ativo`,
     [dados.nome, dados.ordem, restauranteId],
   );
   estado.categorias.set(normalizarBusca(rows[0].nome), rows[0]);
-  return { acao: "criar", login: null };
+  return {
+    acao: "criar",
+    login: null,
+    historico: [itemHistorico(
+      "categorias",
+      "criar",
+      rows[0],
+      null,
+      snapshotCategoria(rows[0]),
+    )],
+  };
 }
 
 async function executarImportacaoProduto(client, restauranteId, item, estado) {
   const { dados } = item;
-  const categoriaId = await garantirCategoriaImportacao(
+  const categoria = await garantirCategoriaImportacao(
     client,
     restauranteId,
     estado,
     dados.categoria,
   );
   const parametros = [
-    categoriaId,
+    categoria.id,
     dados.nome,
     dados.descricao || null,
     dados.preco,
@@ -3415,6 +3602,7 @@ async function executarImportacaoProduto(client, restauranteId, item, estado) {
   ];
 
   if (item.acao === "atualizar") {
+    const anterior = estado.produtos.get(item.chave);
     await client.query(
       `UPDATE produtos
        SET categoria_id = $1,
@@ -3426,39 +3614,98 @@ async function executarImportacaoProduto(client, restauranteId, item, estado) {
        WHERE id = $7 AND restaurante_id = $8`,
       [...parametros.slice(0, 6), item.existente_id, restauranteId],
     );
-    return { acao: "atualizar", login: null };
+    const atualizado = {
+      ...anterior,
+      categoria_id: categoria.id,
+      nome: dados.nome,
+      descricao: dados.descricao || null,
+      preco: dados.preco,
+      imagem: dados.imagem || null,
+      disponivel: dados.disponivel ? 1 : 0,
+    };
+    return {
+      acao: "atualizar",
+      login: null,
+      historico: [
+        ...(categoria.historico ? [categoria.historico] : []),
+        itemHistorico(
+          "produtos",
+          "atualizar",
+          atualizado,
+          snapshotProduto(anterior),
+          snapshotProduto(atualizado),
+        ),
+      ],
+    };
   }
 
-  await client.query(
+  const { rows } = await client.query(
     `INSERT INTO produtos
        (categoria_id, nome, descricao, preco, imagem, disponivel, restaurante_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, categoria_id, nome, descricao, preco, imagem, disponivel`,
     parametros,
   );
-  return { acao: "criar", login: null };
+  return {
+    acao: "criar",
+    login: null,
+    historico: [
+      ...(categoria.historico ? [categoria.historico] : []),
+      itemHistorico(
+        "produtos",
+        "criar",
+        rows[0],
+        null,
+        snapshotProduto(rows[0]),
+      ),
+    ],
+  };
 }
 
-async function executarImportacaoMesa(client, restauranteId, item) {
+async function executarImportacaoMesa(client, restauranteId, item, estado) {
   const { dados } = item;
   if (item.acao === "atualizar") {
+    const anterior = estado.mesas.get(item.chave);
     await client.query(
       `UPDATE mesas
        SET numero = $1, status = $2
        WHERE id = $3 AND restaurante_id = $4`,
       [dados.numero, dados.status, item.existente_id, restauranteId],
     );
-    return { acao: "atualizar", login: null };
+    const atualizado = { ...anterior, numero: dados.numero, status: dados.status };
+    return {
+      acao: "atualizar",
+      login: null,
+      historico: [itemHistorico(
+        "mesas",
+        "atualizar",
+        atualizado,
+        snapshotMesa(anterior),
+        snapshotMesa(atualizado),
+      )],
+    };
   }
 
-  await client.query(
+  const { rows } = await client.query(
     `INSERT INTO mesas (numero, status, restaurante_id)
-     VALUES ($1, $2, $3)`,
+     VALUES ($1, $2, $3)
+     RETURNING id, numero, status`,
     [dados.numero, dados.status, restauranteId],
   );
-  return { acao: "criar", login: null };
+  return {
+    acao: "criar",
+    login: null,
+    historico: [itemHistorico(
+      "mesas",
+      "criar",
+      rows[0],
+      null,
+      snapshotMesa(rows[0]),
+    )],
+  };
 }
 
-async function executarImportacaoUsuario(client, restauranteId, item) {
+async function executarImportacaoUsuario(client, restauranteId, item, estado) {
   const { dados } = item;
   const senhaTemporaria = !dados.senha_informada && item.acao === "criar"
     ? gerarSenhaTemporaria()
@@ -3466,6 +3713,7 @@ async function executarImportacaoUsuario(client, restauranteId, item) {
   const senhaFinal = dados.senha_informada ? dados.senha : senhaTemporaria;
 
   if (item.acao === "atualizar") {
+    const anterior = estado.usuarios.get(item.chave);
     const senhaSql = dados.senha_informada ? ", senha = $6" : "";
     const params = [
       dados.nome,
@@ -3486,16 +3734,37 @@ async function executarImportacaoUsuario(client, restauranteId, item) {
        WHERE id = $5 AND restaurante_id = $${dados.senha_informada ? 7 : 6}`,
       params,
     );
-    return { acao: "atualizar", login: dados.login, senha_temporaria: "" };
+    const atualizado = {
+      ...anterior,
+      nome: dados.nome,
+      login: dados.login,
+      role: dados.role,
+      ativo: dados.ativo ? 1 : 0,
+      senha: dados.senha_informada ? params[5] : anterior.senha,
+    };
+    return {
+      acao: "atualizar",
+      login: dados.login,
+      senha_temporaria: "",
+      historico: [itemHistorico(
+        "usuarios",
+        "atualizar",
+        atualizado,
+        snapshotUsuario(anterior, dados.senha_informada),
+        snapshotUsuario(atualizado, dados.senha_informada),
+      )],
+    };
   }
 
-  await client.query(
+  const senhaHash = await hashSenha(senhaFinal);
+  const { rows } = await client.query(
     `INSERT INTO usuarios (nome, login, senha, role, ativo, restaurante_id)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, nome, login, senha, role, ativo`,
     [
       dados.nome,
       dados.login,
-      await hashSenha(senhaFinal),
+      senhaHash,
       dados.role,
       dados.ativo ? 1 : 0,
       restauranteId,
@@ -3505,15 +3774,148 @@ async function executarImportacaoUsuario(client, restauranteId, item) {
     acao: "criar",
     login: dados.login,
     senha_temporaria: senhaTemporaria,
+    historico: [itemHistorico(
+      "usuarios",
+      "criar",
+      rows[0],
+      null,
+      snapshotUsuario(rows[0]),
+    )],
   };
 }
 
-async function executarImportacao(client, restauranteId, analise) {
+function importacaoHistoricoPublica(row) {
+  const criadoEm = new Date(row.criado_em);
+  return {
+    id: row.id,
+    tipo: row.tipo,
+    formato: row.formato,
+    arquivo_nome: row.arquivo_nome,
+    atualizar_existentes: row.atualizar_existentes,
+    total_linhas: row.total_linhas,
+    criar: row.criados,
+    atualizar: row.atualizados,
+    ignorar: row.ignorados,
+    invalidas: row.invalidos,
+    status: row.status,
+    usuario: row.usuario_nome || row.usuario_login || "Usuario removido",
+    criado_em: row.criado_em,
+    revertido_em: row.revertido_em,
+    revertido_por: row.revertido_por_nome,
+    itens_afetados: row.itens_afetados,
+    rollback_disponivel: rollbackDisponivel(row),
+    rollback_expira_em: Number.isNaN(criadoEm.getTime())
+      ? null
+      : new Date(
+        criadoEm.getTime() + JANELA_ROLLBACK_HORAS * 60 * 60 * 1000,
+      ).toISOString(),
+  };
+}
+
+async function registrarHistoricoImportacao(
+  client,
+  restauranteId,
+  analise,
+  resultado,
+  itens,
+  contexto,
+) {
+  const metadados = normalizarMetadadosImportacao(
+    contexto.payload,
+    analise.colunas,
+  );
+  const usuario = contexto.usuario || {};
+  const { rows } = await client.query(
+    `INSERT INTO importacoes (
+       restaurante_id,
+       usuario_id,
+       usuario_nome,
+       usuario_login,
+       tipo,
+       formato,
+       arquivo_nome,
+       atualizar_existentes,
+       mapeamento,
+       total_linhas,
+       criados,
+       atualizados,
+       ignorados,
+       invalidos
+     )
+     VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb,
+       $10, $11, $12, $13, $14
+     )
+     RETURNING *`,
+    [
+      restauranteId,
+      Number(usuario.id) || null,
+      String(usuario.nome || "").slice(0, 120) || null,
+      String(usuario.login || "").slice(0, 120) || null,
+      metadados.tipo,
+      metadados.formato,
+      metadados.arquivo_nome,
+      metadados.atualizar_existentes,
+      JSON.stringify(metadados.mapeamento),
+      analise.total_linhas,
+      resultado.criar,
+      resultado.atualizar,
+      resultado.ignorar,
+      resultado.invalidas,
+    ],
+  );
+  const importacao = rows[0];
+
+  if (itens.length) {
+    const itensOrdenados = itens.map((item, indice) => ({
+      ...item,
+      ordem: indice + 1,
+    }));
+    await client.query(
+      `INSERT INTO importacao_itens (
+         importacao_id,
+         restaurante_id,
+         ordem,
+         entidade,
+         registro_id,
+         acao,
+         dados_anteriores,
+         dados_novos
+       )
+       SELECT
+         $1,
+         $2,
+         item.ordem,
+         item.entidade,
+         item.registro_id,
+         item.acao,
+         item.dados_anteriores,
+         item.dados_novos
+       FROM jsonb_to_recordset($3::jsonb) AS item(
+         ordem INTEGER,
+         entidade TEXT,
+         registro_id INTEGER,
+         acao TEXT,
+         dados_anteriores JSONB,
+         dados_novos JSONB
+       )`,
+      [importacao.id, restauranteId, JSON.stringify(itensOrdenados)],
+    );
+  }
+
+  return importacaoHistoricoPublica({
+    ...importacao,
+    itens_afetados: itens.length,
+  });
+}
+
+async function executarImportacao(client, restauranteId, analise, contexto = {}) {
   const estado = await carregarEstadoImportacao(client, restauranteId, analise.tipo);
   const resultado = {
     ...resumoImportacaoVazio(),
     credenciais: [],
   };
+  const itensHistorico = [];
 
   const executores = {
     categorias: executarImportacaoCategoria,
@@ -3535,6 +3937,7 @@ async function executarImportacao(client, restauranteId, analise) {
 
     const parcial = await executor(client, restauranteId, item, estado);
     resultado[parcial.acao] += 1;
+    itensHistorico.push(...(parcial.historico || []));
     if (parcial.senha_temporaria) {
       resultado.credenciais.push({
         nome: item.dados.nome,
@@ -3544,7 +3947,15 @@ async function executarImportacao(client, restauranteId, analise) {
     }
   }
 
-  return resultado;
+  const historico = await registrarHistoricoImportacao(
+    client,
+    restauranteId,
+    analise,
+    resultado,
+    itensHistorico,
+    contexto,
+  );
+  return { ...resultado, ...historico };
 }
 
 function responderErroPlataforma(res, error) {
