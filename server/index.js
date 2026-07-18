@@ -882,11 +882,13 @@ async function initDB() {
       WHERE salao_id IS NOT NULL;
   `);
 
-  const restaurantePadrao = await buscarRestaurantePorSlug("autenix");
-  if (!restaurantePadrao) {
+  const { rows: restaurantesPadrao } = await query(
+    "SELECT id FROM restaurantes WHERE slug = 'autenix' LIMIT 1",
+  );
+  if (!restaurantesPadrao[0]) {
     throw new Error("Execute npm run migrate antes de iniciar o backend");
   }
-  const restauranteId = restaurantePadrao.id;
+  const restauranteId = restaurantesPadrao[0].id;
 
   await query(`
     CREATE TABLE IF NOT EXISTS sessoes_mesa (
