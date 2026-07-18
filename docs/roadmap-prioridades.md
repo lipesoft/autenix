@@ -38,12 +38,14 @@ e identidade visual.
 
 ## Prioridade 2.1 - White label avancado
 
-- Pendente: permitir configurar cores das fontes no white label do restaurante.
-- Pendente: separar cor de texto principal, texto secundario, titulos e textos
-  sobre fundos escuros/destaque.
-- Pendente: aplicar as cores de fonte na landing, central, admin, cardapio,
-  garcom, cozinha, financeiro e reservas sem prejudicar contraste/acessibilidade.
-- Pendente: adicionar preview visual antes de salvar a identidade do restaurante.
+- Implementado: configuracao de cores de fonte no white label do restaurante.
+- Implementado: separacao de cor de texto principal, texto secundario, titulos
+  e textos sobre fundos escuros/destaque.
+- Implementado: aplicacao das cores no tema global das areas do restaurante
+  via variaveis de marca.
+- Implementado: preview visual de fontes antes de salvar a identidade do
+  restaurante.
+- Pendente: auditoria automatica de contraste/acessibilidade antes de salvar.
 
 ## Prioridade 3 - Reservas
 
