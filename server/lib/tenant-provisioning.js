@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const { normalizarWhiteLabel } = require("./branding");
+const { normalizarCamposComerciais } = require("./commercial-control");
 
 const PLANOS_CATALOGO = Object.freeze({
   essencial: Object.freeze({
@@ -177,6 +178,9 @@ function normalizarCriacaoTenant(opcoes = {}) {
   const nomeMaster = String(opcoes.nome_master || "Master").trim();
   const senha = String(opcoes.senha || gerarSenhaTemporaria());
   const planoDetalhes = normalizarPlanoDetalhes(opcoes);
+  const comercial = normalizarCamposComerciais(opcoes, {
+    statusCobranca: planoDetalhes.statusCobranca,
+  });
   const marca = normalizarWhiteLabel(opcoes);
   const quantidadeMesas = normalizarInteiro(
     opcoes.mesas ?? Math.min(10, planoDetalhes.limiteMesas),
@@ -208,6 +212,7 @@ function normalizarCriacaoTenant(opcoes = {}) {
     nomeMaster,
     senha,
     ...planoDetalhes,
+    ...comercial,
     marca,
     quantidadeMesas,
     senhaGerada: !opcoes.senha,
@@ -225,14 +230,18 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
          nome, slug, ativo, plano, limite_mesas, limite_usuarios,
          limite_produtos, mensalidade_centavos, ciclo_cobranca,
          status_cobranca, trial_termina_em, proxima_cobranca_em,
-         observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
+         observacoes_plano, status_comercial, data_inicio_contrato,
+         ultimo_contato_comercial_em, responsavel_comercial, motivo_suspensao,
+         white_label_ativo, nome_exibicao, logo_url,
          cor_primaria, cor_secundaria, whatsapp_numero, atualizado_em
        ) VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 $13, $14, $15, $16, $17, $18, NOW())
+                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())
        RETURNING id, nome, slug, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
-                 observacoes_plano, white_label_ativo, nome_exibicao, logo_url,
+                 observacoes_plano, status_comercial, data_inicio_contrato,
+                 ultimo_contato_comercial_em, responsavel_comercial, motivo_suspensao,
+                 white_label_ativo, nome_exibicao, logo_url,
                  cor_primaria, cor_secundaria, whatsapp_numero, ativo`,
       [
         dados.nome,
@@ -247,6 +256,11 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
         dados.trialTerminaEm,
         dados.proximaCobrancaEm,
         dados.observacoesPlano,
+        dados.statusComercial,
+        dados.dataInicioContrato,
+        dados.ultimoContatoComercialEm,
+        dados.responsavelComercial,
+        dados.motivoSuspensao,
         dados.marca.white_label_ativo,
         dados.marca.nome_exibicao,
         dados.marca.logo_url,

@@ -17,6 +17,12 @@ const {
   normalizarWhiteLabel,
 } = require("./lib/branding");
 const {
+  CommercialControlValidationError,
+  anexarControleComercial,
+  normalizarCamposComerciais,
+  resumoSaas,
+} = require("./lib/commercial-control");
+const {
   TenantValidationError,
   normalizarPlanoDetalhes,
   normalizarSlug: normalizarSlugTenant,
@@ -832,7 +838,12 @@ async function initDB() {
       ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
 
     ALTER TABLE restaurantes
-      ADD COLUMN IF NOT EXISTS whatsapp_numero TEXT;
+      ADD COLUMN IF NOT EXISTS whatsapp_numero TEXT,
+      ADD COLUMN IF NOT EXISTS status_comercial TEXT NOT NULL DEFAULT 'trial',
+      ADD COLUMN IF NOT EXISTS data_inicio_contrato DATE,
+      ADD COLUMN IF NOT EXISTS ultimo_contato_comercial_em DATE,
+      ADD COLUMN IF NOT EXISTS responsavel_comercial TEXT,
+      ADD COLUMN IF NOT EXISTS motivo_suspensao TEXT;
 
     ALTER TABLE reservas
       ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'reserva',
@@ -3152,7 +3163,7 @@ async function carregarResumoRestaurante(restaurante) {
        ) AS master`,
     [restaurante.id],
   );
-  return { ...restaurante, ...rows[0] };
+  return anexarControleComercial({ ...restaurante, ...rows[0] });
 }
 
 async function carregarLimitesPlano(restauranteId) {
@@ -3520,7 +3531,11 @@ async function executarImportacao(client, restauranteId, analise) {
 }
 
 function responderErroPlataforma(res, error) {
-  if (error instanceof TenantValidationError || error instanceof BrandingValidationError) {
+  if (
+    error instanceof TenantValidationError
+    || error instanceof BrandingValidationError
+    || error instanceof CommercialControlValidationError
+  ) {
     return res.status(error.statusCode || 400).json({ erro: error.message });
   }
   if (error.code === "23505") {
@@ -3595,21 +3610,50 @@ app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
   }
 });
 
+async function listarRestaurantesPlataforma() {
+  const { rows } = await query(
+    `SELECT id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+            limite_produtos, mensalidade_centavos, ciclo_cobranca,
+            status_cobranca, trial_termina_em, proxima_cobranca_em,
+            observacoes_plano, status_comercial, data_inicio_contrato,
+            ultimo_contato_comercial_em, responsavel_comercial,
+            motivo_suspensao, excluido_em,
+            white_label_ativo, nome_exibicao, logo_url,
+            cor_primaria, cor_secundaria, whatsapp_numero,
+            criado_em, atualizado_em
+     FROM restaurantes
+     ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
+  );
+  return Promise.all(rows.map(carregarResumoRestaurante));
+}
+
 app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
   try {
-    const { rows } = await query(
-      `SELECT id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
-              limite_produtos, mensalidade_centavos, ciclo_cobranca,
-              status_cobranca, trial_termina_em, proxima_cobranca_em,
-              observacoes_plano, excluido_em,
-              white_label_ativo, nome_exibicao, logo_url,
-              cor_primaria, cor_secundaria, whatsapp_numero,
-              criado_em, atualizado_em
-       FROM restaurantes
-       ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
-    );
-    const restaurantes = await Promise.all(rows.map(carregarResumoRestaurante));
-    return res.json(restaurantes);
+    return res.json(await listarRestaurantesPlataforma());
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.get("/api/platform/comercial", autenticarPlataforma, async (req, res) => {
+  try {
+    const restaurantes = await listarRestaurantesPlataforma();
+    const alertas = restaurantes
+      .flatMap((restaurante) => (restaurante.alertas_comerciais || []).map((alerta) => ({
+        ...alerta,
+        restaurante_id: restaurante.id,
+        restaurante_nome: restaurante.nome,
+        restaurante_slug: restaurante.slug,
+      })))
+      .sort((a, b) => {
+        const peso = { critico: 0, atencao: 1, info: 2 };
+        return (peso[a.severidade] ?? 9) - (peso[b.severidade] ?? 9);
+      });
+    return res.json({
+      resumo: resumoSaas(restaurantes),
+      alertas,
+      restaurantes,
+    });
   } catch (error) {
     return responderErroPlataforma(res, error);
   }
@@ -3630,6 +3674,9 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
     const nome = String(req.body?.nome || "").trim();
     const slug = normalizarSlugTenant(req.body?.slug || nome);
     const planoDetalhes = normalizarPlanoDetalhes(req.body);
+    const comercial = normalizarCamposComerciais(req.body, {
+      statusCobranca: planoDetalhes.statusCobranca,
+    });
     const marca = normalizarWhiteLabel(req.body);
 
     if (nome.length < 2 || nome.length > 120 || !slug || slug.length > 80) {
@@ -3673,18 +3720,25 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
            trial_termina_em = $10,
            proxima_cobranca_em = $11,
            observacoes_plano = $12,
-           white_label_ativo = $13,
-           nome_exibicao = $14,
-           logo_url = $15,
-           cor_primaria = $16,
-           cor_secundaria = $17,
-           whatsapp_numero = $18,
+           status_comercial = $13,
+           data_inicio_contrato = $14,
+           ultimo_contato_comercial_em = $15,
+           responsavel_comercial = $16,
+           motivo_suspensao = $17,
+           white_label_ativo = $18,
+           nome_exibicao = $19,
+           logo_url = $20,
+           cor_primaria = $21,
+           cor_secundaria = $22,
+           whatsapp_numero = $23,
            atualizado_em = NOW()
-       WHERE id = $19
+       WHERE id = $24
        RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
                  limite_produtos, mensalidade_centavos, ciclo_cobranca,
                  status_cobranca, trial_termina_em, proxima_cobranca_em,
-                 observacoes_plano, excluido_em,
+                 observacoes_plano, status_comercial, data_inicio_contrato,
+                 ultimo_contato_comercial_em, responsavel_comercial,
+                 motivo_suspensao, excluido_em,
                  white_label_ativo, nome_exibicao, logo_url,
                  cor_primaria, cor_secundaria, whatsapp_numero,
                  criado_em, atualizado_em`,
@@ -3701,6 +3755,11 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
         planoDetalhes.trialTerminaEm,
         planoDetalhes.proximaCobrancaEm,
         planoDetalhes.observacoesPlano,
+        comercial.statusComercial,
+        comercial.dataInicioContrato,
+        comercial.ultimoContatoComercialEm,
+        comercial.responsavelComercial,
+        comercial.motivoSuspensao,
         marca.white_label_ativo,
         marca.nome_exibicao,
         marca.logo_url,
@@ -3731,13 +3790,20 @@ app.patch(
       const { rows } = await query(
         `UPDATE restaurantes
          SET ativo = CASE WHEN $1 THEN 1 ELSE 0 END,
+             status_comercial = CASE
+               WHEN $1 AND status_comercial IN ('suspenso', 'cancelado') THEN 'cliente'
+               WHEN NOT $1 AND status_comercial <> 'cancelado' THEN 'suspenso'
+               ELSE status_comercial
+             END,
              excluido_em = CASE WHEN $1 THEN NULL ELSE excluido_em END,
              atualizado_em = NOW()
          WHERE id = $2
          RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
                    limite_produtos, mensalidade_centavos, ciclo_cobranca,
                    status_cobranca, trial_termina_em, proxima_cobranca_em,
-                   observacoes_plano, excluido_em,
+                   observacoes_plano, status_comercial, data_inicio_contrato,
+                   ultimo_contato_comercial_em, responsavel_comercial,
+                   motivo_suspensao, excluido_em,
                    white_label_ativo, nome_exibicao, logo_url,
                    cor_primaria, cor_secundaria, whatsapp_numero,
                    criado_em, atualizado_em`,
@@ -3758,7 +3824,10 @@ app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, r
     const restauranteId = idPositivo(req.params.id, "Restaurante");
     const { rows } = await query(
       `UPDATE restaurantes
-       SET ativo = 0, excluido_em = NOW(), atualizado_em = NOW()
+       SET ativo = 0,
+           status_comercial = 'cancelado',
+           excluido_em = NOW(),
+           atualizado_em = NOW()
        WHERE id = $1 AND excluido_em IS NULL
        RETURNING id, nome, slug, excluido_em`,
       [restauranteId],
@@ -3871,7 +3940,7 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
               logo_url, cor_primaria, cor_secundaria, whatsapp_numero,
               plano, limite_mesas,
               limite_usuarios, limite_produtos, mensalidade_centavos,
-              ciclo_cobranca, status_cobranca, trial_termina_em,
+              ciclo_cobranca, status_cobranca, status_comercial, trial_termina_em,
               proxima_cobranca_em, atualizado_em
        FROM restaurantes WHERE id = $1 AND ativo = 1`,
       [req.user.restaurante_id],

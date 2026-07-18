@@ -16,8 +16,12 @@ test("normaliza os dados de um novo restaurante", () => {
     limite_produtos: 250,
     mensalidade_centavos: 18900,
     status_cobranca: "ativo",
+    status_comercial: "cliente",
     ciclo_cobranca: "mensal",
     trial_termina_em: "2026-08-15",
+    data_inicio_contrato: "2026-07-10",
+    ultimo_contato_comercial_em: "2026-07-14",
+    responsavel_comercial: "Filipe",
     mesas: 12,
   });
 
@@ -31,8 +35,12 @@ test("normaliza os dados de um novo restaurante", () => {
   assert.equal(dados.limiteProdutos, 250);
   assert.equal(dados.mensalidadeCentavos, 18900);
   assert.equal(dados.statusCobranca, "ativo");
+  assert.equal(dados.statusComercial, "cliente");
   assert.equal(dados.cicloCobranca, "mensal");
   assert.equal(dados.trialTerminaEm, "2026-08-15");
+  assert.equal(dados.dataInicioContrato, "2026-07-10");
+  assert.equal(dados.ultimoContatoComercialEm, "2026-07-14");
+  assert.equal(dados.responsavelComercial, "Filipe");
 });
 
 test("normaliza white label inicial do restaurante", () => {
