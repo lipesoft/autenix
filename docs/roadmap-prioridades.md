@@ -1,13 +1,14 @@
 # Roadmap de prioridades
 
 Status atualizado apos a base multi-restaurante, painel da plataforma, white label,
-reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
+reservas, seguranca por sessao de mesa, Importacao de Dados 2.0 e prioridades
+imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 
 ## Visao executiva
 
-- Produto operacional para restaurante: 75% a 80% concluido.
-- Plataforma SaaS multi-restaurante: 60% a 65% concluida.
-- Produto pronto para escala comercial mais ampla: 45% a 55% concluido.
+- Produto operacional para restaurante: 80% a 85% concluido.
+- Plataforma SaaS multi-restaurante: 65% a 70% concluida.
+- Produto pronto para escala comercial mais ampla: 50% a 60% concluido.
 - Estimativa para pilotos pagos com poucos restaurantes: 2 a 3 semanas.
 - Estimativa para SaaS v1 confiavel: 6 a 8 semanas.
 - Estimativa para escalar com seguranca para muitos restaurantes: 10 a 14
@@ -50,7 +51,9 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
 - Implementado: alertas comerciais para trial vencendo, cobranca vencida ou
   atrasada e uso alto/limite atingido.
 - Implementado: base para upgrades, downgrades e cobranca futura.
-- Pendente: historico formal de mudancas de plano e status comercial.
+- Implementado: historico formal de mudancas de plano, status comercial,
+  suspensao/reativacao e arquivamento, com usuario da plataforma, snapshots,
+  migration RLS e visualizacao no modal de edicao do restaurante.
 
 ## Prioridade 1.1 - Importacao de dados
 
@@ -67,7 +70,11 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
   bloqueado quando o registro foi alterado ou usado depois da importacao.
 - Implementado: importacao de imagens de produtos por arquivo, vinculando a
   coluna `imagem` do CSV/XLSX aos uploads enviados para o Supabase Storage.
-- Pendente: importadores especificos por sistema concorrente.
+- Implementado: presets de importacao por sistema concorrente para Saipos,
+  Consumer, Anota AI e Goomer, com aliases adicionais para colunas comuns de
+  cardapio.
+- Pendente: criar importadores dedicados para layouts proprietarios quando
+  houver arquivos reais de exportacao de cada concorrente.
 
 ## Prioridade 2 - Onboarding de restaurante
 
@@ -115,7 +122,16 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
   mudanca de status, troca de mesa e compartilhamento.
 - Implementado: regras avancadas de disponibilidade por horario, capacidade e
   salao, com configuracao no Admin e bloqueio no backend.
-- Pendente: confirmacao automatica por email/WhatsApp com provedor dedicado.
+- Implementado: outbox `reservas_notificacoes` com RLS para registrar
+  notificacoes automaticas de reserva criada, confirmada, fila, chamada,
+  cancelada e concluida.
+- Implementado: historico de reservas registra evento `notificacao_automatica`
+  e exibe o novo rotulo no garcom/admin.
+- Implementado: envio automatico opcional por webhook de backend via
+  `RESERVA_NOTIFICACAO_WEBHOOK_URL`, sem expor token no frontend.
+- Parcial: envio real por email/WhatsApp depende de configurar provedor
+  dedicado. Sem webhook, as notificacoes ficam registradas como
+  `sem_provedor`.
 
 ## Prioridade 3.1 - Seguranca do cardapio publico
 
@@ -187,11 +203,11 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
 
 ## Prioridade 7 - Escalabilidade e arquitetura
 
-- Critico: corrigir o canal de tempo real em producao. O smoke de 18/07/2026
-  encontrou resposta `400` no handshake do Socket.IO e o cliente atualmente
-  forca apenas o transporte WebSocket. Migrar o realtime para um servico
-  persistente compativel ou para Supabase Realtime e validar garcom, cozinha,
-  mesas, chamadas e pedidos simultaneos.
+- Implementado: fallback operacional de sincronizacao em producao sem depender
+  de Socket.IO, com polling por tela, sincronizacao ao voltar a aba para foco e
+  Socket.IO restrito ao dev ou ativado explicitamente por flag.
+- Pendente: evoluir o tempo real para um servico persistente compativel ou para
+  Supabase Realtime quando o volume justificar broadcast real entre instancias.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
@@ -216,8 +232,9 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
   relatorios e filtros diarios no fuso `America/Sao_Paulo`.
 - Implementado: indices das chaves estrangeiras compostas de reservas, eventos
   e sessoes de mesa adicionados conforme o advisor do Supabase.
-- Pendente: criar auditoria geral para usuarios, produtos, mesas, configuracoes,
-  planos, status comercial e operacoes financeiras.
+- Parcial: auditoria formal de planos e status comercial implementada.
+- Pendente: criar auditoria geral para usuarios, produtos, mesas,
+  configuracoes e operacoes financeiras.
 - Pendente: soft delete completo com rastreio de quem arquivou/excluiu.
 - Pendente: revisar indices com dados reais depois dos primeiros restaurantes em
   producao.
