@@ -23,6 +23,31 @@ test("normaliza produtos com preco brasileiro e categoria", () => {
   assert.equal(produto.dados.disponivel, true);
 });
 
+test("permite referencia local de imagem somente quando habilitado", () => {
+  const [validacao] = normalizarLinhasImportacao(
+    "produtos",
+    [{
+      categoria: "Pratos principais",
+      nome: "Pizza da Casa",
+      preco: "49,90",
+      imagem: "imagens/pizza-da-casa.jpg",
+    }],
+    { permitirImagemLocal: true },
+  );
+  const [execucao] = normalizarLinhasImportacao("produtos", [
+    {
+      categoria: "Pratos principais",
+      nome: "Pizza da Casa",
+      preco: "49,90",
+      imagem: "pizza-da-casa.jpg",
+    },
+  ]);
+
+  assert.equal(validacao.erros.length, 0);
+  assert.equal(validacao.dados.imagem, "imagens/pizza-da-casa.jpg");
+  assert.match(execucao.erros.join(" "), /URL http/);
+});
+
 test("marca duplicidades dentro do mesmo arquivo", () => {
   const linhas = normalizarLinhasImportacao("mesas", [
     { numero: "1" },

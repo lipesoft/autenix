@@ -220,6 +220,113 @@
   font-weight: 800;
 }
 
+.import-image-tools {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8e0e6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.import-image-drop {
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 14px;
+  border: 1px dashed #b8c5cf;
+  border-radius: 8px;
+  color: #334959;
+  background: #f7f9fa;
+  text-align: center;
+  cursor: pointer;
+}
+
+.import-image-drop svg {
+  color: var(--app-accent, #f2742d);
+}
+
+.import-image-drop small {
+  color: #71808d;
+  font-size: 11px;
+}
+
+.import-image-drop input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.import-image-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.import-image-stats span {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: #4f6070;
+  background: #f7f9fa;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.import-image-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.import-image-pill {
+  max-width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #d8e0e6;
+  border-radius: 999px;
+  padding: 0 5px 0 9px;
+  color: #4f6070;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.import-image-pill.is-used {
+  border-color: rgba(33, 140, 114, 0.35);
+  color: #166b58;
+  background: rgba(33, 140, 114, 0.08);
+}
+
+.import-image-pill > svg {
+  flex: 0 0 auto;
+}
+
+.import-image-pill button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.import-image-pill button:hover {
+  color: #a43b30;
+  background: rgba(184, 66, 52, 0.08);
+}
+
 .import-actions {
   display: flex;
   align-items: center;
@@ -602,6 +709,7 @@
 @media (max-width: 760px) {
   .import-type-grid,
   .import-summary,
+  .import-image-stats,
   .import-mapping-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -616,6 +724,7 @@
 
   .import-type-grid,
   .import-summary,
+  .import-image-stats,
   .import-mapping-grid {
     grid-template-columns: 1fr;
   }

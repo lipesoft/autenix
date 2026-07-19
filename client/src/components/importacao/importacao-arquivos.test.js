@@ -5,8 +5,11 @@ import { strToU8, zipSync } from "fflate";
 import { readSheet } from "read-excel-file/node";
 import {
   criarPlanilha,
+  imagemImportacaoEhReferenciaLocal,
+  imagemImportacaoEhUrl,
   mapearAutomaticamente,
   mapearLinhas,
+  normalizarChaveImagemImportacao,
   parseCsv,
   validarMapeamento,
 } from "./importacao-arquivos.js";
@@ -77,4 +80,12 @@ test("impede campo obrigatorio sem coluna e coluna duplicada", () => {
     CAMPOS_PRODUTO,
   );
   assert.match(duplicado.join(" "), /so pode alimentar/);
+});
+
+test("normaliza referencias locais de imagem para casar CSV com arquivos", () => {
+  assert.equal(imagemImportacaoEhUrl("https://cdn.exemplo.com/burger.webp"), true);
+  assert.equal(imagemImportacaoEhReferenciaLocal("Burger Autenix.JPG"), true);
+  assert.equal(normalizarChaveImagemImportacao("Burger Autenix.JPG"), "burger autenix.jpg");
+  assert.equal(normalizarChaveImagemImportacao("imagens/Pudim.png"), "pudim.png");
+  assert.equal(imagemImportacaoEhReferenciaLocal("documento.pdf"), false);
 });

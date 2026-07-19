@@ -2885,7 +2885,9 @@ app.post(
       const analise = await withTenantTransaction(
         req.user.restaurante_id,
         (client, restauranteId) =>
-          analisarImportacao(client, restauranteId, req.body),
+          analisarImportacao(client, restauranteId, req.body, {
+            permitirImagemLocal: req.body?.tipo === "produtos",
+          }),
       );
       return res.json(analise);
     } catch (error) {
@@ -3462,12 +3464,14 @@ function existenteDaImportacao(estado, tipo, item) {
   return null;
 }
 
-async function analisarImportacao(client, restauranteId, payload = {}) {
+async function analisarImportacao(client, restauranteId, payload = {}, opcoes = {}) {
   const tipo = String(payload.tipo || "");
   const spec = TIPOS_IMPORTACAO[tipo];
   if (!spec) throw new ImportacaoValidationError("Tipo de importacao invalido");
 
-  const itens = normalizarLinhasImportacao(tipo, payload.rows || payload.linhas || []);
+  const itens = normalizarLinhasImportacao(tipo, payload.rows || payload.linhas || [], {
+    permitirImagemLocal: Boolean(opcoes.permitirImagemLocal),
+  });
   const atualizarExistentes = Boolean(payload.atualizar_existentes);
   const estado = await carregarEstadoImportacao(client, restauranteId, tipo);
   const resumo = resumoImportacaoVazio();

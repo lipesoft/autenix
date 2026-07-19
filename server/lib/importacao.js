@@ -23,7 +23,7 @@ const TIPOS_IMPORTACAO = {
         nome: "Burger Autenix",
         descricao: "Burger artesanal com molho da casa",
         preco: "34,90",
-        imagem: "https://exemplo.com/burger.jpg",
+        imagem: "burger-autenix.jpg",
         disponivel: "sim",
       },
       {
@@ -75,7 +75,15 @@ const HEADER_ALIASES = {
   categoria: ["categoria", "category", "grupo", "secao"],
   descricao: ["descricao", "description", "detalhes"],
   preco: ["preco", "valor", "price", "preco_r$"],
-  imagem: ["imagem", "foto", "url_imagem", "image", "image_url"],
+  imagem: [
+    "imagem",
+    "foto",
+    "url_imagem",
+    "image",
+    "image_url",
+    "arquivo_imagem",
+    "nome_arquivo_imagem",
+  ],
   disponivel: ["disponivel", "ativo", "status_produto"],
   numero: ["numero", "mesa", "identificacao"],
   status: ["status", "situacao"],
@@ -177,11 +185,23 @@ function linhaVazia(linha) {
   return Object.values(linha || {}).every((valor) => !normalizarTexto(valor));
 }
 
-function validarUrlOpcional(valor, erros, campo = "imagem") {
+function referenciaImagemLocalSegura(valor) {
+  const texto = normalizarTexto(valor);
+  if (!texto || texto.length > 180) return false;
+  if (texto.includes("..")) return false;
+  const nomeArquivo = texto.split(/[\\/]/).pop();
+  if (!nomeArquivo || nomeArquivo.length > 120) return false;
+  return /\.(jpe?g|png|webp|gif)$/i.test(nomeArquivo);
+}
+
+function normalizarImagemOpcional(valor, erros, campo = "imagem", opcoes = {}) {
   const texto = normalizarTexto(valor);
   if (!texto) return "";
   if (!/^https?:\/\//i.test(texto)) {
-    erros.push(`${campo} deve ser uma URL http(s)`);
+    if (opcoes.permitirImagemLocal && referenciaImagemLocalSegura(texto)) {
+      return texto;
+    }
+    erros.push(`${campo} deve ser uma URL http(s) ou nome de arquivo de imagem enviado`);
   }
   return texto;
 }
@@ -203,13 +223,13 @@ function normalizarCategoria(linha, numeroLinha) {
   };
 }
 
-function normalizarProduto(linha, numeroLinha) {
+function normalizarProduto(linha, numeroLinha, opcoes = {}) {
   const erros = [];
   const nome = normalizarTexto(valorDaLinha(linha, "nome"));
   const categoria = normalizarTexto(valorDaLinha(linha, "categoria"));
   const descricao = normalizarTexto(valorDaLinha(linha, "descricao"));
   const preco = normalizarDinheiro(valorDaLinha(linha, "preco"));
-  const imagem = validarUrlOpcional(valorDaLinha(linha, "imagem"), erros);
+  const imagem = normalizarImagemOpcional(valorDaLinha(linha, "imagem"), erros, "imagem", opcoes);
   const disponivel = normalizarBoolean(valorDaLinha(linha, "disponivel"), true);
 
   if (!nome) erros.push("nome e obrigatorio");
@@ -271,7 +291,7 @@ function normalizarUsuario(linha, numeroLinha) {
   };
 }
 
-function normalizarLinhasImportacao(tipo, linhas) {
+function normalizarLinhasImportacao(tipo, linhas, opcoes = {}) {
   if (!TIPOS_IMPORTACAO[tipo]) {
     throw new ImportacaoValidationError("Tipo de importacao invalido");
   }
@@ -295,7 +315,7 @@ function normalizarLinhasImportacao(tipo, linhas) {
     .map((linha, indice) => ({ linha, numeroLinha: indice + 2 }))
     .filter(({ linha }) => !linhaVazia(linha))
     .map(({ linha, numeroLinha }) => {
-      const item = normalizador(linha, numeroLinha);
+      const item = normalizador(linha, numeroLinha, opcoes);
       if (item.chave) {
         if (chavesArquivo.has(item.chave)) {
           item.erros.push("registro duplicado no arquivo");

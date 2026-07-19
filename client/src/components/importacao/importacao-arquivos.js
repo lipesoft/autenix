@@ -1,6 +1,13 @@
 export const MAX_ARQUIVO_IMPORTACAO_BYTES = 5 * 1024 * 1024;
 export const MAX_COLUNAS_IMPORTACAO = 50;
 export const MAX_LINHAS_IMPORTACAO = 500;
+export const MAX_IMAGEM_IMPORTACAO_BYTES = 3 * 1024 * 1024;
+export const TIPOS_IMAGEM_IMPORTACAO = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
 
 function textoCelula(valor) {
   if (valor instanceof Date) return valor.toISOString();
@@ -158,4 +165,24 @@ export function mapearLinhas(planilha, mapeamento, campos) {
 export function formatoArquivo(nome) {
   const extensao = String(nome || "").toLowerCase().split(".").pop();
   return extensao === "xlsx" || extensao === "csv" ? extensao : "";
+}
+
+export function imagemImportacaoEhUrl(valor) {
+  return /^https?:\/\//i.test(String(valor || "").trim());
+}
+
+export function normalizarChaveImagemImportacao(valor) {
+  return String(valor || "")
+    .trim()
+    .split(/[\\/]/)
+    .pop()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+export function imagemImportacaoEhReferenciaLocal(valor) {
+  const chave = normalizarChaveImagemImportacao(valor);
+  if (!chave || imagemImportacaoEhUrl(chave) || chave.includes("..")) return false;
+  return /\.(jpe?g|png|webp|gif)$/i.test(chave);
 }

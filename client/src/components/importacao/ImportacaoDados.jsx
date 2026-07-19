@@ -7,8 +7,10 @@ import {
   Eye,
   FileSpreadsheet,
   History,
+  Image,
   LoaderCircle,
   RefreshCw,
+  Trash2,
   Undo2,
   Upload,
 } from "lucide-react";
@@ -17,13 +19,20 @@ import { authFetch } from "../../services/auth.js";
 import {
   criarPlanilha,
   formatoArquivo,
+  imagemImportacaoEhReferenciaLocal,
+  imagemImportacaoEhUrl,
   mapearAutomaticamente,
   mapearLinhas,
   MAX_ARQUIVO_IMPORTACAO_BYTES,
+  MAX_IMAGEM_IMPORTACAO_BYTES,
+  normalizarChaveImagemImportacao,
   parseCsv,
+  TIPOS_IMAGEM_IMPORTACAO,
   validarMapeamento,
 } from "./importacao-arquivos.js";
 import "./ImportacaoDados.css";
+
+const ACCEPTED_IMPORT_IMAGES = Array.from(TIPOS_IMAGEM_IMPORTACAO).join(",");
 
 const TIPOS = {
   produtos: {
@@ -105,6 +114,8 @@ export default function ImportacaoDados({ onImported }) {
   const [detalhe, setDetalhe] = useState(null);
   const [rollbackPendente, setRollbackPendente] = useState(null);
   const [rollbackStatus, setRollbackStatus] = useState({ tipo: "idle", mensagem: "" });
+  const [arquivosImagem, setArquivosImagem] = useState([]);
+  const [urlsImagemImportacao, setUrlsImagemImportacao] = useState({});
 
   const campos = TIPOS[tipo].campos;
   const errosMapeamento = useMemo(
@@ -119,6 +130,37 @@ export default function ImportacaoDados({ onImported }) {
   );
   const linhasValidas = linhasMapeadas.length;
   const preview = useMemo(() => analise?.preview?.slice(0, 80) || [], [analise]);
+  const imagensPorChave = useMemo(
+    () => new Map(
+      arquivosImagem.map((arquivo) => [
+        normalizarChaveImagemImportacao(arquivo.name),
+        arquivo,
+      ]),
+    ),
+    [arquivosImagem],
+  );
+  const referenciasImagemLocal = useMemo(() => {
+    if (tipo !== "produtos") return [];
+    const referencias = new Map();
+    linhasMapeadas.forEach((linha, indice) => {
+      const valor = String(linha.imagem || "").trim();
+      if (!valor || imagemImportacaoEhUrl(valor) || !imagemImportacaoEhReferenciaLocal(valor)) {
+        return;
+      }
+      const chave = normalizarChaveImagemImportacao(valor);
+      if (!referencias.has(chave)) {
+        referencias.set(chave, { chave, nome: valor, linhas: [] });
+      }
+      referencias.get(chave).linhas.push(indice + 2);
+    });
+    return Array.from(referencias.values());
+  }, [linhasMapeadas, tipo]);
+  const referenciasImagemSemArquivo = useMemo(
+    () => referenciasImagemLocal.filter(
+      ({ chave }) => !imagensPorChave.has(chave) && !urlsImagemImportacao[chave],
+    ),
+    [imagensPorChave, referenciasImagemLocal, urlsImagemImportacao],
+  );
 
   const carregarHistorico = useCallback(async () => {
     setHistoricoStatus("loading");
@@ -259,9 +301,141 @@ export default function ImportacaoDados({ onImported }) {
     }
   };
 
-  const payload = () => ({
+  const selecionarImagensProduto = (event) => {
+    const selecionados = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!selecionados.length) return;
+
+    const validos = [];
+    const rejeitados = [];
+    selecionados.forEach((arquivo) => {
+      if (!TIPOS_IMAGEM_IMPORTACAO.has(arquivo.type)) {
+        rejeitados.push(`${arquivo.name}: formato invalido`);
+        return;
+      }
+      if (arquivo.size > MAX_IMAGEM_IMPORTACAO_BYTES) {
+        rejeitados.push(`${arquivo.name}: acima de 3 MB`);
+        return;
+      }
+      validos.push(arquivo);
+    });
+
+    if (validos.length) {
+      setArquivosImagem((atuais) => {
+        const porChave = new Map(
+          atuais.map((arquivo) => [
+            normalizarChaveImagemImportacao(arquivo.name),
+            arquivo,
+          ]),
+        );
+        validos.forEach((arquivo) => {
+          porChave.set(normalizarChaveImagemImportacao(arquivo.name), arquivo);
+        });
+        return Array.from(porChave.values());
+      });
+      setUrlsImagemImportacao((atuais) => {
+        const proximas = { ...atuais };
+        validos.forEach((arquivo) => {
+          delete proximas[normalizarChaveImagemImportacao(arquivo.name)];
+        });
+        return proximas;
+      });
+      resetAnalise();
+    }
+
+    if (rejeitados.length) {
+      setStatus({
+        tipo: validos.length ? "warning" : "error",
+        mensagem: rejeitados.slice(0, 2).join("; "),
+      });
+      return;
+    }
+
+    setStatus({
+      tipo: "success",
+      mensagem: `${validos.length} imagem(ns) pronta(s) para vincular ao CSV.`,
+    });
+  };
+
+  const removerImagemProduto = (chave) => {
+    setArquivosImagem((atuais) =>
+      atuais.filter((arquivo) => normalizarChaveImagemImportacao(arquivo.name) !== chave),
+    );
+    setUrlsImagemImportacao((atuais) => {
+      const proximas = { ...atuais };
+      delete proximas[chave];
+      return proximas;
+    });
+    resetAnalise();
+  };
+
+  const mensagemImagemPendente = () => {
+    if (tipo !== "produtos" || referenciasImagemSemArquivo.length === 0) return "";
+    return `Envie a imagem ${referenciasImagemSemArquivo[0].nome} ou remova essa referencia do CSV.`;
+  };
+
+  const validarReferenciasImagens = () => {
+    const mensagem = mensagemImagemPendente();
+    if (!mensagem) return true;
+    setStatus({ tipo: "error", mensagem });
+    return false;
+  };
+
+  const enviarImagemProduto = async (arquivo) => {
+    const formData = new FormData();
+    formData.append("imagem", arquivo);
+    formData.append("tipo", "produto");
+
+    const resposta = await authFetch(`${API_URL}/api/uploads/imagem`, {
+      method: "POST",
+      body: formData,
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) {
+      throw new Error(`${arquivo.name}: ${dados.erro || "nao foi possivel enviar a imagem"}`);
+    }
+    return dados.url;
+  };
+
+  const linhasComImagensEnviadas = async () => {
+    if (tipo !== "produtos" || referenciasImagemLocal.length === 0) return linhasMapeadas;
+    const mensagemPendente = mensagemImagemPendente();
+    if (mensagemPendente) {
+      setStatus({ tipo: "error", mensagem: mensagemPendente });
+      throw new Error(mensagemPendente);
+    }
+
+    const urls = { ...urlsImagemImportacao };
+    const pendentes = referenciasImagemLocal.filter(({ chave }) => !urls[chave]);
+    if (pendentes.length) {
+      setStatus({
+        tipo: "loading",
+        mensagem: `Enviando ${pendentes.length} imagem(ns) do cardapio...`,
+      });
+    }
+
+    for (const referencia of pendentes) {
+      const arquivo = imagensPorChave.get(referencia.chave);
+      urls[referencia.chave] = await enviarImagemProduto(arquivo);
+    }
+    setUrlsImagemImportacao(urls);
+
+    return linhasMapeadas.map((linha) => {
+      const valor = String(linha.imagem || "").trim();
+      if (!valor || imagemImportacaoEhUrl(valor) || !imagemImportacaoEhReferenciaLocal(valor)) {
+        return linha;
+      }
+      const chave = normalizarChaveImagemImportacao(valor);
+      return {
+        ...linha,
+        imagem: urls[chave] || valor,
+      };
+    });
+  };
+
+  const payload = (rows = linhasMapeadas, extras = {}) => ({
     tipo,
-    rows: linhasMapeadas,
+    rows,
     atualizar_existentes: atualizarExistentes,
     arquivo_nome: arquivoNome || "conteudo-colado.csv",
     formato: formato || "csv",
@@ -271,6 +445,7 @@ export default function ImportacaoDados({ onImported }) {
         parsed?.colunas.find((coluna) => coluna.id === mapeamento[campo.id])?.nome || "",
       ]),
     ),
+    ...extras,
   });
 
   const validar = async () => {
@@ -282,13 +457,16 @@ export default function ImportacaoDados({ onImported }) {
       setStatus({ tipo: "error", mensagem: errosMapeamento[0] });
       return;
     }
+    if (!validarReferenciasImagens()) return;
     setStatus({ tipo: "loading", mensagem: "Validando importacao..." });
     setResultado(null);
     try {
       const resposta = await authFetch(`${API_URL}/api/importacoes/validar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
+        body: JSON.stringify(payload(linhasMapeadas, {
+          permitir_imagem_local: tipo === "produtos",
+        })),
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Falha ao validar importacao.");
@@ -311,10 +489,12 @@ export default function ImportacaoDados({ onImported }) {
     }
     setStatus({ tipo: "loading", mensagem: "Importando dados..." });
     try {
+      const rows = await linhasComImagensEnviadas();
+      setStatus({ tipo: "loading", mensagem: "Importando dados..." });
       const resposta = await authFetch(`${API_URL}/api/importacoes/executar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
+        body: JSON.stringify(payload(rows)),
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Falha ao executar importacao.");
@@ -440,6 +620,74 @@ export default function ImportacaoDados({ onImported }) {
             </div>
             {errosMapeamento.length > 0 && (
               <div className="import-mapping-errors">{errosMapeamento.join(" ")}</div>
+            )}
+          </div>
+        )}
+
+        {parsed && tipo === "produtos" && (
+          <div className="import-image-tools">
+            <div className="import-mapping-heading">
+              <Image size={17} />
+              <div>
+                <strong>Imagens do cardapio</strong>
+                <small>
+                  Na coluna imagem, use URL ou o nome do arquivo, como burger-autenix.jpg.
+                </small>
+              </div>
+            </div>
+
+            <label className="import-image-drop">
+              <Upload size={18} />
+              <strong>Selecionar imagens dos produtos</strong>
+              <small>JPG, PNG, WEBP ou GIF ate 3 MB cada.</small>
+              <input
+                type="file"
+                accept={ACCEPTED_IMPORT_IMAGES}
+                multiple
+                onChange={selecionarImagensProduto}
+              />
+            </label>
+
+            <div className="import-image-stats">
+              <span>{referenciasImagemLocal.length} referencia(s) local(is) no arquivo</span>
+              <span>{arquivosImagem.length} imagem(ns) selecionada(s)</span>
+              <span>
+                {referenciasImagemSemArquivo.length === 0
+                  ? "Tudo vinculado"
+                  : `${referenciasImagemSemArquivo.length} pendente(s)`}
+              </span>
+            </div>
+
+            {referenciasImagemSemArquivo.length > 0 && (
+              <div className="import-mapping-errors">
+                Sem arquivo selecionado: {referenciasImagemSemArquivo
+                  .slice(0, 4)
+                  .map((referencia) => referencia.nome)
+                  .join(", ")}
+              </div>
+            )}
+
+            {arquivosImagem.length > 0 && (
+              <div className="import-image-list">
+                {arquivosImagem.map((arquivo) => {
+                  const chave = normalizarChaveImagemImportacao(arquivo.name);
+                  const usado = referenciasImagemLocal.some((referencia) => referencia.chave === chave);
+                  return (
+                    <span key={chave} className={`import-image-pill ${usado ? "is-used" : ""}`}>
+                      <Image size={14} />
+                      {arquivo.name}
+                      <button
+                        type="button"
+                        onClick={() => removerImagemProduto(chave)}
+                        aria-label={`Remover ${arquivo.name}`}
+                        title={`Remover ${arquivo.name}`}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
