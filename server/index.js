@@ -76,6 +76,12 @@ const {
   origemEventoPorUsuario,
 } = require("./lib/reserva-eventos");
 const {
+  ReservaNotificacaoValidationError,
+  montarNotificacoesReserva,
+  normalizarNotificacaoReserva,
+  resumoNotificacoesReserva,
+} = require("./lib/reserva-notificacoes");
+const {
   CONFIG_RESERVAS_PADRAO,
   STATUS_RESERVA_BLOQUEIAM_CAPACIDADE,
   ReservaDisponibilidadeValidationError,
@@ -118,6 +124,15 @@ const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 12);
 const PUBLIC_APP_URL = String(
   process.env.PUBLIC_APP_URL || "https://autenix.vercel.app",
 ).replace(/\/$/, "");
+const RESERVA_NOTIFICACAO_WEBHOOK_URL = String(
+  process.env.RESERVA_NOTIFICACAO_WEBHOOK_URL || "",
+).trim();
+const RESERVA_NOTIFICACAO_WEBHOOK_TOKEN = String(
+  process.env.RESERVA_NOTIFICACAO_WEBHOOK_TOKEN || "",
+).trim();
+const RESERVA_NOTIFICACAO_PROVIDER = String(
+  process.env.RESERVA_NOTIFICACAO_PROVIDER || "webhook",
+).trim();
 
 if (!process.env.DATABASE_URL) {
   const msg = "DATABASE_URL nao configurada.";
@@ -343,6 +358,17 @@ async function buscarRestaurantePorSlug(slugInformado) {
      WHERE slug = $1 AND ativo = 1
      LIMIT 1`,
     [slug],
+  );
+  return rows[0] || null;
+}
+
+async function buscarRestauranteNotificacao(client, restauranteId) {
+  const { rows } = await client.query(
+    `SELECT id, nome, slug, white_label_ativo, nome_exibicao, whatsapp_numero
+     FROM restaurantes
+     WHERE id = $1
+     LIMIT 1`,
+    [restauranteId],
   );
   return rows[0] || null;
 }
@@ -1440,11 +1466,168 @@ async function listarEventosReserva(restauranteId, reservaId) {
   return rows;
 }
 
+function providerNotificacaoReservasConfigurado() {
+  return Boolean(RESERVA_NOTIFICACAO_WEBHOOK_URL);
+}
+
+async function registrarNotificacoesAutomaticasReserva(
+  client,
+  restauranteId,
+  reserva,
+  { restaurante, evento },
+) {
+  const restauranteNotificacao = restaurante
+    || (await buscarRestauranteNotificacao(client, restauranteId));
+  const acompanhamentoUrl = urlAcompanhamentoReserva(
+    restauranteNotificacao?.slug || "autenix",
+    reserva.codigo_acompanhamento,
+  );
+  const providerConfigurado = providerNotificacaoReservasConfigurado();
+  const statusInicial = providerConfigurado ? "pendente" : "sem_provedor";
+  const provider = providerConfigurado ? RESERVA_NOTIFICACAO_PROVIDER : null;
+  const erroInicial = providerConfigurado
+    ? null
+    : "Provedor de notificacao nao configurado";
+
+  const notificacoes = montarNotificacoesReserva({
+    reserva,
+    restaurante: restauranteNotificacao,
+    evento,
+    acompanhamentoUrl,
+  }).map((item) => normalizarNotificacaoReserva({
+    ...item,
+    restaurante_id: restauranteId,
+    reserva_id: reserva.id,
+    provider,
+    status: statusInicial,
+    erro: erroInicial,
+  }));
+
+  if (!notificacoes.length) return [];
+
+  const criadas = [];
+  for (const notificacao of notificacoes) {
+    const { rows } = await client.query(
+      `INSERT INTO reservas_notificacoes
+         (restaurante_id, reserva_id, canal, evento, destinatario, assunto,
+          mensagem, payload, provider, status, erro, processado_em)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11,
+               CASE WHEN $10 = 'sem_provedor' THEN NOW() ELSE NULL END)
+       RETURNING id, restaurante_id, reserva_id, canal, evento, destinatario,
+                 assunto, mensagem, payload, provider, provider_message_id,
+                 status, tentativas, erro, criado_em, processado_em`,
+      [
+        notificacao.restaurante_id,
+        notificacao.reserva_id,
+        notificacao.canal,
+        notificacao.evento,
+        notificacao.destinatario,
+        notificacao.assunto,
+        notificacao.mensagem,
+        JSON.stringify(notificacao.payload),
+        notificacao.provider,
+        notificacao.status,
+        notificacao.erro,
+      ],
+    );
+    criadas.push(rows[0]);
+  }
+
+  const resumo = resumoNotificacoesReserva(criadas);
+  await registrarEventoReserva(client, restauranteId, reserva.id, {
+    tipo: "notificacao_automatica",
+    origem: "sistema",
+    descricao: providerConfigurado
+      ? "Notificacao automatica enviada para processamento."
+      : "Notificacao automatica registrada sem provedor configurado.",
+    detalhes: {
+      evento,
+      canais: [...new Set(criadas.map((item) => item.canal))],
+      resumo,
+      provider_configurado: providerConfigurado,
+    },
+  });
+
+  return criadas;
+}
+
+async function enviarNotificacaoReservaWebhook(notificacao) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const resposta = await fetch(RESERVA_NOTIFICACAO_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(RESERVA_NOTIFICACAO_WEBHOOK_TOKEN
+          ? { Authorization: `Bearer ${RESERVA_NOTIFICACAO_WEBHOOK_TOKEN}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        id: notificacao.id,
+        restaurante_id: notificacao.restaurante_id,
+        reserva_id: notificacao.reserva_id,
+        canal: notificacao.canal,
+        evento: notificacao.evento,
+        destinatario: notificacao.destinatario,
+        assunto: notificacao.assunto,
+        mensagem: notificacao.mensagem,
+        payload: notificacao.payload,
+      }),
+      signal: controller.signal,
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) {
+      throw new Error(dados.erro || dados.message || "Webhook recusou a notificacao");
+    }
+    return {
+      enviado: true,
+      providerMessageId: dados.id || dados.message_id || dados.provider_message_id || null,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function processarNotificacoesReservas(notificacoes = []) {
+  if (!providerNotificacaoReservasConfigurado()) return;
+  for (const notificacao of notificacoes.filter((item) => item.status === "pendente")) {
+    try {
+      const envio = await enviarNotificacaoReservaWebhook(notificacao);
+      await withTenantTransaction(notificacao.restaurante_id, (client) =>
+        client.query(
+          `UPDATE reservas_notificacoes
+           SET status = 'enviado',
+               provider_message_id = $1,
+               tentativas = tentativas + 1,
+               erro = NULL,
+               processado_em = NOW()
+           WHERE id = $2 AND restaurante_id = $3`,
+          [envio.providerMessageId, notificacao.id, notificacao.restaurante_id],
+        ),
+      );
+    } catch (error) {
+      await withTenantTransaction(notificacao.restaurante_id, (client) =>
+        client.query(
+          `UPDATE reservas_notificacoes
+           SET status = 'erro',
+               tentativas = tentativas + 1,
+               erro = LEFT($1, 500),
+               processado_em = NOW()
+           WHERE id = $2 AND restaurante_id = $3`,
+          [error.message || "Falha ao enviar notificacao", notificacao.id, notificacao.restaurante_id],
+        ),
+      );
+    }
+  }
+}
+
 function responderErroReserva(res, error) {
   if (
     error instanceof ReservasValidationError ||
     error instanceof ReservaEventoValidationError ||
-    error instanceof ReservaDisponibilidadeValidationError
+    error instanceof ReservaDisponibilidadeValidationError ||
+    error instanceof ReservaNotificacaoValidationError
   ) {
     return res.status(error.statusCode || 400).json({ erro: error.message });
   }
@@ -2130,7 +2313,7 @@ app.post("/api/reservas", criarReservaRateLimit, async (req, res) => {
     }
 
     const dados = normalizarCriacaoReserva(req.body, { origem: "publica" });
-    const reserva = await withTenantTransaction(
+    const resultado = await withTenantTransaction(
       restaurante.id,
       async (client, restauranteId) => {
         await validarMesaReserva(client, restauranteId, dados.mesa_id);
@@ -2181,18 +2364,30 @@ app.post("/api/reservas", criarReservaRateLimit, async (req, res) => {
             salao_id: disponibilidadeReserva.salao_id,
           },
         });
-        return buscarReservaCompleta(restauranteId, reservaId, client);
+        const reserva = await buscarReservaCompleta(restauranteId, reservaId, client);
+        const notificacoes = await registrarNotificacoesAutomaticasReserva(
+          client,
+          restauranteId,
+          reserva,
+          {
+            restaurante,
+            evento: statusInicial === "fila" ? "fila" : "criada",
+          },
+        );
+        return { reserva, notificacoes };
       },
     );
 
-    emitirEquipe(restaurante.id, "nova_reserva", reserva);
+    await processarNotificacoesReservas(resultado.notificacoes);
+    emitirEquipe(restaurante.id, "nova_reserva", resultado.reserva);
     return res.status(201).json({
       sucesso: true,
-      reserva,
+      reserva: resultado.reserva,
       acompanhamento_url: urlAcompanhamentoReserva(
         restaurante.slug,
-        reserva.codigo_acompanhamento,
+        resultado.reserva.codigo_acompanhamento,
       ),
+      notificacoes_automaticas: resumoNotificacoesReserva(resultado.notificacoes),
     });
   } catch (error) {
     return responderErroReserva(res, error);
@@ -2572,7 +2767,7 @@ app.post(
   async (req, res) => {
     try {
       const dados = normalizarCriacaoReserva(req.body, { origem: "admin" });
-      const reserva = await withTenantTransaction(
+      const resultado = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
           await validarMesaReserva(client, restauranteId, dados.mesa_id);
@@ -2628,18 +2823,31 @@ app.post(
               salao_id: disponibilidadeReserva.salao_id,
             },
           });
-          return buscarReservaCompleta(restauranteId, reservaId, client);
+          const reserva = await buscarReservaCompleta(restauranteId, reservaId, client);
+          const restaurante = await buscarRestauranteNotificacao(client, restauranteId);
+          const notificacoes = await registrarNotificacoesAutomaticasReserva(
+            client,
+            restauranteId,
+            reserva,
+            {
+              restaurante,
+              evento: statusInicial === "fila" ? "fila" : "criada",
+            },
+          );
+          return { reserva, notificacoes };
         },
       );
 
-      emitirEquipe(req.user.restaurante_id, "nova_reserva", reserva);
+      await processarNotificacoesReservas(resultado.notificacoes);
+      emitirEquipe(req.user.restaurante_id, "nova_reserva", resultado.reserva);
       return res.status(201).json({
         sucesso: true,
-        reserva,
+        reserva: resultado.reserva,
         acompanhamento_url: urlAcompanhamentoReserva(
           req.user.restaurante_slug,
-          reserva.codigo_acompanhamento,
+          resultado.reserva.codigo_acompanhamento,
         ),
+        notificacoes_automaticas: resumoNotificacoesReserva(resultado.notificacoes),
       });
     } catch (error) {
       return responderErroReserva(res, error);
@@ -2679,7 +2887,7 @@ app.patch(
         ? ", entrou_fila_em = COALESCE(entrou_fila_em, NOW()), tipo = 'fila'"
         : "";
 
-      const reserva = await withTenantTransaction(
+      const resultado = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
           if (deveAtualizarMesa && mesaId) {
@@ -2771,10 +2979,30 @@ app.patch(
               mesa_id_novo: reservaAtualizada.mesa_id,
             });
           }
-          return reservaAtualizada;
+          let notificacoes = [];
+          if (
+            reservaAnterior.status !== reservaAtualizada.status &&
+            ["confirmada", "fila", "chamada", "cancelada", "concluida"].includes(
+              reservaAtualizada.status,
+            )
+          ) {
+            const restaurante = await buscarRestauranteNotificacao(client, restauranteId);
+            notificacoes = await registrarNotificacoesAutomaticasReserva(
+              client,
+              restauranteId,
+              reservaAtualizada,
+              {
+                restaurante,
+                evento: reservaAtualizada.status,
+              },
+            );
+          }
+          return { reserva: reservaAtualizada, notificacoes };
         },
       );
 
+      await processarNotificacoesReservas(resultado.notificacoes);
+      const { reserva } = resultado;
       emitirEquipe(req.user.restaurante_id, "reserva_atualizada", reserva);
       if (status === "concluida" && reserva.mesa_id) {
         const { rows: mesas } = await tenantQuery(
@@ -2784,7 +3012,11 @@ app.patch(
         );
         if (mesas[0]) emitirEquipe(req.user.restaurante_id, "mesa_atualizada", mesas[0]);
       }
-      return res.json({ sucesso: true, reserva });
+      return res.json({
+        sucesso: true,
+        reserva,
+        notificacoes_automaticas: resumoNotificacoesReserva(resultado.notificacoes),
+      });
     } catch (error) {
       return responderErroReserva(res, error);
     }

@@ -60,6 +60,20 @@ test("normaliza compartilhamento por canal permitido", () => {
   assert.equal(evento.detalhes.canal, "link");
 });
 
+test("normaliza evento de notificacao automatica", () => {
+  const evento = normalizarEventoReserva({
+    tipo: "notificacao_automatica",
+    origem: "sistema",
+    detalhes: { canais: ["whatsapp", "email"], resumo: { total: 2 } },
+  });
+
+  assert.equal(evento.tipo, "notificacao_automatica");
+  assert.equal(
+    evento.descricao,
+    "Notificacao automatica registrada para whatsapp, email.",
+  );
+});
+
 test("rejeita evento de reserva invalido", () => {
   assert.throws(
     () => normalizarEventoReserva({ tipo: "delete", origem: "publica" }),

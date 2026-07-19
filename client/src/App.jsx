@@ -1145,6 +1145,7 @@ function rotuloEventoReserva(tipo) {
     status_alterado: "Status alterado",
     mesa_alterada: "Mesa alterada",
     compartilhamento: "Compartilhamento",
+    notificacao_automatica: "Notificacao automatica",
   }[tipo] || "Evento";
 }
 

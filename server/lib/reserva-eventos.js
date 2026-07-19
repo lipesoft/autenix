@@ -3,6 +3,7 @@ const TIPOS_EVENTO_RESERVA = [
   "status_alterado",
   "mesa_alterada",
   "compartilhamento",
+  "notificacao_automatica",
 ];
 const ORIGENS_EVENTO_RESERVA = ["publica", "admin", "garcom", "sistema"];
 const CANAIS_COMPARTILHAMENTO_RESERVA = ["link", "whatsapp", "email"];
@@ -90,6 +91,12 @@ function descricaoPadraoEventoReserva(evento) {
   }
   if (evento.tipo === "compartilhamento") {
     return descricaoCompartilhamentoReserva(evento.detalhes?.canal || evento.canal);
+  }
+  if (evento.tipo === "notificacao_automatica") {
+    const canais = Array.isArray(evento.detalhes?.canais)
+      ? evento.detalhes.canais.join(", ")
+      : "cliente";
+    return `Notificacao automatica registrada para ${canais}.`;
   }
   return "Evento registrado.";
 }
