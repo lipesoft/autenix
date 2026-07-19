@@ -34,6 +34,81 @@ import "./ImportacaoDados.css";
 
 const ACCEPTED_IMPORT_IMAGES = Array.from(TIPOS_IMAGEM_IMPORTACAO).join(",");
 
+const ORIGENS_IMPORTACAO = {
+  generico: {
+    label: "Generico / Autenix",
+    descricao: "Usa nomes de colunas padrao ou aliases comuns.",
+    aliases: {},
+  },
+  saipos: {
+    label: "Saipos",
+    descricao: "Mapeia grupo, produto, valor de venda, status e foto.",
+    aliases: {
+      categoria: ["grupo", "grupo_produto", "categoria_produto", "departamento"],
+      nome: ["produto", "nome_produto", "descricao_produto", "item"],
+      descricao: ["descricao", "detalhes", "complemento"],
+      preco: ["valor_venda", "preco_venda", "preco_de_venda", "valor"],
+      imagem: ["foto", "imagem", "url_foto"],
+      disponivel: ["status", "ativo", "disponivel"],
+    },
+  },
+  consumer: {
+    label: "Consumer",
+    descricao: "Mapeia grupo, descricao, preco de venda e situacao.",
+    aliases: {
+      categoria: ["grupo", "grupo_item", "secao"],
+      nome: ["descricao", "produto", "item", "nome_item"],
+      descricao: ["descricao_detalhada", "observacao", "detalhes"],
+      preco: ["preco_de_venda", "preco_venda", "valor_unitario", "valor"],
+      imagem: ["imagem", "foto", "url_imagem"],
+      disponivel: ["situacao", "status", "ativo"],
+    },
+  },
+  anota_ai: {
+    label: "Anota AI",
+    descricao: "Mapeia categoria, item, preco, disponibilidade e imagem.",
+    aliases: {
+      categoria: ["categoria", "grupo", "categoria_do_item"],
+      nome: ["item", "nome_do_item", "produto"],
+      descricao: ["descricao_do_item", "descricao", "detalhes"],
+      preco: ["preco", "valor", "valor_do_item"],
+      imagem: ["url_da_imagem", "imagem", "foto"],
+      disponivel: ["disponivel", "ativo", "status"],
+    },
+  },
+  goomer: {
+    label: "Goomer",
+    descricao: "Mapeia nome do item, secao, preco, imagem e status.",
+    aliases: {
+      categoria: ["secao", "categoria", "grupo"],
+      nome: ["nome_do_item", "item", "produto"],
+      descricao: ["descricao", "descricao_do_item"],
+      preco: ["preco", "valor", "valor_promocional"],
+      imagem: ["imagem", "foto", "url_imagem"],
+      disponivel: ["status", "ativo", "disponivel"],
+    },
+  },
+};
+
+const ORIGENS_POR_TIPO = {
+  produtos: ["generico", "saipos", "consumer", "anota_ai", "goomer"],
+};
+
+function origensDisponiveis(tipo) {
+  return (ORIGENS_POR_TIPO[tipo] || ["generico"]).map((id) => ({
+    id,
+    ...ORIGENS_IMPORTACAO[id],
+  }));
+}
+
+function camposParaOrigem(tipo, origem) {
+  const aliasesOrigem = ORIGENS_IMPORTACAO[origem]?.aliases || {};
+  return TIPOS[tipo].campos.map((campo) => ({
+    ...campo,
+    aliases: [...(aliasesOrigem[campo.id] || []), ...(campo.aliases || [])],
+  }));
+}
+
 const TIPOS = {
   produtos: {
     label: "Produtos",
@@ -100,6 +175,7 @@ function formatarData(valor) {
 
 export default function ImportacaoDados({ onImported }) {
   const [tipo, setTipo] = useState("produtos");
+  const [origem, setOrigem] = useState("generico");
   const [csvText, setCsvText] = useState("");
   const [arquivoNome, setArquivoNome] = useState("");
   const [formato, setFormato] = useState("");
@@ -117,7 +193,9 @@ export default function ImportacaoDados({ onImported }) {
   const [arquivosImagem, setArquivosImagem] = useState([]);
   const [urlsImagemImportacao, setUrlsImagemImportacao] = useState({});
 
-  const campos = TIPOS[tipo].campos;
+  const campos = useMemo(() => camposParaOrigem(tipo, origem), [origem, tipo]);
+  const origemAtual = ORIGENS_IMPORTACAO[origem] || ORIGENS_IMPORTACAO.generico;
+  const origensTipo = useMemo(() => origensDisponiveis(tipo), [tipo]);
   const errosMapeamento = useMemo(
     () => (parsed ? validarMapeamento(mapeamento, campos) : []),
     [campos, mapeamento, parsed],
@@ -437,6 +515,7 @@ export default function ImportacaoDados({ onImported }) {
     tipo,
     rows,
     atualizar_existentes: atualizarExistentes,
+    origem_sistema: origem,
     arquivo_nome: arquivoNome || "conteudo-colado.csv",
     formato: formato || "csv",
     mapeamento: Object.fromEntries(
@@ -529,8 +608,14 @@ export default function ImportacaoDados({ onImported }) {
             type="button"
             className={`import-type ${tipo === id ? "is-active" : ""}`}
             onClick={() => {
+              const proximaOrigem = "generico";
               setTipo(id);
-              setMapeamento(parsed ? mapearAutomaticamente(parsed.colunas, item.campos) : {});
+              setOrigem(proximaOrigem);
+              setMapeamento(
+                parsed
+                  ? mapearAutomaticamente(parsed.colunas, camposParaOrigem(id, proximaOrigem))
+                  : {},
+              );
               resetAnalise();
             }}
           >
@@ -539,6 +624,32 @@ export default function ImportacaoDados({ onImported }) {
             <small>{item.descricao}</small>
           </button>
         ))}
+      </div>
+
+      <div className="import-source-card">
+        <label>
+          <span>Sistema de origem</span>
+          <select
+            value={origem}
+            onChange={(event) => {
+              const proximaOrigem = event.target.value;
+              setOrigem(proximaOrigem);
+              setMapeamento(
+                parsed
+                  ? mapearAutomaticamente(parsed.colunas, camposParaOrigem(tipo, proximaOrigem))
+                  : {},
+              );
+              resetAnalise();
+            }}
+          >
+            {origensTipo.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p>{origemAtual.descricao}</p>
       </div>
 
       <div className="import-card">
