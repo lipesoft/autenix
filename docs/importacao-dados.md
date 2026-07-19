@@ -23,6 +23,19 @@ quando nao ha linhas invalidas e quando os limites do plano nao serao excedidos.
 - O leitor XLSX e carregado sob demanda para nao aumentar o JavaScript inicial
   da landing page e dos demais paineis.
 
+## Imagens de produtos
+
+- A coluna `imagem` aceita URL `http(s)` ou nome/caminho de arquivo local, por
+  exemplo `burger-autenix.jpg` ou `imagens/burger-autenix.jpg`.
+- Quando usar nome de arquivo local, selecione as imagens na area `Imagens do
+  cardapio` antes de validar a importacao.
+- A validacao confere se todas as referencias locais possuem arquivo anexado.
+- Na execucao, o frontend envia as imagens para o endpoint autenticado de
+  upload, recebe as URLs finais do Supabase Storage e so entao importa os
+  produtos com URLs reais.
+- A importacao sem frontend continua aceitando apenas URL final na execucao,
+  evitando que o banco salve caminhos locais invalidos.
+
 ## Regras
 
 - Apenas usuarios `admin` do restaurante podem importar dados.
@@ -59,4 +72,3 @@ quando nao ha linhas invalidas e quando os limites do plano nao serao excedidos.
 ## Evolucoes pendentes
 
 - Criar importadores especificos para exportacoes de sistemas concorrentes.
-- Importar imagens de produtos em lote e vincular ao cadastro.

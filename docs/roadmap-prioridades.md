@@ -65,8 +65,9 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
   hashes de senha no frontend.
 - Implementado: rollback transacional por 24 horas, isolado por restaurante e
   bloqueado quando o registro foi alterado ou usado depois da importacao.
+- Implementado: importacao de imagens de produtos por arquivo, vinculando a
+  coluna `imagem` do CSV/XLSX aos uploads enviados para o Supabase Storage.
 - Pendente: importadores especificos por sistema concorrente.
-- Pendente: importar imagens de produtos por arquivo e vincular ao cadastro.
 
 ## Prioridade 2 - Onboarding de restaurante
 
