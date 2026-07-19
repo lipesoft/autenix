@@ -129,6 +129,8 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
   de permitir pedido, cancelamento de item ou chamada de garcom.
 - Feito: bloquear pedidos publicos quando a mesa estiver fechada,
   com sessao expirada ou token invalido.
+- Feito: permitir que garcom autenticado crie pedidos apenas nas mesas do
+  proprio restaurante, sem reutilizar ou enfraquecer o token publico do QR Code.
 - Feito: encerrar e invalidar automaticamente a sessao ao fechar a mesa.
 - Feito: atualizar o QR Code para apontar para `/r/{slug}/mesa/{id}?sessao=...`.
 - Feito: criar tela amigavel de "sessao encerrada" ou "atendimento nao
@@ -209,6 +211,8 @@ reservas, seguranca por sessao de mesa e Importacao de Dados 2.0.
 
 - Implementado: migrations incrementais com historico privado, checksum, lock
   de concorrencia, status e baseline controlado para bancos existentes.
+- Implementado: horario real de fechamento dos pedidos em `TIMESTAMPTZ`, com
+  relatorios e filtros diarios no fuso `America/Sao_Paulo`.
 - Implementado: indices das chaves estrangeiras compostas de reservas, eventos
   e sessoes de mesa adicionados conforme o advisor do Supabase.
 - Pendente: criar auditoria geral para usuarios, produtos, mesas, configuracoes,
