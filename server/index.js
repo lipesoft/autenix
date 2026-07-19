@@ -46,6 +46,12 @@ const {
   rollbackDisponivel,
 } = require("./lib/importacao-historico");
 const {
+  PlanHistoryValidationError,
+  descreverHistoricoPlano,
+  normalizarHistoricoPlano,
+  normalizarLinhaHistoricoPlano,
+} = require("./lib/plan-history");
+const {
   ALLOWED_IMAGE_MIMES,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_MB,
@@ -258,6 +264,21 @@ async function query(sql, params = []) {
   try {
     const result = await client.query(sql, params);
     return result;
+  } finally {
+    client.release();
+  }
+}
+
+async function withTransaction(callback) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
   } finally {
     client.release();
   }
@@ -4300,8 +4321,12 @@ function responderErroPlataforma(res, error) {
     error instanceof TenantValidationError
     || error instanceof BrandingValidationError
     || error instanceof CommercialControlValidationError
+    || error instanceof PlanHistoryValidationError
   ) {
     return res.status(error.statusCode || 400).json({ erro: error.message });
+  }
+  if (error.statusCode) {
+    return res.status(error.statusCode).json({ erro: error.message });
   }
   if (error.code === "23505") {
     return res.status(409).json({ erro: "Slug ou login ja cadastrado" });
@@ -4375,19 +4400,68 @@ app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
   }
 });
 
+const CAMPOS_RESTAURANTE_PLATAFORMA = `
+  id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
+  limite_produtos, mensalidade_centavos, ciclo_cobranca,
+  status_cobranca, trial_termina_em, proxima_cobranca_em,
+  observacoes_plano, status_comercial, data_inicio_contrato,
+  ultimo_contato_comercial_em, responsavel_comercial,
+  motivo_suspensao, excluido_em,
+  white_label_ativo, nome_exibicao, logo_url,
+  cor_primaria, cor_secundaria, cor_texto_principal,
+  cor_texto_secundario, cor_titulo, cor_texto_inverso,
+  whatsapp_numero,
+  criado_em, atualizado_em
+`;
+
+async function buscarRestaurantePlataforma(client, restauranteId, options = {}) {
+  const { rows } = await client.query(
+    `SELECT ${CAMPOS_RESTAURANTE_PLATAFORMA}
+     FROM restaurantes
+     WHERE id = $1
+     ${options.forUpdate ? "FOR UPDATE" : ""}`,
+    [restauranteId],
+  );
+  return rows[0] || null;
+}
+
+async function registrarHistoricoPlanoRestaurante(
+  client,
+  { restauranteId, usuario, acao, anterior, novo, motivo },
+) {
+  const historico = normalizarHistoricoPlano({
+    restaurante_id: restauranteId,
+    usuario,
+    acao,
+    anterior,
+    novo,
+    motivo,
+  });
+  const { rows } = await client.query(
+    `INSERT INTO restaurante_plano_historico
+       (restaurante_id, platform_usuario_id, platform_usuario_nome,
+        platform_usuario_login, acao, dados_anteriores, dados_novos, motivo)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)
+     RETURNING id, restaurante_id, platform_usuario_id, platform_usuario_nome,
+               platform_usuario_login, acao, dados_anteriores, dados_novos,
+               motivo, criado_em`,
+    [
+      historico.restaurante_id,
+      historico.platform_usuario_id,
+      historico.platform_usuario_nome,
+      historico.platform_usuario_login,
+      historico.acao,
+      historico.dados_anteriores ? JSON.stringify(historico.dados_anteriores) : null,
+      JSON.stringify(historico.dados_novos),
+      historico.motivo,
+    ],
+  );
+  return normalizarLinhaHistoricoPlano(rows[0]);
+}
+
 async function listarRestaurantesPlataforma() {
   const { rows } = await query(
-    `SELECT id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
-            limite_produtos, mensalidade_centavos, ciclo_cobranca,
-            status_cobranca, trial_termina_em, proxima_cobranca_em,
-            observacoes_plano, status_comercial, data_inicio_contrato,
-            ultimo_contato_comercial_em, responsavel_comercial,
-            motivo_suspensao, excluido_em,
-            white_label_ativo, nome_exibicao, logo_url,
-            cor_primaria, cor_secundaria, cor_texto_principal,
-            cor_texto_secundario, cor_titulo, cor_texto_inverso,
-            whatsapp_numero,
-            criado_em, atualizado_em
+    `SELECT ${CAMPOS_RESTAURANTE_PLATAFORMA}
      FROM restaurantes
      ORDER BY excluido_em NULLS FIRST, criado_em DESC`,
   );
@@ -4397,6 +4471,39 @@ async function listarRestaurantesPlataforma() {
 app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
   try {
     return res.json(await listarRestaurantesPlataforma());
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.get("/api/platform/restaurantes/:id/historico-planos", autenticarPlataforma, async (req, res) => {
+  try {
+    const restauranteId = idPositivo(req.params.id, "Restaurante");
+    const { rows: restaurante } = await query(
+      "SELECT id FROM restaurantes WHERE id = $1",
+      [restauranteId],
+    );
+    if (!restaurante[0]) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    const { rows } = await query(
+      `SELECT id, restaurante_id, platform_usuario_id, platform_usuario_nome,
+              platform_usuario_login, acao, dados_anteriores, dados_novos,
+              motivo, criado_em
+       FROM restaurante_plano_historico
+       WHERE restaurante_id = $1
+       ORDER BY criado_em DESC, id DESC
+       LIMIT 80`,
+      [restauranteId],
+    );
+    return res.json(rows.map((row) => {
+      const historico = normalizarLinhaHistoricoPlano(row);
+      return {
+        ...historico,
+        descricao: descreverHistoricoPlano(historico),
+      };
+    }));
   } catch (error) {
     return responderErroPlataforma(res, error);
   }
@@ -4428,7 +4535,16 @@ app.get("/api/platform/comercial", autenticarPlataforma, async (req, res) => {
 
 app.post("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
   try {
-    const resultado = await provisionarRestaurante(pool, req.body, BCRYPT_ROUNDS);
+    const resultado = await provisionarRestaurante(pool, req.body, BCRYPT_ROUNDS, {
+      onBeforeCommit: (client, { restaurante }) =>
+        registrarHistoricoPlanoRestaurante(client, {
+          restauranteId: restaurante.id,
+          usuario: req.platformUser,
+          acao: "criacao",
+          novo: restaurante,
+          motivo: "Restaurante criado pelo onboarding da plataforma",
+        }),
+    });
     return res.status(201).json(resultado);
   } catch (error) {
     return responderErroPlataforma(res, error);
@@ -4473,8 +4589,18 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
       );
     }
 
-    const { rows } = await query(
-      `UPDATE restaurantes
+    const atualizado = await withTransaction(async (client) => {
+      const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
+        forUpdate: true,
+      });
+      if (!anterior) {
+        const error = new TenantValidationError("Restaurante nao encontrado");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const { rows } = await client.query(
+        `UPDATE restaurantes
        SET nome = $1,
            slug = $2,
            plano = $3,
@@ -4504,52 +4630,49 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
            whatsapp_numero = $27,
            atualizado_em = NOW()
        WHERE id = $28
-       RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
-                 limite_produtos, mensalidade_centavos, ciclo_cobranca,
-                 status_cobranca, trial_termina_em, proxima_cobranca_em,
-                 observacoes_plano, status_comercial, data_inicio_contrato,
-                 ultimo_contato_comercial_em, responsavel_comercial,
-                 motivo_suspensao, excluido_em,
-                 white_label_ativo, nome_exibicao, logo_url,
-                 cor_primaria, cor_secundaria, cor_texto_principal,
-                 cor_texto_secundario, cor_titulo, cor_texto_inverso,
-                 whatsapp_numero,
-                 criado_em, atualizado_em`,
-      [
-        nome,
-        slug,
-        planoDetalhes.plano,
-        planoDetalhes.limiteMesas,
-        planoDetalhes.limiteUsuarios,
-        planoDetalhes.limiteProdutos,
-        planoDetalhes.mensalidadeCentavos,
-        planoDetalhes.cicloCobranca,
-        planoDetalhes.statusCobranca,
-        planoDetalhes.trialTerminaEm,
-        planoDetalhes.proximaCobrancaEm,
-        planoDetalhes.observacoesPlano,
-        comercial.statusComercial,
-        comercial.dataInicioContrato,
-        comercial.ultimoContatoComercialEm,
-        comercial.responsavelComercial,
-        comercial.motivoSuspensao,
-        marca.white_label_ativo,
-        marca.nome_exibicao,
-        marca.logo_url,
-        marca.cor_primaria,
-        marca.cor_secundaria,
-        marca.cor_texto_principal,
-        marca.cor_texto_secundario,
-        marca.cor_titulo,
-        marca.cor_texto_inverso,
-        marca.whatsapp_numero,
+       RETURNING ${CAMPOS_RESTAURANTE_PLATAFORMA}`,
+        [
+          nome,
+          slug,
+          planoDetalhes.plano,
+          planoDetalhes.limiteMesas,
+          planoDetalhes.limiteUsuarios,
+          planoDetalhes.limiteProdutos,
+          planoDetalhes.mensalidadeCentavos,
+          planoDetalhes.cicloCobranca,
+          planoDetalhes.statusCobranca,
+          planoDetalhes.trialTerminaEm,
+          planoDetalhes.proximaCobrancaEm,
+          planoDetalhes.observacoesPlano,
+          comercial.statusComercial,
+          comercial.dataInicioContrato,
+          comercial.ultimoContatoComercialEm,
+          comercial.responsavelComercial,
+          comercial.motivoSuspensao,
+          marca.white_label_ativo,
+          marca.nome_exibicao,
+          marca.logo_url,
+          marca.cor_primaria,
+          marca.cor_secundaria,
+          marca.cor_texto_principal,
+          marca.cor_texto_secundario,
+          marca.cor_titulo,
+          marca.cor_texto_inverso,
+          marca.whatsapp_numero,
+          restauranteId,
+        ],
+      );
+      await registrarHistoricoPlanoRestaurante(client, {
         restauranteId,
-      ],
-    );
-    if (!rows[0]) {
-      return res.status(404).json({ erro: "Restaurante nao encontrado" });
-    }
-    return res.json(await carregarResumoRestaurante(rows[0]));
+        usuario: req.platformUser,
+        acao: "alteracao_plano",
+        anterior,
+        novo: rows[0],
+        motivo: req.body?.motivo_historico || "Cadastro comercial atualizado",
+      });
+      return rows[0];
+    });
+    return res.json(await carregarResumoRestaurante(atualizado));
   } catch (error) {
     return responderErroPlataforma(res, error);
   }
@@ -4564,8 +4687,18 @@ app.patch(
       if (typeof req.body?.ativo !== "boolean") {
         throw new TenantValidationError("Status do restaurante invalido");
       }
-      const { rows } = await query(
-        `UPDATE restaurantes
+      const atualizado = await withTransaction(async (client) => {
+        const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
+          forUpdate: true,
+        });
+        if (!anterior) {
+          const error = new TenantValidationError("Restaurante nao encontrado");
+          error.statusCode = 404;
+          throw error;
+        }
+
+        const { rows } = await client.query(
+          `UPDATE restaurantes
          SET ativo = CASE WHEN $1 THEN 1 ELSE 0 END,
              status_comercial = CASE
                WHEN $1 AND status_comercial IN ('suspenso', 'cancelado') THEN 'cliente'
@@ -4575,23 +4708,20 @@ app.patch(
              excluido_em = CASE WHEN $1 THEN NULL ELSE excluido_em END,
              atualizado_em = NOW()
          WHERE id = $2
-         RETURNING id, nome, slug, ativo, plano, limite_mesas, limite_usuarios,
-                   limite_produtos, mensalidade_centavos, ciclo_cobranca,
-                   status_cobranca, trial_termina_em, proxima_cobranca_em,
-                   observacoes_plano, status_comercial, data_inicio_contrato,
-                   ultimo_contato_comercial_em, responsavel_comercial,
-                   motivo_suspensao, excluido_em,
-                   white_label_ativo, nome_exibicao, logo_url,
-                   cor_primaria, cor_secundaria, cor_texto_principal,
-                   cor_texto_secundario, cor_titulo, cor_texto_inverso,
-                   whatsapp_numero,
-                   criado_em, atualizado_em`,
-        [req.body.ativo, restauranteId],
-      );
-      if (!rows[0]) {
-        return res.status(404).json({ erro: "Restaurante nao encontrado" });
-      }
-      return res.json(await carregarResumoRestaurante(rows[0]));
+         RETURNING ${CAMPOS_RESTAURANTE_PLATAFORMA}`,
+          [req.body.ativo, restauranteId],
+        );
+        await registrarHistoricoPlanoRestaurante(client, {
+          restauranteId,
+          usuario: req.platformUser,
+          acao: "alteracao_status",
+          anterior,
+          novo: rows[0],
+          motivo: req.body.ativo ? "Restaurante reativado" : "Restaurante suspenso",
+        });
+        return rows[0];
+      });
+      return res.json(await carregarResumoRestaurante(atualizado));
     } catch (error) {
       return responderErroPlataforma(res, error);
     }
@@ -4601,20 +4731,37 @@ app.patch(
 app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, res) => {
   try {
     const restauranteId = idPositivo(req.params.id, "Restaurante");
-    const { rows } = await query(
-      `UPDATE restaurantes
+    const arquivado = await withTransaction(async (client) => {
+      const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
+        forUpdate: true,
+      });
+      if (!anterior || anterior.excluido_em) {
+        const error = new TenantValidationError("Restaurante nao encontrado ou ja arquivado");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const { rows } = await client.query(
+        `UPDATE restaurantes
        SET ativo = 0,
            status_comercial = 'cancelado',
            excluido_em = NOW(),
            atualizado_em = NOW()
        WHERE id = $1 AND excluido_em IS NULL
-       RETURNING id, nome, slug, excluido_em`,
-      [restauranteId],
-    );
-    if (!rows[0]) {
-      return res.status(404).json({ erro: "Restaurante nao encontrado ou ja arquivado" });
-    }
-    return res.json({ ...rows[0], arquivado: true });
+       RETURNING ${CAMPOS_RESTAURANTE_PLATAFORMA}`,
+        [restauranteId],
+      );
+      await registrarHistoricoPlanoRestaurante(client, {
+        restauranteId,
+        usuario: req.platformUser,
+        acao: "arquivamento",
+        anterior,
+        novo: rows[0],
+        motivo: req.body?.motivo_historico || "Restaurante arquivado pela plataforma",
+      });
+      return rows[0];
+    });
+    return res.json({ ...arquivado, arquivado: true });
   } catch (error) {
     return responderErroPlataforma(res, error);
   }

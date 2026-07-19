@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Gauge,
+  History,
   KeyRound,
   LoaderCircle,
   LockKeyhole,
@@ -132,6 +133,16 @@ const campoParaCentavos = (valor) => {
 const dataParaCampo = (valor) => {
   if (!valor) return "";
   return String(valor).slice(0, 10);
+};
+
+const formatarDataHora = (valor) => {
+  if (!valor) return "-";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return String(valor);
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(data);
 };
 
 const alertasDoRestaurante = (restaurante) =>
@@ -905,8 +916,29 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
   });
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  const [historico, setHistorico] = useState([]);
+  const [historicoStatus, setHistoricoStatus] = useState("loading");
   const alterar = (campo, valor) => setForm((atual) => ({ ...atual, [campo]: valor }));
   const alterarPlano = (plano) => setForm((atual) => aplicarPlanoAoForm(plano, atual));
+
+  useEffect(() => {
+    let ativo = true;
+    setHistoricoStatus("loading");
+    request(`/api/platform/restaurantes/${restaurante.id}/historico-planos`)
+      .then((dados) => {
+        if (!ativo) return;
+        setHistorico(Array.isArray(dados) ? dados : []);
+        setHistoricoStatus("ready");
+      })
+      .catch(() => {
+        if (!ativo) return;
+        setHistorico([]);
+        setHistoricoStatus("error");
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [request, restaurante.id]);
 
   const salvar = async (event) => {
     event.preventDefault();
@@ -1009,6 +1041,43 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
             return token ? { Authorization: `Bearer ${token}` } : {};
           }}
         />
+
+        <div className="pf-form-section-title"><History size={16} /> Historico comercial</div>
+        <div className="pf-plan-history" aria-live="polite">
+          {historicoStatus === "loading" && (
+            <div className="pf-plan-history-state">
+              <LoaderCircle className="is-spinning" size={16} /> Carregando historico
+            </div>
+          )}
+          {historicoStatus === "error" && (
+            <div className="pf-plan-history-state is-error">
+              Nao foi possivel carregar o historico.
+            </div>
+          )}
+          {historicoStatus === "ready" && historico.length === 0 && (
+            <div className="pf-plan-history-state">
+              Nenhuma alteracao comercial registrada ainda.
+            </div>
+          )}
+          {historicoStatus === "ready" && historico.map((item) => {
+            const usuario = item.platform_usuario_nome || item.platform_usuario_login || "Sistema";
+            const planoAnterior = item.dados_anteriores?.plano;
+            const planoNovo = item.dados_novos?.plano;
+            return (
+              <article className="pf-plan-history-item" key={item.id}>
+                <span className={`pf-plan-history-action is-${item.acao}`}>{item.acao.replace(/_/g, " ")}</span>
+                <div>
+                  <strong>{item.descricao || "Historico registrado"}</strong>
+                  <small>{formatarDataHora(item.criado_em)} / {usuario}</small>
+                  {planoAnterior && planoNovo && planoAnterior !== planoNovo && (
+                    <small>{PLANOS[planoAnterior] || planoAnterior} para {PLANOS[planoNovo] || planoNovo}</small>
+                  )}
+                  {item.motivo && <p>{item.motivo}</p>}
+                </div>
+              </article>
+            );
+          })}
+        </div>
 
         <div className="pf-form-error" role="status">{erro}</div>
         <div className="pf-modal-actions">

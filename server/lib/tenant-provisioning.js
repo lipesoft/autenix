@@ -219,7 +219,7 @@ function normalizarCriacaoTenant(opcoes = {}) {
   };
 }
 
-async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
+async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12, hooks = {}) {
   const dados = normalizarCriacaoTenant(opcoes);
   const client = await pool.connect();
 
@@ -306,6 +306,14 @@ async function provisionarRestaurante(pool, opcoes = {}, bcryptRounds = 12) {
          FROM generate_series(1, $2) AS serie`,
         [restaurante.id, dados.quantidadeMesas],
       );
+    }
+
+    if (typeof hooks.onBeforeCommit === "function") {
+      await hooks.onBeforeCommit(client, {
+        restaurante,
+        master: masters[0],
+        dados,
+      });
     }
 
     await client.query("COMMIT");
