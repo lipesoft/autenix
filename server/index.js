@@ -90,6 +90,10 @@ const {
 } = require("./lib/auth-session");
 const { origemCriacaoPedido } = require("./lib/pedido-access");
 const {
+  dataISOEmFuso,
+  intervaloRelatorio,
+} = require("./lib/restaurant-time");
+const {
   acaoMesaRateLimit,
   acompanharReservaRateLimit,
   criarReservaRateLimit,
@@ -755,6 +759,7 @@ async function initDB() {
       garcom_nome TEXT,
       forma_pagamento TEXT,
       criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      finalizado_em TIMESTAMPTZ,
       FOREIGN KEY (mesa_id) REFERENCES mesas(id)
     );
 
@@ -855,6 +860,9 @@ async function initDB() {
 
     ALTER TABLE categorias
       ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1;
+
+    ALTER TABLE pedidos
+      ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMPTZ;
 
     ALTER TABLE restaurantes
       ADD COLUMN IF NOT EXISTS whatsapp_numero TEXT,
@@ -1752,14 +1760,26 @@ app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "co
       await tenantQuery(
         req.user.restaurante_id,
         `UPDATE pedidos
-         SET status = $1, garcom_id = $2, garcom_nome = $3
+         SET status = $1,
+             garcom_id = $2,
+             garcom_nome = $3,
+             finalizado_em = CASE
+               WHEN $1 = 'finalizado' THEN CURRENT_TIMESTAMP
+               ELSE finalizado_em
+             END
          WHERE id = $4 AND restaurante_id = $5`,
         [status, req.user.id, garcom_nome, req.params.id, req.user.restaurante_id],
       );
     } else {
       await tenantQuery(
         req.user.restaurante_id,
-        "UPDATE pedidos SET status = $1 WHERE id = $2 AND restaurante_id = $3",
+        `UPDATE pedidos
+         SET status = $1,
+             finalizado_em = CASE
+               WHEN $1 = 'finalizado' THEN CURRENT_TIMESTAMP
+               ELSE finalizado_em
+             END
+         WHERE id = $2 AND restaurante_id = $3`,
         [status, req.params.id, req.user.restaurante_id],
       );
     }
@@ -1883,7 +1903,9 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
         }
         await client.query(
           `UPDATE pedidos
-           SET status = 'finalizado', forma_pagamento = $1
+           SET status = 'finalizado',
+               forma_pagamento = $1,
+               finalizado_em = CURRENT_TIMESTAMP
            WHERE mesa_id = $2
              AND restaurante_id = $3
              AND status != 'finalizado'`,
@@ -3163,14 +3185,14 @@ app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (r
 // Histórico do dia
 app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = dataISOEmFuso();
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `SELECT
         p.id, p.numero_dia, p.mesa_id,
         m.numero as mesa_numero,
         p.garcom_nome, p.nome_cliente, p.forma_pagamento,
-        to_char(p.criado_em AT TIME ZONE 'America/Bahia', 'HH24:MI') as fechado_em,
+        to_char(p.finalizado_em AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') as fechado_em,
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
         COUNT(DISTINCT CASE WHEN ip.status != 'cancelado' THEN ip.id END) as total_itens
        FROM pedidos p
@@ -3179,9 +3201,10 @@ app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (re
        JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
        WHERE p.restaurante_id = $1
          AND p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $2
+         AND p.finalizado_em >= ($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+         AND p.finalizado_em < (($2::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
        GROUP BY p.id, m.numero
-       ORDER BY p.criado_em DESC`,
+       ORDER BY p.finalizado_em DESC`,
       [req.user.restaurante_id, hoje],
     );
 
@@ -3228,30 +3251,11 @@ app.post("/api/pedidos/reiniciar-numeracao", autenticarJWT, autorizarRoles("admi
 app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
     const { periodo, dataInicio: di, dataFim: df } = req.query;
-    const agora = new Date();
-    const hoje = agora.toISOString().slice(0, 10);
-    let dataInicio, dataFim;
-
-    if (di) {
-      dataInicio = di;
-      dataFim = df || hoje;
-    } else if (periodo === "semana") {
-      const d = new Date(agora);
-      d.setDate(d.getDate() - 7);
-      dataInicio = d.toISOString().slice(0, 10);
-      dataFim = hoje;
-    } else if (periodo === "mes") {
-      const d = new Date(agora);
-      d.setDate(d.getDate() - 30);
-      dataInicio = d.toISOString().slice(0, 10);
-      dataFim = hoje;
-    } else if (periodo === "ano") {
-      dataInicio = `${agora.getFullYear()}-01-01`;
-      dataFim = hoje;
-    } else {
-      dataInicio = hoje;
-      dataFim = hoje;
-    }
+    const { dataInicio, dataFim } = intervaloRelatorio({
+      periodo,
+      dataInicio: di,
+      dataFim: df,
+    });
 
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
@@ -3263,17 +3267,17 @@ app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (re
         MAX(p.forma_pagamento) as forma_pagamento,
         COUNT(DISTINCT ip.id) as total_itens,
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-        to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'DD/MM HH24:MI') as fechado_em
+        to_char(MAX(p.finalizado_em) AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') as fechado_em
        FROM pedidos p
        JOIN mesas m ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
        JOIN itens_pedido ip ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
        JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
        WHERE p.restaurante_id = $1
          AND p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date >= $2
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date <= $3
+         AND p.finalizado_em >= ($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+         AND p.finalizado_em < (($3::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
        GROUP BY p.id, m.numero
-       ORDER BY MAX(p.criado_em) DESC`,
+       ORDER BY MAX(p.finalizado_em) DESC`,
       [req.user.restaurante_id, dataInicio, dataFim],
     );
 
@@ -3287,7 +3291,7 @@ app.get("/api/relatorio", autenticarJWT, autorizarRoles("financeiro"), async (re
 // Financeiro hoje
 app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), async (req, res) => {
   try {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = dataISOEmFuso();
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `SELECT
@@ -3296,16 +3300,17 @@ app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), asy
         MAX(p.nome_cliente) as nome_cliente,
         COUNT(DISTINCT ip.id) as total_itens,
         SUM(CASE WHEN ip.status != 'cancelado' THEN ip.quantidade * pr.preco ELSE 0 END) as total,
-        to_char(MAX(p.criado_em) AT TIME ZONE 'America/Bahia', 'HH24:MI') as fechado_em
+        to_char(MAX(p.finalizado_em) AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') as fechado_em
        FROM pedidos p
        JOIN mesas m ON m.id = p.mesa_id AND m.restaurante_id = p.restaurante_id
        JOIN itens_pedido ip ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
        JOIN produtos pr ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
        WHERE p.restaurante_id = $1
          AND p.status = 'finalizado'
-         AND (p.criado_em AT TIME ZONE 'America/Bahia')::date = $2
+         AND p.finalizado_em >= ($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+         AND p.finalizado_em < (($2::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
        GROUP BY p.mesa_id, m.numero
-       ORDER BY MAX(p.criado_em) DESC`,
+       ORDER BY MAX(p.finalizado_em) DESC`,
       [req.user.restaurante_id, hoje],
     );
     const totalDia = rows.reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
