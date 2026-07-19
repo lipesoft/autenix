@@ -35,6 +35,12 @@ import {
   normalizarSlugRestaurante,
   rotaRestaurante,
 } from "./services/auth.js";
+import {
+  chaveChamada,
+  deveUsarSocketIo,
+  pedidoProntoParaRetirada,
+  SYNC_INTERVALS,
+} from "./services/realtime.js";
 
 const ROLE_DETAILS = {
   admin: {
@@ -92,7 +98,19 @@ const RESERVA_CONFIG_PADRAO = {
 
 let socket = null;
 let socketIdentity = null;
+const SOCKET_IO_ENABLED = deveUsarSocketIo({
+  dev: import.meta.env.DEV,
+  flag: import.meta.env.VITE_ENABLE_SOCKET_IO,
+});
+const noopSocket = {
+  on: () => noopSocket,
+  off: () => noopSocket,
+  emit: () => false,
+  disconnect: () => {},
+};
+
 function getSocket({ mesaId = null, restauranteSlug = null, sessaoMesa = null } = {}) {
+  if (!SOCKET_IO_ENABLED) return noopSocket;
   const sessao = getUsuarioSessao();
   const token = sessao?.token || null;
   const contextoPublico = !token && mesaId && restauranteSlug && sessaoMesa
@@ -111,7 +129,7 @@ function getSocket({ mesaId = null, restauranteSlug = null, sessaoMesa = null } 
     socketIdentity = identity;
     socket = io(API, {
       auth: token ? { token } : contextoPublico,
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
@@ -119,6 +137,34 @@ function getSocket({ mesaId = null, restauranteSlug = null, sessaoMesa = null } 
     });
   }
   return socket;
+}
+
+function useOperationalSync(callback, intervalMs, enabled = true) {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    if (!enabled || !intervalMs) return undefined;
+
+    const executar = () => {
+      if (document.visibilityState !== "hidden") {
+        callbackRef.current?.();
+      }
+    };
+    const intervalo = window.setInterval(executar, intervalMs);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") executar();
+    };
+
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+  }, [enabled, intervalMs]);
 }
 
 function apiComRestaurante(caminho, restauranteSlug) {
@@ -2358,6 +2404,15 @@ function PainelCliente({ mesa_id, restauranteSlug = "autenix", sessaoMesa = "" }
     setMesa(dados);
   }, [bloquearSessaoMesa, mesa_id, restauranteSlug, sessaoMesa]);
 
+  useOperationalSync(() => {
+    if (!sessaoMesa || sessaoBloqueada) return;
+    Promise.all([fetchMesa(), fetchPedidos()]).catch(() => {});
+  }, SYNC_INTERVALS.mesaCliente, Boolean(sessaoMesa && !sessaoBloqueada));
+
+  useOperationalSync(() => {
+    fetchCardapio().catch(() => {});
+  }, SYNC_INTERVALS.cardapio, true);
+
   useEffect(() => {
     let ativo = true;
     const carregamentoInicial = window.setTimeout(() => {
@@ -3281,6 +3336,10 @@ function PainelGarcom({ usuario, onLogout }) {
   const [enviandoPedido, setEnviandoPedido] = useState(false);
   const [pedidoStatusGarcom, setPedidoStatusGarcom] = useState("");
   const bellRef = useRef(null);
+  const chamadasConhecidasRef = useRef(new Set());
+  const chamadasInicializadasRef = useRef(false);
+  const pedidosProntosConhecidosRef = useRef(new Set());
+  const pedidosProntosInicializadosRef = useRef(false);
   const { notifs, push, dismiss } = useNotifs();
 
   const css = gerarCSS(T);
@@ -3288,18 +3347,74 @@ function PainelGarcom({ usuario, onLogout }) {
     document.title = `Garçom - ${marca.nome}`;
   }, [marca.nome]);
 
-  const fetchChamadas = useCallback(async () => {
+  const fetchChamadas = useCallback(async (opcoes = {}) => {
     const r = await authFetch(`${API}/api/chamadas`);
-    setChamadas(await r.json());
-  }, []);
+    const dados = await r.json();
+    const lista = Array.isArray(dados) ? dados : [];
+    setChamadas(lista);
+
+    const proximas = new Set(lista.map(chaveChamada).filter(Boolean));
+    if (!chamadasInicializadasRef.current) {
+      chamadasInicializadasRef.current = true;
+      chamadasConhecidasRef.current = proximas;
+      return;
+    }
+
+    if (opcoes.notificarNovas) {
+      lista
+        .filter((chamada) => !chamadasConhecidasRef.current.has(chaveChamada(chamada)))
+        .forEach((chamada) => {
+          const isPag = chamada.motivo?.startsWith("conta:");
+          const forma = isPag ? formataPag(chamada.motivo.split(":")[1]) : null;
+          const cliente = chamada.nome_cliente || "Cliente";
+          push(
+            isPag
+              ? `${cliente} da Mesa ${chamada.mesa_numero} solicitou a conta`
+              : `${cliente} da Mesa ${chamada.mesa_numero} solicitando garçom`,
+            isPag ? `Forma de pagamento: ${forma}` : "Dirija-se a mesa",
+            isPag ? "conta" : "chamada",
+          );
+          bellRef.current?.classList.add("ring");
+          setTimeout(() => bellRef.current?.classList.remove("ring"), 700);
+        });
+    }
+    chamadasConhecidasRef.current = proximas;
+  }, [push]);
   const fetchMesas = useCallback(async () => {
     const r = await authFetch(`${API}/api/mesas`);
     setMesas(await r.json());
   }, []);
-  const fetchPedidos = useCallback(async () => {
+  const fetchPedidos = useCallback(async (opcoes = {}) => {
     const r = await authFetch(`${API}/api/pedidos`);
-    setPedidos(await r.json());
-  }, []);
+    const dados = await r.json();
+    const lista = Array.isArray(dados) ? dados : [];
+    setPedidos(lista);
+
+    const prontos = new Set(
+      lista
+        .filter(pedidoProntoParaRetirada)
+        .map((pedido) => String(pedido.id)),
+    );
+    if (!pedidosProntosInicializadosRef.current) {
+      pedidosProntosInicializadosRef.current = true;
+      pedidosProntosConhecidosRef.current = prontos;
+      return;
+    }
+
+    if (opcoes.notificarProntos) {
+      lista
+        .filter(pedidoProntoParaRetirada)
+        .filter((pedido) => !pedidosProntosConhecidosRef.current.has(String(pedido.id)))
+        .forEach((pedido) => {
+          push(
+            `Pedido pronto na Mesa ${pedido.mesa_numero}`,
+            "Retire na cozinha e entregue ao cliente.",
+            "pronto",
+          );
+        });
+    }
+    pedidosProntosConhecidosRef.current = prontos;
+  }, [push]);
   const fetchReservasGarcom = useCallback(async () => {
     const hoje = dataLocalISO();
     const ate = dataLocalISO(new Date(Date.now() + 1000 * 60 * 60 * 24 * 14));
@@ -3443,6 +3558,15 @@ function PainelGarcom({ usuario, onLogout }) {
     };
   }, [fetchChamadas, fetchMesas, fetchPedidos, fetchReservasGarcom, push]);
 
+  useOperationalSync(() => {
+    fetchChamadas({ notificarNovas: true });
+    fetchMesas();
+    fetchPedidos({ notificarProntos: true });
+    fetchReservasGarcom().catch((error) =>
+      setReservaStatusGarcom({ tipo: "error", mensagem: error.message }),
+    );
+  }, SYNC_INTERVALS.equipe, true);
+
   const atenderChamada = async (id) => {
     await authFetch(`${API}/api/chamadas/${id}/atender`, { method: "PATCH" });
     fetchChamadas();
@@ -3576,15 +3700,7 @@ function PainelGarcom({ usuario, onLogout }) {
       total: totalMesa(mesa.id),
     });
   };
-  const pedidosProntos = pedidos.filter(
-    (p) =>
-      p.itens?.length &&
-      p.itens
-        .filter((i) => i.status !== "cancelado")
-        .every((i) => i.status === "pronto") &&
-      p.status !== "entregue" &&
-      p.status !== "finalizado",
-  );
+  const pedidosProntos = pedidos.filter(pedidoProntoParaRetirada);
   const pedidosContaModal = contaModal
     ? contaModal.pedidos || pedidosAbertosDaMesa(contaModal.id)
     : [];
@@ -4752,6 +4868,11 @@ function PainelCozinha({ usuario, onLogout }) {
     };
   }, [fetchPedidos, fetchChamadas]);
 
+  useOperationalSync(() => {
+    fetchPedidos();
+    fetchChamadas();
+  }, SYNC_INTERVALS.equipe, true);
+
   // Move todos os itens do pedido para um status
   const moverTudo = async (pedido, novoStatus) => {
     const itensAlvo =
@@ -5263,6 +5384,13 @@ function PainelAdmin({ usuario, onLogout }) {
     fetchReservaConfiguracao,
     fetchRelatorio,
   ]);
+
+  useOperationalSync(() => {
+    fetchCardapio();
+    fetchMesas();
+    fetchUsuarios();
+    recarregarReservas();
+  }, SYNC_INTERVALS.admin, true);
 
   useEffect(() => {
     fetchRestaurante().catch((error) => {
@@ -7754,6 +7882,12 @@ function PainelFinanceiro({ usuario, onLogout }) {
       s.off("pedido_atualizado", fetchPedidos);
     };
   }, [dataFim, dataInicio, fetchHistorico, fetchMesas, fetchPedidos, periodo]);
+
+  useOperationalSync(() => {
+    fetchMesas();
+    fetchPedidos();
+    fetchHistorico(periodo, dataInicio, dataFim);
+  }, SYNC_INTERVALS.financeiro, true);
 
   const mudarPeriodo = (p) => {
     setPeriodo(p);
