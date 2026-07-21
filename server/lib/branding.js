@@ -83,7 +83,6 @@ function normalizarWhiteLabel(payload = {}) {
 function marcaPublica(restaurante) {
   const whiteLabelAtivo = restaurante?.white_label_ativo === true;
   return {
-    id: restaurante.id,
     nome: restaurante.nome,
     slug: restaurante.slug,
     white_label_ativo: whiteLabelAtivo,

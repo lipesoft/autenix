@@ -242,6 +242,27 @@ function storageReadiness() {
   };
 }
 
+function categoriaCardapioPublica(categoria) {
+  return {
+    id: categoria.id,
+    nome: categoria.nome,
+    ordem: categoria.ordem,
+    ativo: categoria.ativo,
+  };
+}
+
+function produtoCardapioPublico(produto) {
+  return {
+    id: produto.id,
+    categoria_id: produto.categoria_id,
+    nome: produto.nome,
+    descricao: produto.descricao,
+    preco: produto.preco,
+    imagem: produto.imagem,
+    disponivel: produto.disponivel,
+  };
+}
+
 app.get("/api/health", (req, res) => {
   res.json(healthEnvelope("ok"));
 });
@@ -1821,7 +1842,11 @@ app.get("/api/cardapio", leituraPublicaRateLimit, async (req, res) => {
          AND c.ativo = 1`,
       [restaurante.id],
     );
-    res.json({ restaurante, categorias, produtos });
+    res.json({
+      restaurante: marcaPublica(restaurante),
+      categorias: categorias.map(categoriaCardapioPublica),
+      produtos: produtos.map(produtoCardapioPublico),
+    });
   } catch (e) {
     return safeErrorResponse(res, e, {
       fallbackMessage: "Nao foi possivel carregar o cardapio agora",

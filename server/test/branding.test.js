@@ -82,4 +82,5 @@ test("nao expoe a marca personalizada quando o white label esta desligado", () =
   assert.equal(publico.cor_titulo, null);
   assert.equal(publico.cor_texto_inverso, null);
   assert.equal(publico.whatsapp_numero, "5511988887777");
+  assert.equal(Object.hasOwn(publico, "id"), false);
 });
