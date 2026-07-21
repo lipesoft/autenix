@@ -22,6 +22,8 @@ pnpm-debug.log*
 .vite/
 coverage/
 .eslintcache
+playwright-report/
+test-results/
 
 *.db
 *.sqlite
