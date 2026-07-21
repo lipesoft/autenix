@@ -113,9 +113,32 @@ const {
   leituraMesaRateLimit,
   leituraPublicaRateLimit,
 } = require("./lib/request-limits");
+const {
+  safeErrorResponse,
+  validateBody,
+  validateParams,
+  validateQuery,
+} = require("./lib/http-validation");
+const {
+  cancelarItemBodySchema,
+  chamadaBodySchema,
+  criarPedidoBodySchema,
+  fecharMesaBodySchema,
+  idParamSchema,
+  importacaoBodySchema,
+  importacaoHistoricoQuerySchema,
+  itemStatusBodySchema,
+  listarPedidosQuerySchema,
+  loginBodySchema,
+  mesaCreateBodySchema,
+  mesaIdParamSchema,
+  pedidoStatusBodySchema,
+  usuarioCreateBodySchema,
+  usuarioUpdateBodySchema,
+} = require("./lib/request-schemas");
 
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
-require("dotenv").config();
+require("dotenv").config({ path: path.resolve(__dirname, "../.env"), quiet: true });
+require("dotenv").config({ quiet: true });
 
 const isProduction = process.env.NODE_ENV === "production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "8h";
@@ -134,6 +157,7 @@ const RESERVA_NOTIFICACAO_WEBHOOK_TOKEN = String(
 const RESERVA_NOTIFICACAO_PROVIDER = String(
   process.env.RESERVA_NOTIFICACAO_PROVIDER || "webhook",
 ).trim();
+const APP_VERSION = process.env.npm_package_version || require("./package.json").version || "0.0.0";
 
 if (!process.env.DATABASE_URL) {
   const msg = "DATABASE_URL nao configurada.";
@@ -154,6 +178,12 @@ function parseOrigins(value) {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+function integerEnv(name, fallback, min, max) {
+  const value = Number(process.env[name]);
+  if (Number.isInteger(value) && value >= min && value <= max) return value;
+  return fallback;
 }
 
 const devOrigins = [
@@ -190,13 +220,49 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 app.use(registrarLogRequisicao);
 
-app.get("/api/health", async (req, res) => {
+function healthEnvelope(status, components = {}) {
+  return {
+    status,
+    app: "autenix-api",
+    version: APP_VERSION,
+    environment: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
+    components,
+  };
+}
+
+function storageReadiness() {
+  const configurado = Boolean(
+    process.env.SUPABASE_URL
+      && process.env.SUPABASE_SERVICE_ROLE_KEY
+      && process.env.SUPABASE_STORAGE_BUCKET,
+  );
+  return {
+    status: configurado ? "configured" : "not_configured",
+  };
+}
+
+app.get("/api/health", (req, res) => {
+  res.json(healthEnvelope("ok"));
+});
+
+app.get("/api/health/readiness", async (req, res) => {
+  const components = {
+    database: { status: "unknown" },
+    storage: storageReadiness(),
+  };
+
   try {
     await query("SELECT 1");
-    res.json({ status: "ok" });
+    components.database.status = "ok";
+    const degraded = components.storage.status !== "configured";
+    return res.status(200).json(
+      healthEnvelope(degraded ? "degraded" : "ready", components),
+    );
   } catch (error) {
-    console.error("Falha no health check do banco:", error.message);
-    res.status(503).json({ status: "indisponivel" });
+    components.database.status = "unavailable";
+    console.error("Falha no readiness check:", error.message);
+    return res.status(503).json(healthEnvelope("unavailable", components));
   }
 });
 
@@ -209,7 +275,10 @@ app.get("/api/restaurantes/:slug/publico", leituraPublicaRateLimit, async (req, 
     registrarRestauranteRequest(req, restaurante);
     return res.json(marcaPublica(restaurante));
   } catch (error) {
-    return res.status(500).json({ erro: error.message });
+    return safeErrorResponse(res, error, {
+      fallbackMessage: "Nao foi possivel carregar o restaurante agora",
+      logPrefix: "Falha ao carregar restaurante publico",
+    });
   }
 });
 
@@ -329,6 +398,10 @@ function registrarLogRequisicao(req, res, next) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false,
+  max: integerEnv("DB_POOL_MAX", 10, 1, 30),
+  idleTimeoutMillis: integerEnv("DB_IDLE_TIMEOUT_MS", 10000, 1000, 120000),
+  connectionTimeoutMillis: integerEnv("DB_CONNECTION_TIMEOUT_MS", 10000, 1000, 60000),
+  statement_timeout: integerEnv("DB_STATEMENT_TIMEOUT_MS", 60000, 5000, 300000),
 });
 
 // Helper: executa query com log de erro
@@ -1750,7 +1823,10 @@ app.get("/api/cardapio", leituraPublicaRateLimit, async (req, res) => {
     );
     res.json({ restaurante, categorias, produtos });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel carregar o cardapio agora",
+      logPrefix: "Falha ao carregar cardapio",
+    });
   }
 });
 
@@ -1776,12 +1852,16 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
     );
     res.json(rows);
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel carregar as mesas agora",
+      logPrefix: "Falha ao listar mesas",
+    });
   }
 });
 
 app.get("/api/mesas/:id", leituraMesaRateLimit, async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     const contexto = await buscarRestauranteDaMesa(
       req.params.id,
       req.query.restaurante_slug || "autenix",
@@ -1795,7 +1875,10 @@ app.get("/api/mesas/:id", leituraMesaRateLimit, async (req, res) => {
       sessao_ativa: true,
     });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel carregar a mesa agora",
+      logPrefix: "Falha ao carregar mesa",
+    });
   }
 });
 
@@ -1803,6 +1886,7 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
   const { numero } = req.body;
   if (!numero) return res.status(400).json({ erro: "Número obrigatório" });
   try {
+    const mesaPayload = validateBody(req, mesaCreateBodySchema);
     const limites = await carregarLimitesPlano(req.user.restaurante_id);
     const totalMesas = await contarRegistrosTenant(req.user.restaurante_id, "mesas");
     if (totalMesas >= limites.limite_mesas) {
@@ -1816,17 +1900,22 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
       `INSERT INTO mesas (numero, restaurante_id)
        VALUES ($1, $2)
        RETURNING *`,
-      [String(numero), req.user.restaurante_id],
+      [String(mesaPayload.numero), req.user.restaurante_id],
     );
     emitirEquipe(req.user.restaurante_id, "mesa_atualizada", rows[0]);
     res.json(rows[0]);
   } catch (e) {
-    res.status(400).json({ erro: "Mesa já existe" });
+    if (e.code === "23505") return res.status(409).json({ erro: "Mesa ja existe" });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel criar a mesa agora",
+      logPrefix: "Falha ao criar mesa",
+    });
   }
 });
 
 app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       "SELECT * FROM mesas WHERE id = $1 AND restaurante_id = $2",
@@ -1841,7 +1930,10 @@ app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req,
     );
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel remover a mesa agora",
+      logPrefix: "Falha ao remover mesa",
+    });
   }
 });
 
@@ -1856,6 +1948,7 @@ app.post(
     return res.status(400).json({ erro: "Dados inválidos" });
 
   try {
+    validateBody(req, criarPedidoBodySchema);
     const contexto = await buscarRestauranteDaMesa(
       mesa_id,
       req.user?.restaurante_slug || restaurante_slug || "autenix",
@@ -1951,7 +2044,10 @@ app.post(
     emitirMesa(restauranteId, mesa_id, "pedido_atualizado", resultado.pedido);
     res.json({ sucesso: true, pedido_id: resultado.pedido.id });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel criar o pedido agora",
+      logPrefix: "Falha ao criar pedido",
+    });
   }
   },
 );
@@ -1963,7 +2059,10 @@ app.get(
   protegerListagemPedidos,
   async (req, res) => {
   try {
-    const { mesa_id, status, restaurante_slug } = req.query;
+    const { mesa_id, status, restaurante_slug } = validateQuery(
+      req,
+      listarPedidosQuerySchema,
+    );
     let restauranteId = req.user?.restaurante_id;
     if (!restauranteId && mesa_id) {
       const contexto = await buscarRestauranteDaMesa(
@@ -2016,17 +2115,18 @@ app.get(
     );
     res.json(resultado);
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel listar os pedidos agora",
+      logPrefix: "Falha ao listar pedidos",
+    });
   }
 });
 
 // Atualizar status do pedido
 app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
-    const { status, garcom_id, garcom_nome } = req.body;
-    if (!["pendente", "preparo", "pronto", "entregue", "finalizado"].includes(status)) {
-      return res.status(400).json({ erro: "Status de pedido invalido" });
-    }
+    validateParams(req, idParamSchema);
+    const { status, garcom_id, garcom_nome } = validateBody(req, pedidoStatusBodySchema);
     if (garcom_id) {
       await tenantQuery(
         req.user.restaurante_id,
@@ -2063,17 +2163,18 @@ app.patch("/api/pedidos/:id/status", autenticarJWT, autorizarRoles("garcom", "co
     emitirMesa(req.user.restaurante_id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel atualizar o pedido agora",
+      logPrefix: "Falha ao atualizar pedido",
+    });
   }
 });
 
 // Atualizar status do item
 app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), async (req, res) => {
   try {
-    const { status } = req.body;
-    if (!["pendente", "preparo", "pronto"].includes(status)) {
-      return res.status(400).json({ erro: "Status de item invalido" });
-    }
+    validateParams(req, idParamSchema);
+    const { status } = validateBody(req, itemStatusBodySchema);
 
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
@@ -2097,20 +2198,24 @@ app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), asy
     emitirMesa(req.user.restaurante_id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel atualizar o item agora",
+      logPrefix: "Falha ao atualizar item",
+    });
   }
 });
 
 // Cancelar item
 app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
   try {
-    const mesaId = Number(req.body?.mesa_id);
-    if (!Number.isInteger(mesaId) || mesaId <= 0) {
-      return res.status(400).json({ erro: "Mesa invalida" });
-    }
+    validateParams(req, idParamSchema);
+    const { mesa_id: mesaId, restaurante_slug } = validateBody(
+      req,
+      cancelarItemBodySchema,
+    );
     const contexto = await buscarRestauranteDaMesa(
       mesaId,
-      req.body?.restaurante_slug || "autenix",
+      restaurante_slug || "autenix",
     );
     if (!contexto) {
       return res.status(404).json({ erro: "Mesa nao encontrada" });
@@ -2143,15 +2248,18 @@ app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
     emitirMesa(contexto.restaurante.id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel cancelar o item agora",
+      logPrefix: "Falha ao cancelar item",
+    });
   }
 });
 
 // Fechar mesa
 app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
   try {
-    const { forma_pagamento, obs_pagamento } = req.body || {};
-    if (!forma_pagamento) return res.status(400).json({ erro: "Forma de pagamento obrigatoria" });
+    validateParams(req, idParamSchema);
+    const { forma_pagamento, obs_pagamento } = validateBody(req, fecharMesaBodySchema);
 
     const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
@@ -2197,13 +2305,17 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
     emitirMesa(req.user.restaurante_id, req.params.id, "mesa_fechada", req.params.id);
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel fechar a mesa agora",
+      logPrefix: "Falha ao fechar mesa",
+    });
   }
 });
 
 // Atendimento de mesa
 app.post("/api/mesas/:id/atendimento/iniciar", autenticarJWT, autorizarRoles("garcom"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     const resultado = await criarSessaoMesa(
       req.user.restaurante_id,
       req.params.id,
@@ -2216,12 +2328,16 @@ app.post("/api/mesas/:id/atendimento/iniciar", autenticarJWT, autorizarRoles("ga
     emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resposta.mesa);
     res.json(resposta);
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel iniciar o atendimento agora",
+      logPrefix: "Falha ao iniciar atendimento",
+    });
   }
 });
 
 app.post("/api/mesas/:id/atendimento/encerrar", autenticarJWT, autorizarRoles("garcom", "financeiro"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     const mesa = await withTenantTransaction(
       req.user.restaurante_id,
       async (client) => {
@@ -2274,14 +2390,20 @@ app.post("/api/mesas/:id/atendimento/encerrar", autenticarJWT, autorizarRoles("g
     emitirMesa(req.user.restaurante_id, req.params.id, "mesa_fechada", req.params.id);
     res.json({ sucesso: true, mesa });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel encerrar o atendimento agora",
+      logPrefix: "Falha ao encerrar atendimento",
+    });
   }
 });
 
 // Chamar garçom
 app.post("/api/chamadas", acaoMesaRateLimit, async (req, res) => {
   try {
-    const { mesa_id, motivo, nome_cliente, restaurante_slug } = req.body;
+    const { mesa_id, motivo, nome_cliente, restaurante_slug } = validateBody(
+      req,
+      chamadaBodySchema,
+    );
     const contexto = await buscarRestauranteDaMesa(
       mesa_id,
       restaurante_slug || "autenix",
@@ -2312,13 +2434,17 @@ app.post("/api/chamadas", acaoMesaRateLimit, async (req, res) => {
     });
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel chamar o garcom agora",
+      logPrefix: "Falha ao criar chamada",
+    });
   }
 });
 
 // Atender chamada
 app.patch("/api/chamadas/:id/atender", autenticarJWT, autorizarRoles("garcom", "cozinha"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     await tenantQuery(
       req.user.restaurante_id,
       `UPDATE chamadas SET atendida = 1
@@ -2330,7 +2456,10 @@ app.patch("/api/chamadas/:id/atender", autenticarJWT, autorizarRoles("garcom", "
     });
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel atender a chamada agora",
+      logPrefix: "Falha ao atender chamada",
+    });
   }
 });
 
@@ -2349,13 +2478,17 @@ app.get("/api/chamadas", autenticarJWT, autorizarRoles("garcom", "cozinha"), asy
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel listar as chamadas agora",
+      logPrefix: "Falha ao listar chamadas",
+    });
   }
 });
 
 // QR Code por mesa
 app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("garcom"), async (req, res) => {
   try {
+    validateParams(req, mesaIdParamSchema);
     const resultado = await criarSessaoMesa(
       req.user.restaurante_id,
       req.params.mesa_id,
@@ -2368,7 +2501,10 @@ app.get("/api/qrcode/:mesa_id", autenticarJWT, autorizarRoles("garcom"), async (
     emitirEquipe(req.user.restaurante_id, "mesa_atualizada", resposta.mesa);
     res.json(resposta);
   } catch (e) {
-    res.status(e.statusCode || 500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel gerar o QR Code agora",
+      logPrefix: "Falha ao gerar QR Code",
+    });
   }
 });
 
@@ -3207,11 +3343,12 @@ app.post(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
+      const payload = validateBody(req, importacaoBodySchema);
       const analise = await withTenantTransaction(
         req.user.restaurante_id,
         (client, restauranteId) =>
-          analisarImportacao(client, restauranteId, req.body, {
-            permitirImagemLocal: req.body?.tipo === "produtos",
+          analisarImportacao(client, restauranteId, payload, {
+            permitirImagemLocal: payload.tipo === "produtos",
           }),
       );
       return res.json(analise);
@@ -3219,7 +3356,10 @@ app.post(
       if (error instanceof ImportacaoValidationError) {
         return res.status(error.statusCode).json({ erro: error.message });
       }
-      return res.status(500).json({ erro: "Nao foi possivel validar a importacao" });
+      return safeErrorResponse(res, error, {
+        fallbackMessage: "Nao foi possivel validar a importacao",
+        logPrefix: "Falha ao validar importacao",
+      });
     }
   },
 );
@@ -3230,10 +3370,11 @@ app.post(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
+      const payload = validateBody(req, importacaoBodySchema);
       const resultado = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
-          const analise = await analisarImportacao(client, restauranteId, req.body);
+          const analise = await analisarImportacao(client, restauranteId, payload);
           if (!analise.pode_executar) {
             const erro = new ImportacaoValidationError(
               analise.erros[0] || "Corrija as linhas invalidas antes de importar",
@@ -3245,7 +3386,7 @@ app.post(
             client,
             restauranteId,
             analise,
-            { payload: req.body, usuario: req.user },
+            { payload, usuario: req.user },
           );
           return { analise, importacao };
         },
@@ -3268,10 +3409,9 @@ app.post(
       if (error.code === "23505") {
         return res.status(409).json({ erro: "Registro duplicado na importacao" });
       }
-      console.error("Falha na importacao:", error.message);
-      return res.status(500).json({
-        erro: "Nao foi possivel executar a importacao",
-        ...(isProduction ? {} : { detalhe: error.message }),
+      return safeErrorResponse(res, error, {
+        fallbackMessage: "Nao foi possivel executar a importacao",
+        logPrefix: "Falha na importacao",
       });
     }
   },
@@ -3283,7 +3423,7 @@ app.get(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
-      const limite = Math.min(Math.max(Number.parseInt(req.query.limite, 10) || 20, 1), 50);
+      const { limite = 20 } = validateQuery(req, importacaoHistoricoQuerySchema);
       const historico = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
@@ -3305,8 +3445,10 @@ app.get(
       );
       return res.json({ historico });
     } catch (error) {
-      console.error("Falha ao listar importacoes:", error.message);
-      return res.status(500).json({ erro: "Nao foi possivel carregar o historico" });
+      return safeErrorResponse(res, error, {
+        fallbackMessage: "Nao foi possivel carregar o historico",
+        logPrefix: "Falha ao listar importacoes",
+      });
     }
   },
 );
@@ -3317,10 +3459,7 @@ app.get(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
-      const importacaoId = Number(req.params.id);
-      if (!Number.isInteger(importacaoId) || importacaoId <= 0) {
-        return res.status(400).json({ erro: "Importacao invalida" });
-      }
+      const { id: importacaoId } = validateParams(req, idParamSchema);
       const detalhe = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
@@ -3349,8 +3488,10 @@ app.get(
       if (!detalhe) return res.status(404).json({ erro: "Importacao nao encontrada" });
       return res.json(detalhe);
     } catch (error) {
-      console.error("Falha ao detalhar importacao:", error.message);
-      return res.status(500).json({ erro: "Nao foi possivel carregar a importacao" });
+      return safeErrorResponse(res, error, {
+        fallbackMessage: "Nao foi possivel carregar a importacao",
+        logPrefix: "Falha ao detalhar importacao",
+      });
     }
   },
 );
@@ -3361,10 +3502,7 @@ app.post(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
-      const importacaoId = Number(req.params.id);
-      if (!Number.isInteger(importacaoId) || importacaoId <= 0) {
-        return res.status(400).json({ erro: "Importacao invalida" });
-      }
+      const { id: importacaoId } = validateParams(req, idParamSchema);
       const importacao = await withTenantTransaction(
         req.user.restaurante_id,
         (client, restauranteId) => executarRollbackImportacao(
@@ -3392,8 +3530,10 @@ app.post(
           erro: "Nao e possivel restaurar porque os dados anteriores agora estao em uso",
         });
       }
-      console.error("Falha no rollback da importacao:", error.message);
-      return res.status(500).json({ erro: "Nao foi possivel desfazer a importacao" });
+      return safeErrorResponse(res, error, {
+        fallbackMessage: "Nao foi possivel desfazer a importacao",
+        logPrefix: "Falha no rollback da importacao",
+      });
     }
   },
 );
@@ -4621,6 +4761,9 @@ async function executarRollbackImportacao(
 }
 
 function responderErroPlataforma(res, error) {
+  if (error?.name === "RequestValidationError") {
+    return safeErrorResponse(res, error);
+  }
   if (
     error instanceof TenantValidationError
     || error instanceof BrandingValidationError
@@ -4670,13 +4813,10 @@ app.post(
 );
 
 app.post("/api/platform/auth/login", loginRateLimit, async (req, res) => {
-  const login = normalizarLogin(req.body?.login);
-  const senha = String(req.body?.senha || "");
-  if (!login || !senha) {
-    return res.status(400).json({ erro: "Login e senha sao obrigatorios" });
-  }
-
   try {
+    const loginPayload = validateBody(req, loginBodySchema);
+    const login = normalizarLogin(loginPayload.login);
+    const senha = loginPayload.senha;
     const { rows } = await query(
       `SELECT id, nome, login, senha, role, ativo
        FROM platform_usuarios
@@ -5117,9 +5257,8 @@ app.patch("/api/platform/minha-senha", autenticarPlataforma, async (req, res) =>
 // ─── USUARIOS DOS RESTAURANTES ────────────────────────────────────────────
 
 app.post("/api/auth/login", loginRateLimit, async (req, res) => {
-  const { login, senha, restaurante_slug } = req.body;
-  if (!login || !senha) return res.status(400).json({ erro: "Dados incompletos" });
   try {
+    const { login, senha, restaurante_slug } = validateBody(req, loginBodySchema);
     const restaurante = await buscarRestaurantePorSlug(restaurante_slug || "autenix");
     if (!restaurante) {
       return res.status(401).json({ erro: "Restaurante, login ou senha incorretos" });
@@ -5160,7 +5299,10 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
       expires_in: JWT_EXPIRES_IN,
     });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel fazer login agora",
+      logPrefix: "Falha no login do restaurante",
+    });
   }
 });
 
@@ -5181,7 +5323,10 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ erro: "Restaurante nao encontrado" });
     return res.json(rows[0]);
   } catch (error) {
-    return res.status(500).json({ erro: error.message });
+    return safeErrorResponse(res, error, {
+      fallbackMessage: "Nao foi possivel carregar o restaurante agora",
+      logPrefix: "Falha ao carregar restaurante autenticado",
+    });
   }
 });
 
@@ -5251,18 +5396,17 @@ app.get("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res
     );
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel listar usuarios agora",
+      logPrefix: "Falha ao listar usuarios",
+    });
   }
 });
 
 app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
-  const { nome, login, senha, role } = req.body;
-  if (!nome || !senha || !role) return res.status(400).json({ erro: "Dados incompletos" });
-  if (!["garcom", "cozinha", "financeiro", "admin"].includes(role))
-    return res.status(400).json({ erro: "Role invalido" });
-
-  const loginFinal = normalizarLogin(login || nome);
   try {
+    const { nome, login, senha, role } = validateBody(req, usuarioCreateBodySchema);
+    const loginFinal = normalizarLogin(login || nome);
     const { rows: existing } = await tenantQuery(
       req.user.restaurante_id,
       `SELECT id FROM usuarios
@@ -5293,13 +5437,17 @@ app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, re
     );
     res.json({ id: rows[0].id, login: loginFinal });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel criar o usuario agora",
+      logPrefix: "Falha ao criar usuario",
+    });
   }
 });
 
 app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { nome, login, senha, ativo, role } = req.body;
+    validateParams(req, idParamSchema);
+    const { nome, login, senha, ativo, role } = validateBody(req, usuarioUpdateBodySchema);
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       "SELECT * FROM usuarios WHERE id = $1 AND restaurante_id = $2",
@@ -5340,12 +5488,16 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
     );
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel editar o usuario agora",
+      logPrefix: "Falha ao editar usuario",
+    });
   }
 });
 
 app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     if (Number(req.params.id) === req.user.id) {
       return res.status(400).json({ erro: "Nao e possivel remover o usuario atual" });
     }
@@ -5356,7 +5508,10 @@ app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (r
     );
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel remover o usuario agora",
+      logPrefix: "Falha ao remover usuario",
+    });
   }
 });
 

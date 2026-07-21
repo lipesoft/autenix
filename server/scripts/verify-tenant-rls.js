@@ -1,8 +1,8 @@
 const path = require("path");
 const { Pool } = require("pg");
 
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
-require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
+require("dotenv").config({ path: path.resolve(__dirname, "../.env"), quiet: true });
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env"), quiet: true });
 
 const TABELAS = [
   "usuarios",
@@ -50,8 +50,8 @@ async function consultarComContexto(client, restauranteId, tabela) {
 }
 
 async function main() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL nao configurada");
+  const databaseUrl = process.env.RLS_DATABASE_URL || process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("RLS_DATABASE_URL ou DATABASE_URL nao configurada");
   const tenantIds = lerTenantIds(process.argv.slice(2));
   const pool = new Pool({
     connectionString: databaseUrl,

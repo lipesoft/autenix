@@ -2,8 +2,8 @@ const path = require("path");
 const { Pool } = require("pg");
 const { provisionarRestaurante } = require("../lib/tenant-provisioning");
 
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
-require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
+require("dotenv").config({ path: path.resolve(__dirname, "../.env"), quiet: true });
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env"), quiet: true });
 
 function lerArgumentos(argumentos) {
   const resultado = {};
