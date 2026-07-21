@@ -14,6 +14,29 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 - Estimativa para escalar com seguranca para muitos restaurantes: 10 a 14
   semanas.
 
+## Prioridade imediata - Higiene operacional antes de pilotos
+
+- Pendente: remover `server/node_modules` do versionamento com
+  `git rm -r --cached server/node_modules`, mantendo `node_modules/` no
+  `.gitignore`, para reduzir clone, diff e ruído de CI.
+- Pendente: centralizar o lookup de restaurante por slug com opcao como
+  `buscarRestaurantePorSlug(slug, { incluirArquivado: true })`, removendo query
+  crua duplicada no fluxo de inicializacao.
+- Pendente: adicionar middleware de log estruturado por request com
+  `timestamp`, `request_id`, `method`, `path`, `status`, `latencia_ms`,
+  `restaurante_id`, `role` e `user_id`, sem registrar body, senha, token,
+  email completo, telefone completo ou segredo.
+
+## Antes dos pilotos pagos - Validacao operacional
+
+- Pendente: testar carga real do polling com 15 a 20 mesas/clientes ativos e
+  paineis de garcom, cozinha, admin e financeiro abertos, medindo invocacoes
+  Vercel, latencia p95, erros 5xx e pressao no pool do Postgres.
+- Pendente: iniciar validacao de entrada centralizada com Zod pelos endpoints
+  mais sensiveis e movimentados: `/api/pedidos`, importacao e reservas.
+- Pendente: criar primeiro fluxo E2E com Playwright para pedido, cozinha,
+  entrega e fechamento de mesa.
+
 ## Prioridade 0 - Seguranca e isolamento
 
 - Implementado: RLS ativado nas tabelas publicas principais do Supabase.
@@ -191,8 +214,8 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 
 ## Prioridade 6 - Observabilidade e operacao
 
-- Pendente: logs estruturados no backend com request id, restaurante_id, role e
-  status da resposta.
+- Prioridade imediata: logs estruturados no backend com request id,
+  restaurante_id, role, status da resposta e latencia.
 - Pendente: monitoramento de erros em producao para frontend e API.
 - Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
   tentativas de login.
@@ -208,6 +231,8 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
   Socket.IO restrito ao dev ou ativado explicitamente por flag.
 - Pendente: evoluir o tempo real para um servico persistente compativel ou para
   Supabase Realtime quando o volume justificar broadcast real entre instancias.
+- Pendente: executar teste de carga sintetico do polling antes dos pilotos pagos
+  para medir custo e pressao no banco com mesas e paineis simultaneos.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
@@ -254,7 +279,8 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 
 ## Pendencias tecnicas paralelas
 
-- Validacao com Zod nos endpoints.
+- Validacao com Zod nos endpoints, com prioridade inicial para pedidos,
+  importacao e reservas.
 - Documentacao operacional para onboarding, suporte, backup e incidentes.
 - Tela interna de suporte para localizar restaurante, usuario, reserva e mesa
   sem acessar dados de outro tenant indevidamente.
