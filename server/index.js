@@ -1871,7 +1871,7 @@ app.get("/api/mesas", autenticarJWT, autorizarRoles("garcom", "financeiro"), asy
               ) AS sessao_ativa
        FROM mesas m
        WHERE m.restaurante_id = $1
-       ORDER BY NULLIF(regexp_replace(m.numero, '[^0-9]', '', 'g'), '')::INTEGER NULLS LAST,
+       ORDER BY NULLIF(regexp_replace(m.numero, '[^0-9]', '', 'g'), '')::BIGINT NULLS LAST,
                 m.numero`,
       [req.user.restaurante_id],
     );
