@@ -2123,21 +2123,33 @@ app.get(
     }
     sql += " ORDER BY p.criado_em DESC";
 
-    const { rows: pedidos } = await tenantQuery(restauranteId, sql, params);
-    const resultado = await Promise.all(
-      pedidos.map(async (p) => {
-        const { rows: itens } = await tenantQuery(
-          restauranteId,
-          `SELECT ip.*, pr.nome, pr.preco
-           FROM itens_pedido ip
-           JOIN produtos pr
-             ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
-           WHERE ip.pedido_id = $1 AND ip.restaurante_id = $2`,
-          [p.id, restauranteId],
-        );
-        return { ...p, itens };
-      })
-    );
+    const resultado = await withTenantTransaction(restauranteId, async (client) => {
+      const { rows: pedidos } = await client.query(sql, params);
+      if (!pedidos.length) return [];
+
+      const pedidoIds = pedidos.map((pedido) => pedido.id);
+      const { rows: itens } = await client.query(
+        `SELECT ip.*, pr.nome, pr.preco
+         FROM itens_pedido ip
+         JOIN produtos pr
+           ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+         WHERE ip.restaurante_id = $1
+           AND ip.pedido_id = ANY($2::INTEGER[])
+         ORDER BY ip.id`,
+        [restauranteId, pedidoIds],
+      );
+      const itensPorPedido = new Map();
+      for (const item of itens) {
+        if (!itensPorPedido.has(item.pedido_id)) {
+          itensPorPedido.set(item.pedido_id, []);
+        }
+        itensPorPedido.get(item.pedido_id).push(item);
+      }
+      return pedidos.map((pedido) => ({
+        ...pedido,
+        itens: itensPorPedido.get(pedido.id) || [],
+      }));
+    });
     res.json(resultado);
   } catch (e) {
     return safeErrorResponse(res, e, {
