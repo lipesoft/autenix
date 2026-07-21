@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   montarDiagnosticoOperacional,
+  somarDiagnosticosTenant,
   statusDiagnostico,
 } = require("../lib/operational-diagnostics");
 
@@ -48,4 +49,31 @@ test("classifica alertas operacionais por severidade", () => {
   assert.equal(diagnostico.status, "attention");
   assert.ok(diagnostico.alertas.some((alerta) => alerta.codigo === "expired_table_sessions"));
   assert.ok(diagnostico.alertas.some((alerta) => alerta.codigo === "reservation_notifications_failed"));
+});
+
+test("soma diagnosticos por tenant sem depender de leitura global", () => {
+  const resumo = somarDiagnosticosTenant([
+    {
+      sessoes_mesa_ativas: "2",
+      reservas_fila: "1",
+      notificacoes_erro: "1",
+      importacoes_invalidos_24h: "3",
+      pedidos_abertos: "4",
+    },
+    {
+      sessoes_mesa_ativas: 1,
+      reservas_fila: 2,
+      notificacoes_erro: 0,
+      importacoes_invalidos_24h: 5,
+      pedidos_abertos: 6,
+      pedidos_finalizados_24h: 7,
+    },
+  ]);
+
+  assert.equal(resumo.sessoesMesa.ativas, 3);
+  assert.equal(resumo.reservas.fila, 3);
+  assert.equal(resumo.notificacoes.erro, 1);
+  assert.equal(resumo.importacoes.invalidos_24h, 8);
+  assert.equal(resumo.pedidos.abertos, 10);
+  assert.equal(resumo.pedidos.finalizados_24h, 7);
 });

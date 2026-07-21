@@ -9,6 +9,47 @@ function normalizarContadores(row = {}, campos = []) {
   );
 }
 
+function somarContadoresTenant(rows = [], mapa = {}) {
+  return Object.fromEntries(
+    Object.entries(mapa).map(([campo, origem]) => [
+      campo,
+      rows.reduce((total, row) => total + inteiro(row?.[origem]), 0),
+    ]),
+  );
+}
+
+function somarDiagnosticosTenant(rows = []) {
+  return {
+    sessoesMesa: somarContadoresTenant(rows, {
+      ativas: "sessoes_mesa_ativas",
+      expiradas_pendentes: "sessoes_mesa_expiradas_pendentes",
+      encerradas_24h: "sessoes_mesa_encerradas_24h",
+    }),
+    reservas: somarContadoresTenant(rows, {
+      pendentes: "reservas_pendentes",
+      confirmadas: "reservas_confirmadas",
+      fila: "reservas_fila",
+      chamadas: "reservas_chamadas",
+      atrasadas: "reservas_atrasadas",
+    }),
+    notificacoes: somarContadoresTenant(rows, {
+      pendentes: "notificacoes_pendentes",
+      erro: "notificacoes_erro",
+      sem_provedor: "notificacoes_sem_provedor",
+      antigas: "notificacoes_antigas",
+    }),
+    importacoes: somarContadoresTenant(rows, {
+      ultimas_24h: "importacoes_ultimas_24h",
+      revertidas_24h: "importacoes_revertidas_24h",
+      invalidos_24h: "importacoes_invalidos_24h",
+    }),
+    pedidos: somarContadoresTenant(rows, {
+      abertos: "pedidos_abertos",
+      finalizados_24h: "pedidos_finalizados_24h",
+    }),
+  };
+}
+
 function montarAlertasDiagnostico(diagnostico) {
   const alertas = [];
 
@@ -140,5 +181,6 @@ function montarDiagnosticoOperacional({
 module.exports = {
   montarAlertasDiagnostico,
   montarDiagnosticoOperacional,
+  somarDiagnosticosTenant,
   statusDiagnostico,
 };

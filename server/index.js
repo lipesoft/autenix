@@ -119,7 +119,10 @@ const {
   validateParams,
   validateQuery,
 } = require("./lib/http-validation");
-const { montarDiagnosticoOperacional } = require("./lib/operational-diagnostics");
+const {
+  montarDiagnosticoOperacional,
+  somarDiagnosticosTenant,
+} = require("./lib/operational-diagnostics");
 const {
   cancelarItemBodySchema,
   chamadaBodySchema,
@@ -5020,20 +5023,101 @@ app.get("/api/platform/comercial", autenticarPlataforma, async (req, res) => {
   }
 });
 
+async function carregarDiagnosticoOperacionalTenant(restauranteId) {
+  return withTenantTransaction(restauranteId, async (client, tenantId) => {
+    const { rows } = await client.query(
+      `SELECT
+         (SELECT count(*)::integer
+          FROM sessoes_mesa
+          WHERE restaurante_id = $1
+            AND status = 'ativa'
+            AND expira_em > CURRENT_TIMESTAMP) AS sessoes_mesa_ativas,
+         (SELECT count(*)::integer
+          FROM sessoes_mesa
+          WHERE restaurante_id = $1
+            AND status = 'ativa'
+            AND expira_em <= CURRENT_TIMESTAMP) AS sessoes_mesa_expiradas_pendentes,
+         (SELECT count(*)::integer
+          FROM sessoes_mesa
+          WHERE restaurante_id = $1
+            AND status <> 'ativa'
+            AND encerrado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS sessoes_mesa_encerradas_24h,
+         (SELECT count(*)::integer
+          FROM reservas
+          WHERE restaurante_id = $1
+            AND status = 'pendente') AS reservas_pendentes,
+         (SELECT count(*)::integer
+          FROM reservas
+          WHERE restaurante_id = $1
+            AND status = 'confirmada') AS reservas_confirmadas,
+         (SELECT count(*)::integer
+          FROM reservas
+          WHERE restaurante_id = $1
+            AND status = 'fila') AS reservas_fila,
+         (SELECT count(*)::integer
+          FROM reservas
+          WHERE restaurante_id = $1
+            AND status = 'chamada') AS reservas_chamadas,
+         (SELECT count(*)::integer
+          FROM reservas
+          WHERE restaurante_id = $1
+            AND status NOT IN ('cancelada', 'concluida')
+            AND data_reserva < CURRENT_DATE) AS reservas_atrasadas,
+         (SELECT count(*)::integer
+          FROM reservas_notificacoes
+          WHERE restaurante_id = $1
+            AND status = 'pendente') AS notificacoes_pendentes,
+         (SELECT count(*)::integer
+          FROM reservas_notificacoes
+          WHERE restaurante_id = $1
+            AND status = 'erro') AS notificacoes_erro,
+         (SELECT count(*)::integer
+          FROM reservas_notificacoes
+          WHERE restaurante_id = $1
+            AND status = 'sem_provedor') AS notificacoes_sem_provedor,
+         (SELECT count(*)::integer
+          FROM reservas_notificacoes
+          WHERE restaurante_id = $1
+            AND status IN ('pendente', 'erro')
+            AND criado_em < CURRENT_TIMESTAMP - INTERVAL '1 hour') AS notificacoes_antigas,
+         (SELECT count(*)::integer
+          FROM importacoes
+          WHERE restaurante_id = $1
+            AND criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS importacoes_ultimas_24h,
+         (SELECT count(*)::integer
+          FROM importacoes
+          WHERE restaurante_id = $1
+            AND revertido_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS importacoes_revertidas_24h,
+         COALESCE(
+           (SELECT sum(invalidos)
+            FROM importacoes
+            WHERE restaurante_id = $1
+              AND criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours'),
+           0
+         )::integer AS importacoes_invalidos_24h,
+         (SELECT count(*)::integer
+          FROM pedidos
+          WHERE restaurante_id = $1
+            AND status <> 'finalizado') AS pedidos_abertos,
+         (SELECT count(*)::integer
+          FROM pedidos
+          WHERE restaurante_id = $1
+            AND status = 'finalizado'
+            AND finalizado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS pedidos_finalizados_24h`,
+      [tenantId],
+    );
+
+    return rows[0] || {};
+  });
+}
+
 app.get("/api/platform/diagnostico", autenticarPlataforma, async (req, res) => {
   try {
     const startedAt = process.hrtime.bigint();
     await query("SELECT 1");
     const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
 
-    const [
-      restaurantes,
-      sessoesMesa,
-      reservas,
-      notificacoes,
-      importacoes,
-      pedidos,
-    ] = await Promise.all([
+    const [restaurantes, restaurantesAtivos] = await Promise.all([
       query(
         `SELECT
            count(*)::integer AS total,
@@ -5043,49 +5127,19 @@ app.get("/api/platform/diagnostico", autenticarPlataforma, async (req, res) => {
          FROM restaurantes`,
       ),
       query(
-        `SELECT
-           count(*) FILTER (WHERE status = 'ativa' AND expira_em > CURRENT_TIMESTAMP)::integer AS ativas,
-           count(*) FILTER (WHERE status = 'ativa' AND expira_em <= CURRENT_TIMESTAMP)::integer AS expiradas_pendentes,
-           count(*) FILTER (WHERE status <> 'ativa' AND encerrado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS encerradas_24h
-         FROM sessoes_mesa`,
-      ),
-      query(
-        `SELECT
-           count(*) FILTER (WHERE status = 'pendente')::integer AS pendentes,
-           count(*) FILTER (WHERE status = 'confirmada')::integer AS confirmadas,
-           count(*) FILTER (WHERE status = 'fila')::integer AS fila,
-           count(*) FILTER (WHERE status = 'chamada')::integer AS chamadas,
-           count(*) FILTER (
-             WHERE status NOT IN ('cancelada', 'concluida')
-               AND data_reserva < CURRENT_DATE
-           )::integer AS atrasadas
-         FROM reservas`,
-      ),
-      query(
-        `SELECT
-           count(*) FILTER (WHERE status = 'pendente')::integer AS pendentes,
-           count(*) FILTER (WHERE status = 'erro')::integer AS erro,
-           count(*) FILTER (WHERE status = 'sem_provedor')::integer AS sem_provedor,
-           count(*) FILTER (
-             WHERE status IN ('pendente', 'erro')
-               AND criado_em < CURRENT_TIMESTAMP - INTERVAL '1 hour'
-           )::integer AS antigas
-         FROM reservas_notificacoes`,
-      ),
-      query(
-        `SELECT
-           count(*) FILTER (WHERE criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS ultimas_24h,
-           count(*) FILTER (WHERE revertido_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS revertidas_24h,
-           COALESCE(sum(invalidos) FILTER (WHERE criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours'), 0)::integer AS invalidos_24h
-         FROM importacoes`,
-      ),
-      query(
-        `SELECT
-           count(*) FILTER (WHERE status <> 'finalizado')::integer AS abertos,
-           count(*) FILTER (WHERE status = 'finalizado' AND finalizado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS finalizados_24h
-         FROM pedidos`,
+        `SELECT id
+         FROM restaurantes
+         WHERE ativo = 1
+           AND excluido_em IS NULL
+         ORDER BY id`,
       ),
     ]);
+
+    const linhasTenant = [];
+    for (const restaurante of restaurantesAtivos.rows) {
+      linhasTenant.push(await carregarDiagnosticoOperacionalTenant(restaurante.id));
+    }
+    const resumoTenant = somarDiagnosticosTenant(linhasTenant);
 
     return res.json(montarDiagnosticoOperacional({
       app: "autenix-api",
@@ -5097,11 +5151,7 @@ app.get("/api/platform/diagnostico", autenticarPlataforma, async (req, res) => {
       },
       storage: storageReadiness(),
       restaurantes: restaurantes.rows[0],
-      sessoesMesa: sessoesMesa.rows[0],
-      reservas: reservas.rows[0],
-      notificacoes: notificacoes.rows[0],
-      importacoes: importacoes.rows[0],
-      pedidos: pedidos.rows[0],
+      ...resumoTenant,
     }));
   } catch (error) {
     return responderErroPlataforma(res, error);
