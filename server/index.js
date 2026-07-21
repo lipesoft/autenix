@@ -1,5 +1,6 @@
 const express = require("express");
 const http = require("http");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const { Pool } = require("pg");
 const cors = require("cors");
@@ -187,6 +188,7 @@ if (isProduction || process.env.TRUST_PROXY === "true") {
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
+app.use(registrarLogRequisicao);
 
 app.get("/api/health", async (req, res) => {
   try {
@@ -204,6 +206,7 @@ app.get("/api/restaurantes/:slug/publico", leituraPublicaRateLimit, async (req, 
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
+    registrarRestauranteRequest(req, restaurante);
     return res.json(marcaPublica(restaurante));
   } catch (error) {
     return res.status(500).json({ erro: error.message });
@@ -265,6 +268,61 @@ function limitarSeSemUsuario(limitador) {
     if (req.user) return next();
     return limitador(req, res, next);
   };
+}
+
+function gerarRequestId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function caminhoRequest(req) {
+  return String(req.originalUrl || req.url || req.path || "").split("?")[0] || "/";
+}
+
+function registrarRestauranteRequest(req, contexto) {
+  const restaurante = contexto?.restaurante || contexto;
+  if (!restaurante?.id) return;
+  req.restauranteId = restaurante.id;
+  req.restauranteSlug = restaurante.slug || req.restauranteSlug || null;
+}
+
+function registrarLogRequisicao(req, res, next) {
+  const startedAt = process.hrtime.bigint();
+  const headerRequestId = req.headers["x-request-id"];
+  req.requestId = String(
+    Array.isArray(headerRequestId) ? headerRequestId[0] : headerRequestId || gerarRequestId(),
+  );
+  res.setHeader("X-Request-Id", req.requestId);
+
+  res.on("finish", () => {
+    const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const usuario = req.user || req.platformUser || null;
+    const payload = {
+      timestamp: new Date().toISOString(),
+      type: "http_request",
+      request_id: req.requestId,
+      method: req.method,
+      route: req.route?.path || caminhoRequest(req),
+      path: caminhoRequest(req),
+      status: res.statusCode,
+      latency_ms: Number(latencyMs.toFixed(1)),
+      restaurante_id: req.user?.restaurante_id || req.restauranteId || null,
+      role: req.user?.role || req.platformUser?.role || null,
+      user_id: usuario?.id || null,
+      scope: req.platformUser ? "platform" : req.user ? "tenant" : "public",
+    };
+    const linha = JSON.stringify(payload);
+
+    if (res.statusCode >= 500) {
+      console.error(linha);
+    } else if (res.statusCode >= 400) {
+      console.warn(linha);
+    } else {
+      console.log(linha);
+    }
+  });
+
+  return next();
 }
 
 // ─── BANCO DE DADOS (PostgreSQL) ───────────────────────────────────────────
@@ -1670,6 +1728,7 @@ app.get("/api/cardapio", leituraPublicaRateLimit, async (req, res) => {
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
+    registrarRestauranteRequest(req, restaurante);
     const { rows: categorias } = await tenantQuery(
       restaurante.id,
       `SELECT id, nome, ordem, ativo, restaurante_id
@@ -1728,6 +1787,7 @@ app.get("/api/mesas/:id", leituraMesaRateLimit, async (req, res) => {
       req.query.restaurante_slug || "autenix",
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
+    registrarRestauranteRequest(req, contexto);
     await validarSessaoMesaRequest(req, contexto);
     res.json({
       ...contexto.mesa,
@@ -1802,6 +1862,7 @@ app.post(
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa não encontrada" });
 
+    registrarRestauranteRequest(req, contexto);
     const restauranteId = contexto.restaurante.id;
     const origemPedido = origemCriacaoPedido(req.user, restauranteId);
     const itensValidos = itens.every(
@@ -1912,6 +1973,7 @@ app.get(
       if (!contexto) {
         return res.status(404).json({ erro: "Mesa nao encontrada" });
       }
+      registrarRestauranteRequest(req, contexto);
       await validarSessaoMesaRequest(req, contexto);
       restauranteId = contexto?.restaurante.id;
     }
@@ -2053,6 +2115,7 @@ app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
     if (!contexto) {
       return res.status(404).json({ erro: "Mesa nao encontrada" });
     }
+    registrarRestauranteRequest(req, contexto);
     await validarSessaoMesaRequest(req, contexto);
 
     const { rows } = await tenantQuery(
@@ -2224,6 +2287,7 @@ app.post("/api/chamadas", acaoMesaRateLimit, async (req, res) => {
       restaurante_slug || "autenix",
     );
     if (!contexto) return res.status(404).json({ erro: "Mesa nao encontrada" });
+    registrarRestauranteRequest(req, contexto);
     await validarSessaoMesaRequest(req, contexto);
 
     const { rows } = await tenantQuery(
@@ -2316,6 +2380,7 @@ app.post("/api/reservas", criarReservaRateLimit, async (req, res) => {
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
+    registrarRestauranteRequest(req, restaurante);
 
     const dados = normalizarCriacaoReserva(req.body, { origem: "publica" });
     const resultado = await withTenantTransaction(
@@ -2410,6 +2475,7 @@ app.get(
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
+    registrarRestauranteRequest(req, restaurante);
 
     const codigo = String(req.params.codigo || "").trim();
     if (!/^[A-Za-z0-9_-]{8,40}$/.test(codigo)) {
@@ -2454,6 +2520,7 @@ app.get(
     if (!restaurante) {
       return res.status(404).json({ erro: "Restaurante nao encontrado" });
     }
+    registrarRestauranteRequest(req, restaurante);
 
     const resposta = await withTenantTransaction(
       restaurante.id,
@@ -5057,6 +5124,7 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
     if (!restaurante) {
       return res.status(401).json({ erro: "Restaurante, login ou senha incorretos" });
     }
+    registrarRestauranteRequest(req, restaurante);
     const loginNormalizado = normalizarLogin(login);
     const { rows } = await tenantQuery(
       restaurante.id,
