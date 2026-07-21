@@ -119,6 +119,7 @@ const {
   validateParams,
   validateQuery,
 } = require("./lib/http-validation");
+const { montarDiagnosticoOperacional } = require("./lib/operational-diagnostics");
 const {
   cancelarItemBodySchema,
   chamadaBodySchema,
@@ -5014,6 +5015,94 @@ app.get("/api/platform/comercial", autenticarPlataforma, async (req, res) => {
       alertas,
       restaurantes,
     });
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
+app.get("/api/platform/diagnostico", autenticarPlataforma, async (req, res) => {
+  try {
+    const startedAt = process.hrtime.bigint();
+    await query("SELECT 1");
+    const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+    const [
+      restaurantes,
+      sessoesMesa,
+      reservas,
+      notificacoes,
+      importacoes,
+      pedidos,
+    ] = await Promise.all([
+      query(
+        `SELECT
+           count(*)::integer AS total,
+           count(*) FILTER (WHERE ativo = 1 AND excluido_em IS NULL)::integer AS ativos,
+           count(*) FILTER (WHERE ativo <> 1 AND excluido_em IS NULL)::integer AS inativos,
+           count(*) FILTER (WHERE excluido_em IS NOT NULL)::integer AS arquivados
+         FROM restaurantes`,
+      ),
+      query(
+        `SELECT
+           count(*) FILTER (WHERE status = 'ativa' AND expira_em > CURRENT_TIMESTAMP)::integer AS ativas,
+           count(*) FILTER (WHERE status = 'ativa' AND expira_em <= CURRENT_TIMESTAMP)::integer AS expiradas_pendentes,
+           count(*) FILTER (WHERE status <> 'ativa' AND encerrado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS encerradas_24h
+         FROM sessoes_mesa`,
+      ),
+      query(
+        `SELECT
+           count(*) FILTER (WHERE status = 'pendente')::integer AS pendentes,
+           count(*) FILTER (WHERE status = 'confirmada')::integer AS confirmadas,
+           count(*) FILTER (WHERE status = 'fila')::integer AS fila,
+           count(*) FILTER (WHERE status = 'chamada')::integer AS chamadas,
+           count(*) FILTER (
+             WHERE status NOT IN ('cancelada', 'concluida')
+               AND data_reserva < CURRENT_DATE
+           )::integer AS atrasadas
+         FROM reservas`,
+      ),
+      query(
+        `SELECT
+           count(*) FILTER (WHERE status = 'pendente')::integer AS pendentes,
+           count(*) FILTER (WHERE status = 'erro')::integer AS erro,
+           count(*) FILTER (WHERE status = 'sem_provedor')::integer AS sem_provedor,
+           count(*) FILTER (
+             WHERE status IN ('pendente', 'erro')
+               AND criado_em < CURRENT_TIMESTAMP - INTERVAL '1 hour'
+           )::integer AS antigas
+         FROM reservas_notificacoes`,
+      ),
+      query(
+        `SELECT
+           count(*) FILTER (WHERE criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS ultimas_24h,
+           count(*) FILTER (WHERE revertido_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS revertidas_24h,
+           COALESCE(sum(invalidos) FILTER (WHERE criado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours'), 0)::integer AS invalidos_24h
+         FROM importacoes`,
+      ),
+      query(
+        `SELECT
+           count(*) FILTER (WHERE status <> 'finalizado')::integer AS abertos,
+           count(*) FILTER (WHERE status = 'finalizado' AND finalizado_em >= CURRENT_TIMESTAMP - INTERVAL '24 hours')::integer AS finalizados_24h
+         FROM pedidos`,
+      ),
+    ]);
+
+    return res.json(montarDiagnosticoOperacional({
+      app: "autenix-api",
+      version: APP_VERSION,
+      environment: process.env.NODE_ENV || "development",
+      database: {
+        status: "ok",
+        latency_ms: Number(latencyMs.toFixed(1)),
+      },
+      storage: storageReadiness(),
+      restaurantes: restaurantes.rows[0],
+      sessoesMesa: sessoesMesa.rows[0],
+      reservas: reservas.rows[0],
+      notificacoes: notificacoes.rows[0],
+      importacoes: importacoes.rows[0],
+      pedidos: pedidos.rows[0],
+    }));
   } catch (error) {
     return responderErroPlataforma(res, error);
   }
