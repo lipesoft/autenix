@@ -346,18 +346,23 @@ function normalizarSlug(valor) {
     .replace(/^-+|-+$/g, "");
 }
 
-async function buscarRestaurantePorSlug(slugInformado) {
+async function buscarRestaurantePorSlug(slugInformado, options = {}) {
   const slug = normalizarSlug(slugInformado || "autenix");
   if (!slug) return null;
+  const incluirArquivado = options.incluirArquivado === true;
+  const incluirInativo = options.incluirInativo === true || incluirArquivado;
+
   const { rows } = await query(
     `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
             logo_url, cor_primaria, cor_secundaria,
-            cor_texto_principal, cor_texto_secundario,
-            cor_titulo, cor_texto_inverso, whatsapp_numero
+            cor_texto_principal, cor_texto_secundario, cor_titulo,
+            cor_texto_inverso, whatsapp_numero, excluido_em
      FROM restaurantes
-     WHERE slug = $1 AND ativo = 1
+     WHERE slug = $1
+       AND ($2::boolean OR ativo = 1)
+       AND ($3::boolean OR excluido_em IS NULL)
      LIMIT 1`,
-    [slug],
+    [slug, incluirInativo, incluirArquivado],
   );
   return rows[0] || null;
 }
@@ -945,13 +950,13 @@ async function initDB() {
       WHERE salao_id IS NOT NULL;
   `);
 
-  const { rows: restaurantesPadrao } = await query(
-    "SELECT id FROM restaurantes WHERE slug = 'autenix' LIMIT 1",
-  );
-  if (!restaurantesPadrao[0]) {
+  const restaurantePadrao = await buscarRestaurantePorSlug("autenix", {
+    incluirArquivado: true,
+  });
+  if (!restaurantePadrao) {
     throw new Error("Execute npm run migrate antes de iniciar o backend");
   }
-  const restauranteId = restaurantesPadrao[0].id;
+  const restauranteId = restaurantePadrao.id;
 
   await query(`
     CREATE TABLE IF NOT EXISTS sessoes_mesa (
