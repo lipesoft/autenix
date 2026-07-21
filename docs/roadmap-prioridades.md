@@ -38,17 +38,20 @@ comercial, notificacoes e higiene operacional inicial.
 - Implementado: scripts k6 separados para carga leve, piloto e pico controlado
   do polling, com bloqueio obrigatorio para producao sem
   `ALLOW_PRODUCTION_LOAD_TEST=true`.
-- Pendente: executar carga real do polling com 15 a 20 mesas/clientes ativos e
-  paineis de garcom, cozinha, admin e financeiro abertos, medindo invocacoes
-  Vercel, latencia p95, erros 5xx, 429 e pressao no pool do Postgres.
+- Implementado: executada carga real de polling autenticado em producao com
+  tenant de validacao, sessao segura de mesa e tokens de admin, garcom,
+  cozinha e financeiro. Resultado do perfil piloto: 1.723 requisicoes,
+  28,33 RPS, 0 erros, 0 respostas 5xx, 0 respostas 429, p95 global de
+  1030 ms e p99 global de 1416 ms.
 - Parcial: validacao de entrada centralizada com Zod iniciada nos endpoints de
   pedidos, itens, chamadas, fechamento de mesa, importacao, autenticacao,
   usuarios e parametros de mesa/QR.
 - Implementado: base Playwright com cinco specs E2E para fluxo operacional,
   seguranca de sessao de mesa, isolamento multi-tenant, reservas e importacao,
   protegidas por `E2E_ALLOW_WRITE=true` e variaveis de ambiente.
-- Pendente: executar a suite E2E completa contra staging/controlado com
-  credenciais reais de dois restaurantes.
+- Implementado: suite E2E completa executada contra producao controlada com
+  dois restaurantes de validacao, cobrindo fluxo operacional, sessao de mesa,
+  isolamento multi-tenant, reservas e importacao.
 
 ## Prioridade 0 - Seguranca e isolamento
 
@@ -237,9 +240,12 @@ comercial, notificacoes e higiene operacional inicial.
 - Implementado: rotina manual `npm run ops:cleanup`, com dry-run por padrao,
   lock de concorrencia, execucao por tenant e expiracao idempotente de sessoes
   de mesa vencidas.
+- Implementado: monitor sintetico `npm run ops:health` para API, readiness e
+  frontend, com saida JSON e exit code para cron, CI ou monitor externo.
 - Implementado: documentacao operacional em `docs/entrega-piloto.md` com
   checklist de entrega, onboarding, suporte, backup/restore e incidentes.
-- Pendente: monitoramento de erros em producao para frontend e API.
+- Parcial: monitoramento de erros em producao validado por Runtime Errors da
+  Vercel durante a entrega; ainda falta configurar alerta externo recorrente.
 - Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
   tentativas de login.
 - Pendente: painel tecnico simples para saude da API, banco, fila de sessoes e
@@ -258,16 +264,16 @@ comercial, notificacoes e higiene operacional inicial.
   Supabase Realtime quando o volume justificar broadcast real entre instancias.
 - Implementado: scripts de teste de carga sintetico do polling com k6 para
   perfis leve, piloto e pico controlado.
-- Pendente: executar o teste de carga antes dos pilotos pagos para medir custo
-  e pressao no banco com mesas e paineis simultaneos.
+- Implementado: teste de carga autenticado de piloto executado em producao
+  controlada com paineis simultaneos e sessao publica de mesa.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
 - Implementado: lint antigo do frontend resolvido; `npm run lint` passa sem
   erros ou avisos e pode ser usado como quality gate em CI.
-- Parcial: testes E2E com Playwright adicionados para login operacional,
-  pedidos, fechamento de mesa, reservas, importacao e isolamento multi-tenant;
-  execucao completa depende de credenciais `E2E_*` em ambiente controlado.
+- Implementado: testes E2E com Playwright adicionados e executados com
+  credenciais temporarias em ambiente controlado, cobrindo login operacional,
+  pedidos, fechamento de mesa, reservas, importacao e isolamento multi-tenant.
 - Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
   ao editar categoria/produto.
 - Pendente: revisar pool de conexoes e estrategia de conexao no Supabase para
