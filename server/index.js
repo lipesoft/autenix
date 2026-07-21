@@ -579,7 +579,7 @@ async function validarSessaoMesa(restauranteId, mesaId, token, client = null) {
   const mesaIdNumero = Number(mesaId);
   const executar = queryTenantComCliente(tenantId, client);
   const { rows } = await executar(
-    `SELECT id, status, expira_em
+    `SELECT id, status, expira_em, ultimo_acesso_em
      FROM sessoes_mesa
      WHERE restaurante_id = $1
        AND mesa_id = $2
@@ -604,12 +604,17 @@ async function validarSessaoMesa(restauranteId, mesaId, token, client = null) {
     throw erroSessaoMesa();
   }
 
-  await executar(
-    `UPDATE sessoes_mesa
-     SET ultimo_acesso_em = CURRENT_TIMESTAMP
-     WHERE id = $1 AND restaurante_id = $2`,
-    [sessao.id, tenantId],
-  );
+  const ultimoAcessoEm = sessao.ultimo_acesso_em
+    ? new Date(sessao.ultimo_acesso_em).getTime()
+    : 0;
+  if (!Number.isFinite(ultimoAcessoEm) || Date.now() - ultimoAcessoEm > 30000) {
+    await executar(
+      `UPDATE sessoes_mesa
+       SET ultimo_acesso_em = CURRENT_TIMESTAMP
+       WHERE id = $1 AND restaurante_id = $2`,
+      [sessao.id, tenantId],
+    );
+  }
   return sessao;
 }
 
