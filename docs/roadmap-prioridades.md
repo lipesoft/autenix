@@ -1,8 +1,8 @@
 # Roadmap de prioridades
 
 Status atualizado apos a base multi-restaurante, painel da plataforma, white label,
-reservas, seguranca por sessao de mesa, Importacao de Dados 2.0 e prioridades
-imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
+reservas, seguranca por sessao de mesa, Importacao de Dados 2.0, historico
+comercial, notificacoes e higiene operacional inicial.
 
 ## Visao executiva
 
@@ -16,13 +16,13 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 
 ## Prioridade imediata - Higiene operacional antes de pilotos
 
-- Pendente: remover `server/node_modules` do versionamento com
+- Implementado: `server/node_modules` removido do versionamento com
   `git rm -r --cached server/node_modules`, mantendo `node_modules/` no
   `.gitignore`, para reduzir clone, diff e ruído de CI.
-- Pendente: centralizar o lookup de restaurante por slug com opcao como
+- Implementado: lookup de restaurante por slug centralizado com opcao
   `buscarRestaurantePorSlug(slug, { incluirArquivado: true })`, removendo query
   crua duplicada no fluxo de inicializacao.
-- Pendente: adicionar middleware de log estruturado por request com
+- Implementado: middleware de log estruturado por request com
   `timestamp`, `request_id`, `method`, `path`, `status`, `latencia_ms`,
   `restaurante_id`, `role` e `user_id`, sem registrar body, senha, token,
   email completo, telefone completo ou segredo.
@@ -214,7 +214,7 @@ imediata/alta de sincronizacao, importacao, historico comercial e notificacoes.
 
 ## Prioridade 6 - Observabilidade e operacao
 
-- Prioridade imediata: logs estruturados no backend com request id,
+- Implementado: logs estruturados no backend com request id,
   restaurante_id, role, status da resposta e latencia.
 - Pendente: monitoramento de erros em producao para frontend e API.
 - Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
