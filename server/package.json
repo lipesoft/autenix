@@ -10,6 +10,7 @@
     "hash:password": "node scripts/hash-password.js",
     "tenant:create": "node scripts/create-restaurant.js",
     "ops:cleanup": "node scripts/operational-cleanup.js",
+    "ops:health": "node scripts/health-monitor.js",
     "test:rls": "node scripts/verify-tenant-rls.js",
     "test": "node --test"
   },
