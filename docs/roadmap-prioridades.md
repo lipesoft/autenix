@@ -242,14 +242,16 @@ comercial, notificacoes e higiene operacional inicial.
   de mesa vencidas.
 - Implementado: monitor sintetico `npm run ops:health` para API, readiness e
   frontend, com saida JSON e exit code para cron, CI ou monitor externo.
+- Implementado: painel tecnico simples no portal da plataforma, consumindo
+  endpoint protegido `/api/platform/diagnostico` com saude de banco, storage,
+  sessoes de mesa, reservas, notificacoes, importacoes e pedidos sem expor
+  dados sensiveis.
 - Implementado: documentacao operacional em `docs/entrega-piloto.md` com
   checklist de entrega, onboarding, suporte, backup/restore e incidentes.
 - Parcial: monitoramento de erros em producao validado por Runtime Errors da
   Vercel durante a entrega; ainda falta configurar alerta externo recorrente.
 - Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
   tentativas de login.
-- Pendente: painel tecnico simples para saude da API, banco, fila de sessoes e
-  storage.
 - Pendente: agendar a rotina operacional por cron futuro e ampliar limpeza de
   uploads temporarios orfaos quando houver metadados suficientes.
 - Parcial: plano de backup e restore documentado; ainda falta teste real de
