@@ -102,6 +102,25 @@ exclui pedidos, reservas, importacoes ou historico comercial.
 
 ## Teste de carga
 
+Sem k6 instalado, usar o smoke Node sem dependencias externas:
+
+```bash
+node load-tests/node/polling-smoke.js --profile light --base-url=https://api-staging.example.com --slug=autenix
+```
+
+Perfis disponiveis:
+
+- `light`: 10 usuarios virtuais por 30 segundos.
+- `pilot`: 20 usuarios virtuais por 60 segundos.
+- `peak`: 40 usuarios virtuais por 60 segundos.
+
+O script mede requisicoes totais, RPS, latencia media, p95, p99, erros, 5xx,
+429 e metricas por endpoint. Producao tambem e bloqueada sem:
+
+```bash
+ALLOW_PRODUCTION_LOAD_TEST=true
+```
+
 Leve:
 
 ```bash
@@ -131,6 +150,24 @@ ALLOW_PRODUCTION_LOAD_TEST=true
 
 Medir: requisicoes totais, RPS, latencia media, p95, p99, erros, 5xx, 429,
 endpoints mais acessados e sinais de pressao no pool do PostgreSQL.
+
+## Monitoramento sintetico
+
+Executar health monitor:
+
+```bash
+cd server
+npm run ops:health
+```
+
+Saida esperada: JSON com `status: healthy`, latencia por endpoint e exit code
+0. Em monitor externo ou cron, alertar quando:
+
+- `status` for `degraded`;
+- `/api/health/readiness` deixar de retornar `ready`;
+- qualquer check exceder `HEALTH_TIMEOUT_MS`;
+- houver resposta 5xx;
+- o frontend deixar de retornar 2xx.
 
 ## Playwright E2E
 
