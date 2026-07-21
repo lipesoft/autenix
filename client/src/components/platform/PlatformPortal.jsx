@@ -180,6 +180,70 @@ const classeUso = (percentual) => {
   return "";
 };
 
+const LABEL_STATUS_DIAGNOSTICO = {
+  healthy: "Saudavel",
+  attention: "Atencao",
+  degraded: "Degradado",
+};
+
+function DiagnosticoOperacional({ diagnostico, status, onRefresh }) {
+  const metricas = diagnostico ? [
+    ["Restaurantes ativos", diagnostico.restaurantes?.ativos],
+    ["Sessoes ativas", diagnostico.sessoes_mesa?.ativas],
+    ["Pedidos abertos", diagnostico.pedidos?.abertos],
+    ["Reservas abertas", Number(diagnostico.reservas?.pendentes || 0) + Number(diagnostico.reservas?.confirmadas || 0)],
+    ["Notificacoes pendentes", diagnostico.notificacoes?.pendentes],
+    ["Importacoes 24h", diagnostico.importacoes?.ultimas_24h],
+  ] : [];
+  const alertas = Array.isArray(diagnostico?.alertas) ? diagnostico.alertas : [];
+
+  return (
+    <section className={`pf-diagnostics ${diagnostico?.status ? `is-${diagnostico.status}` : ""}`} aria-label="Diagnostico operacional">
+      <div className="pf-diagnostics-heading">
+        <div>
+          <span className="pf-kicker"><Gauge size={15} /> Operacao</span>
+          <h2>Diagnostico tecnico</h2>
+        </div>
+        <button className="pf-button pf-button-secondary" type="button" onClick={onRefresh} disabled={status === "loading"}>
+          {status === "loading" ? <LoaderCircle className="is-spinning" size={17} /> : <RefreshCw size={17} />}
+          Atualizar
+        </button>
+      </div>
+
+      {status === "error" && <div className="pf-diagnostic-state is-error">Nao foi possivel carregar o diagnostico.</div>}
+      {status === "loading" && !diagnostico && <div className="pf-diagnostic-state"><LoaderCircle className="is-spinning" /> Carregando diagnostico</div>}
+      {diagnostico && (
+        <>
+          <div className="pf-diagnostic-summary">
+            <article>
+              <span>Status</span>
+              <strong>{LABEL_STATUS_DIAGNOSTICO[diagnostico.status] || diagnostico.status}</strong>
+              <small>Banco {diagnostico.database?.status || "-"} / Storage {diagnostico.storage?.status || "-"}</small>
+            </article>
+            {metricas.map(([label, value]) => (
+              <article key={label}>
+                <span>{label}</span>
+                <strong>{Number(value || 0)}</strong>
+              </article>
+            ))}
+          </div>
+
+          <div className="pf-diagnostic-alerts">
+            {alertas.slice(0, 4).map((alerta) => (
+              <span key={alerta.codigo} className={`pf-diagnostic-alert is-${alerta.severidade}`}>
+                <AlertTriangle size={14} /> {alerta.mensagem}
+              </span>
+            ))}
+            {!alertas.length && (
+              <span className="pf-diagnostic-ok"><Check size={14} /> Sem alertas tecnicos agora.</span>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function aplicarPlanoAoForm(planoId, atual = {}) {
   const plano = PLANOS_CATALOGO[planoId] || PLANOS_CATALOGO.essencial;
   const limiteMesas = Number(atual.limite_mesas || plano.limite_mesas);
@@ -1136,6 +1200,8 @@ function AlterarSenha({ onClose, request }) {
 
 function PlatformDashboard({ session, onLogout }) {
   const [restaurantes, setRestaurantes] = useState([]);
+  const [diagnostico, setDiagnostico] = useState(null);
+  const [diagnosticoStatus, setDiagnosticoStatus] = useState("loading");
   const [status, setStatus] = useState("loading");
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todos");
@@ -1165,11 +1231,25 @@ function PlatformDashboard({ session, onLogout }) {
     }
   }, [request]);
 
+  const carregarDiagnostico = useCallback(async () => {
+    setDiagnosticoStatus("loading");
+    try {
+      const dados = await request("/api/platform/diagnostico");
+      setDiagnostico(dados);
+      setDiagnosticoStatus("ready");
+    } catch {
+      setDiagnosticoStatus("error");
+    }
+  }, [request]);
+
   useEffect(() => {
     document.title = "Plataforma | Autenix";
-    const timer = window.setTimeout(carregar, 0);
+    const timer = window.setTimeout(() => {
+      carregar();
+      carregarDiagnostico();
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [carregar]);
+  }, [carregar, carregarDiagnostico]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -1320,6 +1400,12 @@ function PlatformDashboard({ session, onLogout }) {
           <article className="is-red"><AlertTriangle size={19} /><span>Criticos</span><strong>{totais.alertasCriticos}</strong></article>
           <article className="is-orange"><Gauge size={19} /><span>Atencao</span><strong>{totais.alertasAtencao}</strong></article>
         </section>
+
+        <DiagnosticoOperacional
+          diagnostico={diagnostico}
+          status={diagnosticoStatus}
+          onRefresh={carregarDiagnostico}
+        />
 
         <section className="pf-commercial-board" aria-label="Alertas comerciais">
           <div className="pf-commercial-board-heading">

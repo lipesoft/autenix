@@ -404,6 +404,130 @@
   background: #ffffff;
 }
 
+.pf-diagnostics {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #dce2e5;
+  border-top: 3px solid #174b4a;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.pf-diagnostics.is-attention {
+  border-top-color: #f2742d;
+}
+
+.pf-diagnostics.is-degraded {
+  border-top-color: #b84234;
+}
+
+.pf-diagnostics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 13px;
+}
+
+.pf-diagnostics-heading h2 {
+  margin: 5px 0 0;
+  color: #0b2134;
+  font-family: Manrope, sans-serif;
+  font-size: 18px;
+}
+
+.pf-diagnostic-summary {
+  display: grid;
+  grid-template-columns: 1.3fr repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pf-diagnostic-summary article {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 70px;
+  padding: 10px 12px;
+  border: 1px solid #e3e8ea;
+  border-radius: 7px;
+  background: #f7f8f6;
+}
+
+.pf-diagnostic-summary span {
+  overflow: hidden;
+  color: #617281;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-diagnostic-summary strong {
+  color: #0b2134;
+  font-family: Manrope, sans-serif;
+  font-size: 20px;
+}
+
+.pf-diagnostic-summary small {
+  overflow: hidden;
+  color: #778592;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-diagnostic-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.pf-diagnostic-alert,
+.pf-diagnostic-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pf-diagnostic-alert.is-critico {
+  color: #b84234;
+  background: #ffe9e6;
+}
+
+.pf-diagnostic-alert.is-atencao,
+.pf-diagnostic-alert.is-info {
+  color: #8a5b16;
+  background: #fff8df;
+}
+
+.pf-diagnostic-ok {
+  color: #176c57;
+  background: #e4f3ee;
+}
+
+.pf-diagnostic-state {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #617281;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pf-diagnostic-state.is-error {
+  color: #b84234;
+}
+
 .pf-commercial-board-heading {
   display: flex;
   align-items: center;
@@ -1393,6 +1517,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .pf-diagnostic-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .pf-list-head {
     display: none;
   }
@@ -1466,8 +1594,21 @@
     flex-direction: column;
   }
 
+  .pf-diagnostics-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .pf-commercial-board-heading .pf-button {
     width: 100%;
+  }
+
+  .pf-diagnostics-heading .pf-button {
+    width: 100%;
+  }
+
+  .pf-diagnostic-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .pf-alert-strip {
@@ -1539,6 +1680,10 @@
   }
 
   .pf-list {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-diagnostic-summary {
     grid-template-columns: 1fr;
   }
 
