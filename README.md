@@ -17,7 +17,11 @@ Obrigatorias em producao:
 
 - `DATABASE_URL`
 - `MIGRATION_DATABASE_URL` somente no ambiente que executa migrations
+- `RLS_DATABASE_URL` opcional para validar isolamento com a role
+  `autenix_backend`, sem trocar a conexao principal
 - `DATABASE_SSL=true` para Supabase
+- `DB_POOL_MAX`, `DB_IDLE_TIMEOUT_MS`, `DB_CONNECTION_TIMEOUT_MS` e
+  `DB_STATEMENT_TIMEOUT_MS`, quando for necessario ajustar pool/timeouts
 - `JWT_SECRET`
 - `CORS_ORIGIN`
 - `PUBLIC_APP_URL`, URL publica usada nos QR Codes
@@ -226,3 +230,20 @@ Variaveis:
 - `npm test` do backend cobre autenticacao, RLS auxiliar, reservas, importacao,
   migrations, rate limit, upload, white label e provisionamento.
 - `npm test`, `npm run lint` e `npm run build` do frontend passam.
+
+## Health, E2E, carga e operacao
+
+- `GET /api/health`: confirma API ativa sem consulta pesada.
+- `GET /api/health/readiness`: valida conectividade basica com banco e
+  configuracao de Storage sem expor credenciais.
+- `cd client && npm run test:e2e`: executa testes Playwright. Testes de escrita
+  exigem `E2E_ALLOW_WRITE=true` e credenciais `E2E_*` de ambiente controlado.
+- `load-tests/k6/polling-light.js`, `polling-pilot.js` e `polling-peak.js`:
+  simulam polling de cardapio, mesa e paineis. Producao exige
+  `ALLOW_PRODUCTION_LOAD_TEST=true`.
+- `cd server && npm run ops:cleanup`: dry-run da rotina operacional.
+- `cd server && npm run ops:cleanup -- --apply`: expira sessoes de mesa
+  vencidas de forma idempotente.
+
+Runbook de entrega, onboarding, suporte, backup/restore e incidentes:
+`docs/entrega-piloto.md`.

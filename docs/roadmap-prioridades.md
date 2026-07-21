@@ -26,16 +26,29 @@ comercial, notificacoes e higiene operacional inicial.
   `timestamp`, `request_id`, `method`, `path`, `status`, `latencia_ms`,
   `restaurante_id`, `role` e `user_id`, sem registrar body, senha, token,
   email completo, telefone completo ou segredo.
+- Implementado: `/api/health` e `/api/health/readiness` com resposta segura,
+  versao da API, ambiente, timestamp, banco e status resumido de Storage sem
+  expor credenciais.
+- Implementado: pool PostgreSQL configuravel por ambiente com
+  `DB_POOL_MAX`, `DB_IDLE_TIMEOUT_MS`, `DB_CONNECTION_TIMEOUT_MS` e
+  `DB_STATEMENT_TIMEOUT_MS`.
 
 ## Antes dos pilotos pagos - Validacao operacional
 
-- Pendente: testar carga real do polling com 15 a 20 mesas/clientes ativos e
+- Implementado: scripts k6 separados para carga leve, piloto e pico controlado
+  do polling, com bloqueio obrigatorio para producao sem
+  `ALLOW_PRODUCTION_LOAD_TEST=true`.
+- Pendente: executar carga real do polling com 15 a 20 mesas/clientes ativos e
   paineis de garcom, cozinha, admin e financeiro abertos, medindo invocacoes
-  Vercel, latencia p95, erros 5xx e pressao no pool do Postgres.
-- Pendente: iniciar validacao de entrada centralizada com Zod pelos endpoints
-  mais sensiveis e movimentados: `/api/pedidos`, importacao e reservas.
-- Pendente: criar primeiro fluxo E2E com Playwright para pedido, cozinha,
-  entrega e fechamento de mesa.
+  Vercel, latencia p95, erros 5xx, 429 e pressao no pool do Postgres.
+- Parcial: validacao de entrada centralizada com Zod iniciada nos endpoints de
+  pedidos, itens, chamadas, fechamento de mesa, importacao, autenticacao,
+  usuarios e parametros de mesa/QR.
+- Implementado: base Playwright com cinco specs E2E para fluxo operacional,
+  seguranca de sessao de mesa, isolamento multi-tenant, reservas e importacao,
+  protegidas por `E2E_ALLOW_WRITE=true` e variaveis de ambiente.
+- Pendente: executar a suite E2E completa contra staging/controlado com
+  credenciais reais de dois restaurantes.
 
 ## Prioridade 0 - Seguranca e isolamento
 
@@ -56,6 +69,9 @@ comercial, notificacoes e higiene operacional inicial.
   acompanhamento, disponibilidade e demais leituras publicas.
 - Implementado: upload com validacao da assinatura real, limite de pixels,
   remocao de metadados e conversao segura para WebP.
+- Implementado: respostas 500 de endpoints sensiveis de cardapio, mesas,
+  pedidos, chamadas, importacao, login e usuarios passaram a usar mensagens
+  seguras sem expor erro interno ao frontend.
 - Pendente: rotacionar tokens operacionais compartilhados fora da Vercel e
   manter somente variaveis criptografadas no provedor.
 - Implementado: advisors do Supabase executados sem alertas de seguranca; as
@@ -216,13 +232,22 @@ comercial, notificacoes e higiene operacional inicial.
 
 - Implementado: logs estruturados no backend com request id,
   restaurante_id, role, status da resposta e latencia.
+- Implementado: health check tecnico `/api/health` e readiness
+  `/api/health/readiness`.
+- Implementado: rotina manual `npm run ops:cleanup`, com dry-run por padrao,
+  lock de concorrencia, execucao por tenant e expiracao idempotente de sessoes
+  de mesa vencidas.
+- Implementado: documentacao operacional em `docs/entrega-piloto.md` com
+  checklist de entrega, onboarding, suporte, backup/restore e incidentes.
 - Pendente: monitoramento de erros em producao para frontend e API.
 - Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
   tentativas de login.
 - Pendente: painel tecnico simples para saude da API, banco, fila de sessoes e
   storage.
-- Pendente: rotina de limpeza de sessoes de mesa expiradas e dados temporarios.
-- Pendente: plano de backup e restore testado no Supabase.
+- Pendente: agendar a rotina operacional por cron futuro e ampliar limpeza de
+  uploads temporarios orfaos quando houver metadados suficientes.
+- Parcial: plano de backup e restore documentado; ainda falta teste real de
+  restore em staging/Supabase.
 
 ## Prioridade 7 - Escalabilidade e arquitetura
 
@@ -231,15 +256,18 @@ comercial, notificacoes e higiene operacional inicial.
   Socket.IO restrito ao dev ou ativado explicitamente por flag.
 - Pendente: evoluir o tempo real para um servico persistente compativel ou para
   Supabase Realtime quando o volume justificar broadcast real entre instancias.
-- Pendente: executar teste de carga sintetico do polling antes dos pilotos pagos
-  para medir custo e pressao no banco com mesas e paineis simultaneos.
+- Implementado: scripts de teste de carga sintetico do polling com k6 para
+  perfis leve, piloto e pico controlado.
+- Pendente: executar o teste de carga antes dos pilotos pagos para medir custo
+  e pressao no banco com mesas e paineis simultaneos.
 - Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
 - Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
   restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
 - Implementado: lint antigo do frontend resolvido; `npm run lint` passa sem
   erros ou avisos e pode ser usado como quality gate em CI.
-- Pendente: adicionar testes E2E com Playwright para login, pedidos, fechamento
-  de mesa, reservas, importacao e painel da plataforma.
+- Parcial: testes E2E com Playwright adicionados para login operacional,
+  pedidos, fechamento de mesa, reservas, importacao e isolamento multi-tenant;
+  execucao completa depende de credenciais `E2E_*` em ambiente controlado.
 - Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
   ao editar categoria/produto.
 - Pendente: revisar pool de conexoes e estrategia de conexao no Supabase para
@@ -265,8 +293,9 @@ comercial, notificacoes e higiene operacional inicial.
   producao.
 - Pendente: formalizar politica de retencao de historico de pedidos, chamadas,
   reservas, logs e importacoes.
-- Pendente: criar verificacao automatica de isolamento multi-tenant usando a
-  role `autenix_backend`, nao a conexao proprietaria `postgres`.
+- Parcial: script `npm run test:rls` aceita `RLS_DATABASE_URL` para validar com
+  `autenix_backend`; falta executar com a credencial correta em ambiente
+  controlado.
 
 ## Fase futura - Autenticacao Google
 
@@ -279,9 +308,12 @@ comercial, notificacoes e higiene operacional inicial.
 
 ## Pendencias tecnicas paralelas
 
-- Validacao com Zod nos endpoints, com prioridade inicial para pedidos,
-  importacao e reservas.
-- Documentacao operacional para onboarding, suporte, backup e incidentes.
+- Expandir validacao com Zod para produtos, categorias, configuracoes de
+  reservas, plataforma e demais rotas administrativas.
+- Executar e evoluir os testes Playwright em staging com credenciais reais de
+  dois restaurantes.
+- Executar teste de carga k6 e ajustar pool/queries com base nas metricas.
+- Testar restore real do Supabase em ambiente seguro.
 - Tela interna de suporte para localizar restaurante, usuario, reserva e mesa
   sem acessar dados de outro tenant indevidamente.
 - Portal publico self-service para cadastro de restaurante.
