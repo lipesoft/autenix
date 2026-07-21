@@ -193,7 +193,7 @@ async function request(baseUrl, item) {
     return {
       name: item.name,
       status: response.status,
-      ok: response.status >= 200 && response.status < 500,
+      ok: (response.status >= 200 && response.status < 300) || response.status === 304,
       ms,
     };
   } catch (error) {
