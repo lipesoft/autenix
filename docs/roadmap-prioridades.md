@@ -43,9 +43,10 @@ comercial, notificacoes e higiene operacional inicial.
   cozinha e financeiro. Resultado do perfil piloto: 1.723 requisicoes,
   28,33 RPS, 0 erros, 0 respostas 5xx, 0 respostas 429, p95 global de
   1030 ms e p99 global de 1416 ms.
-- Parcial: validacao de entrada centralizada com Zod iniciada nos endpoints de
+- Parcial ampliado: validacao de entrada centralizada com Zod aplicada em
   pedidos, itens, chamadas, fechamento de mesa, importacao, autenticacao,
-  usuarios e parametros de mesa/QR.
+  usuarios, parametros de mesa/QR, categorias, produtos, configuracao de
+  reservas, saloes de reservas e rotas sensiveis da plataforma.
 - Implementado: base Playwright com cinco specs E2E para fluxo operacional,
   seguranca de sessao de mesa, isolamento multi-tenant, reservas e importacao,
   protegidas por `E2E_ALLOW_WRITE=true` e variaveis de ambiente.
@@ -321,8 +322,9 @@ comercial, notificacoes e higiene operacional inicial.
 
 ## Pendencias tecnicas paralelas
 
-- Expandir validacao com Zod para produtos, categorias, configuracoes de
-  reservas, plataforma e demais rotas administrativas.
+- Continuar expandindo validacao com Zod para demais rotas administrativas
+  ainda sem schema dedicado, mantendo rejeicao de campos inesperados em
+  endpoints sensiveis.
 - Executar e evoluir os testes Playwright em staging com credenciais reais de
   dois restaurantes.
 - Executar teste de carga k6 e ajustar pool/queries com base nas metricas.
