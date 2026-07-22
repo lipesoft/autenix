@@ -125,6 +125,7 @@ const {
 } = require("./lib/operational-diagnostics");
 const { normalizarAuditoriaOperacional } = require("./lib/operational-audit");
 const {
+  auditoriaQuerySchema,
   cancelarItemBodySchema,
   categoriaCreateBodySchema,
   chamadaBodySchema,
@@ -140,6 +141,7 @@ const {
   mesaIdParamSchema,
   pedidoStatusBodySchema,
   plataformaMinhaSenhaBodySchema,
+  plataformaAuditoriaQuerySchema,
   plataformaRedefinirMasterBodySchema,
   plataformaRestauranteBodySchema,
   plataformaRestauranteStatusBodySchema,
@@ -550,6 +552,101 @@ function auditoriaReq(req, extra = {}) {
     usuario: req.user,
     request_id: req.requestId,
     ...extra,
+  };
+}
+
+function auditoriaPublicaReq(req, restauranteId, extra = {}) {
+  return {
+    restaurante_id: restauranteId,
+    usuario_role: "publico",
+    request_id: req.requestId,
+    ...extra,
+  };
+}
+
+function auditoriaPlataformaReq(req, restauranteId, extra = {}) {
+  return {
+    restaurante_id: restauranteId,
+    usuario: req.platformUser,
+    request_id: req.requestId,
+    ...extra,
+  };
+}
+
+function auditoriaLinhaPublica(row = {}) {
+  return {
+    id: Number(row.id),
+    restaurante_id: Number(row.restaurante_id),
+    usuario: {
+      id: row.usuario_id ? Number(row.usuario_id) : null,
+      nome: row.usuario_nome || null,
+      login: row.usuario_login || null,
+      role: row.usuario_role || null,
+    },
+    acao: row.acao,
+    entidade: row.entidade,
+    entidade_id: row.entidade_id ? Number(row.entidade_id) : null,
+    dados_anteriores: row.dados_anteriores || null,
+    dados_novos: row.dados_novos || null,
+    metadados: row.metadados || {},
+    request_id: row.request_id || null,
+    criado_em: row.criado_em,
+  };
+}
+
+async function listarAuditoriaOperacional(client, restauranteId, filtros = {}) {
+  const params = [restauranteId];
+  const where = ["restaurante_id = $1"];
+
+  if (filtros.acao) {
+    params.push(filtros.acao);
+    where.push(`acao = $${params.length}`);
+  }
+  if (filtros.entidade) {
+    params.push(filtros.entidade);
+    where.push(`entidade = $${params.length}`);
+  }
+  if (filtros.usuario_id) {
+    params.push(filtros.usuario_id);
+    where.push(`usuario_id = $${params.length}`);
+  }
+  if (filtros.entidade_id) {
+    params.push(filtros.entidade_id);
+    where.push(`entidade_id = $${params.length}`);
+  }
+  if (filtros.de) {
+    params.push(filtros.de);
+    where.push(`criado_em >= ($${params.length}::date::timestamp AT TIME ZONE 'America/Sao_Paulo')`);
+  }
+  if (filtros.ate) {
+    params.push(filtros.ate);
+    where.push(`criado_em < (($${params.length}::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')`);
+  }
+
+  params.push(filtros.limite || 40);
+  const limiteParam = params.length;
+  params.push(filtros.offset || 0);
+  const offsetParam = params.length;
+
+  const { rows } = await client.query(
+    `SELECT id, restaurante_id, usuario_id, usuario_nome, usuario_login,
+            usuario_role, acao, entidade, entidade_id, dados_anteriores,
+            dados_novos, metadados, request_id, criado_em,
+            COUNT(*) OVER()::integer AS total
+     FROM auditoria_operacional
+     WHERE ${where.join(" AND ")}
+     ORDER BY criado_em DESC, id DESC
+     LIMIT $${limiteParam} OFFSET $${offsetParam}`,
+    params,
+  );
+
+  return {
+    itens: rows.map(auditoriaLinhaPublica),
+    paginacao: {
+      limite: filtros.limite || 40,
+      offset: filtros.offset || 0,
+      total: rows[0]?.total || 0,
+    },
   };
 }
 
@@ -2344,7 +2441,7 @@ app.patch("/api/itens/:id/status", autenticarJWT, autorizarRoles("cozinha"), asy
 // Cancelar item
 app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
   try {
-    validateParams(req, idParamSchema);
+    const { id: itemId } = validateParams(req, idParamSchema);
     const { mesa_id: mesaId, restaurante_slug } = validateBody(
       req,
       cancelarItemBodySchema,
@@ -2359,27 +2456,51 @@ app.patch("/api/itens/:id/cancelar", acaoMesaRateLimit, async (req, res) => {
     registrarRestauranteRequest(req, contexto);
     await validarSessaoMesaRequest(req, contexto);
 
-    const { rows } = await tenantQuery(
+    const pedidoId = await withTenantTransaction(
       contexto.restaurante.id,
-      `SELECT ip.*
-       FROM itens_pedido ip
-       JOIN pedidos p
-         ON p.id = ip.pedido_id AND p.restaurante_id = ip.restaurante_id
-       WHERE ip.id = $1
-         AND ip.restaurante_id = $2
-         AND p.mesa_id = $3`,
-      [req.params.id, contexto.restaurante.id, mesaId],
-    );
-    if (!rows[0]) return res.status(404).json({ erro: "Item nao encontrado" });
-    if (rows[0].status !== "pendente") return res.status(400).json({ erro: "Item ja em preparo" });
+      async (client, restauranteId) => {
+        const { rows } = await client.query(
+          `SELECT ip.*
+           FROM itens_pedido ip
+           JOIN pedidos p
+             ON p.id = ip.pedido_id AND p.restaurante_id = ip.restaurante_id
+           WHERE ip.id = $1
+             AND ip.restaurante_id = $2
+             AND p.mesa_id = $3`,
+          [itemId, restauranteId, mesaId],
+        );
+        if (!rows[0]) {
+          const error = new Error("Item nao encontrado");
+          error.statusCode = 404;
+          throw error;
+        }
+        if (rows[0].status !== "pendente") {
+          const error = new Error("Item ja em preparo");
+          error.statusCode = 400;
+          throw error;
+        }
 
-    await tenantQuery(
-      contexto.restaurante.id,
-      `UPDATE itens_pedido SET status = 'cancelado'
-       WHERE id = $1 AND restaurante_id = $2`,
-      [req.params.id, contexto.restaurante.id],
+        await client.query(
+          `UPDATE itens_pedido SET status = 'cancelado'
+           WHERE id = $1 AND restaurante_id = $2`,
+          [itemId, restauranteId],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaPublicaReq(req, restauranteId, {
+          acao: "cancelamento",
+          entidade: "itens_pedido",
+          entidade_id: itemId,
+          dados_anteriores: snapshotItemPedido(rows[0]),
+          dados_novos: snapshotItemPedido({ ...rows[0], status: "cancelado" }),
+          metadados: {
+            origem: "mesa",
+            mesa_id: Number(mesaId),
+            pedido_id: Number(rows[0].pedido_id),
+          },
+        }));
+        return rows[0].pedido_id;
+      },
     );
-    const pedido = await getPedidoCompleto(contexto.restaurante.id, rows[0].pedido_id);
+    const pedido = await getPedidoCompleto(contexto.restaurante.id, pedidoId);
     emitirEquipe(contexto.restaurante.id, "pedido_atualizado", pedido);
     emitirMesa(contexto.restaurante.id, pedido.mesa_id, "pedido_atualizado", pedido);
     res.json({ sucesso: true });
@@ -2752,6 +2873,17 @@ app.post("/api/reservas", criarReservaRateLimit, async (req, res) => {
             evento: statusInicial === "fila" ? "fila" : "criada",
           },
         );
+        await registrarAuditoriaOperacional(client, auditoriaPublicaReq(req, restauranteId, {
+          acao: "criacao",
+          entidade: "reservas",
+          entidade_id: reservaId,
+          dados_novos: snapshotReserva(reserva),
+          metadados: {
+            origem: "publica",
+            tipo: dados.tipo,
+            notificacoes: notificacoes.length,
+          },
+        }));
         return { reserva, notificacoes };
       },
     );
@@ -2901,6 +3033,7 @@ app.patch(
       const dados = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
+          const configuracaoAnterior = await buscarConfiguracaoReservas(client, restauranteId);
           await client.query(
             `INSERT INTO reservas_configuracoes
                (restaurante_id, ativo, dias_semana, hora_inicio, hora_fim,
@@ -2937,9 +3070,18 @@ app.patch(
               configuracao.permitir_fila,
             ],
           );
+          const configuracaoAtualizada = await buscarConfiguracaoReservas(client, restauranteId);
+          const saloes = await listarSaloesReserva(client, restauranteId, true);
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "alteracao",
+            entidade: "configuracoes",
+            dados_anteriores: snapshotConfiguracaoReservas(configuracaoAnterior),
+            dados_novos: snapshotConfiguracaoReservas(configuracaoAtualizada),
+            metadados: { chave: "reservas_configuracao" },
+          }));
           return {
-            configuracao: await buscarConfiguracaoReservas(client, restauranteId),
-            saloes: await listarSaloesReserva(client, restauranteId, true),
+            configuracao: configuracaoAtualizada,
+            saloes,
           };
         },
       );
@@ -2975,6 +3117,13 @@ app.post(
               salao.ordem,
             ],
           );
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "criacao",
+            entidade: "configuracoes",
+            entidade_id: rows[0].id,
+            dados_novos: snapshotSalaoReserva(rows[0]),
+            metadados: { chave: "reservas_saloes" },
+          }));
           return rows[0];
         },
       );
@@ -3001,6 +3150,13 @@ app.patch(
       const dados = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
+          const anterior = await client.query(
+            `SELECT id, restaurante_id, nome, capacidade_pessoas, ativo, ordem
+             FROM reservas_saloes
+             WHERE id = $1 AND restaurante_id = $2
+             LIMIT 1`,
+            [salaoId, restauranteId],
+          );
           const { rows } = await client.query(
             `UPDATE reservas_saloes
              SET nome = $1,
@@ -3025,6 +3181,14 @@ app.patch(
             error.statusCode = 404;
             throw error;
           }
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "alteracao",
+            entidade: "configuracoes",
+            entidade_id: salaoId,
+            dados_anteriores: anterior.rows[0] ? snapshotSalaoReserva(anterior.rows[0]) : null,
+            dados_novos: snapshotSalaoReserva(rows[0]),
+            metadados: { chave: "reservas_saloes" },
+          }));
           return rows[0];
         },
       );
@@ -3049,6 +3213,13 @@ app.delete(
       await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
+          const anterior = await client.query(
+            `SELECT id, restaurante_id, nome, capacidade_pessoas, ativo, ordem
+             FROM reservas_saloes
+             WHERE id = $1 AND restaurante_id = $2
+             LIMIT 1`,
+            [salaoId, restauranteId],
+          );
           const { rows } = await client.query(
             `UPDATE reservas_saloes
              SET ativo = 0, atualizado_em = NOW()
@@ -3061,6 +3232,13 @@ app.delete(
             error.statusCode = 404;
             throw error;
           }
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "remocao",
+            entidade: "configuracoes",
+            entidade_id: salaoId,
+            dados_anteriores: anterior.rows[0] ? snapshotSalaoReserva(anterior.rows[0]) : null,
+            metadados: { chave: "reservas_saloes" },
+          }));
         },
       );
       return res.json({ sucesso: true });
@@ -3219,6 +3397,17 @@ app.post(
               evento: statusInicial === "fila" ? "fila" : "criada",
             },
           );
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "criacao",
+            entidade: "reservas",
+            entidade_id: reservaId,
+            dados_novos: snapshotReserva(reserva),
+            metadados: {
+              origem: "admin",
+              tipo: dados.tipo,
+              notificacoes: notificacoes.length,
+            },
+          }));
           return { reserva, notificacoes };
         },
       );
@@ -3382,6 +3571,19 @@ app.patch(
               },
             );
           }
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: reservaAtualizada.status === "cancelada" ? "cancelamento" : "alteracao",
+            entidade: "reservas",
+            entidade_id: reservaId,
+            dados_anteriores: snapshotReserva(reservaAnterior),
+            dados_novos: snapshotReserva(reservaAtualizada),
+            metadados: {
+              status_anterior: reservaAnterior.status,
+              status_novo: reservaAtualizada.status,
+              mesa_alterada: String(reservaAnterior.mesa_id || "") !== String(reservaAtualizada.mesa_id || ""),
+              notificacoes: notificacoes.length,
+            },
+          }));
           return { reserva: reservaAtualizada, notificacoes };
         },
       );
@@ -3463,6 +3665,16 @@ app.post(
             descricao: descricaoCompartilhamentoReserva(canal),
             detalhes: { canal },
           });
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "alteracao",
+            entidade: "reservas",
+            entidade_id: reservaId,
+            dados_novos: snapshotReserva(reserva),
+            metadados: {
+              evento: "compartilhamento",
+              canal,
+            },
+          }));
           return reserva;
         },
       );
@@ -3565,6 +3777,20 @@ app.post(
             analise,
             { payload, usuario: req.user },
           );
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "criacao",
+            entidade: "importacoes",
+            entidade_id: importacao.id,
+            dados_novos: snapshotImportacao(importacao),
+            metadados: {
+              tipo: analise.tipo,
+              total_linhas: analise.total_linhas,
+              criar: analise.resumo.criar,
+              atualizar: analise.resumo.atualizar,
+              ignorar: analise.resumo.ignorar,
+              invalidas: analise.resumo.invalidas,
+            },
+          }));
           return { analise, importacao };
         },
       );
@@ -3682,12 +3908,25 @@ app.post(
       const { id: importacaoId } = validateParams(req, idParamSchema);
       const importacao = await withTenantTransaction(
         req.user.restaurante_id,
-        (client, restauranteId) => executarRollbackImportacao(
-          client,
-          restauranteId,
-          importacaoId,
-          req.user,
-        ),
+        async (client, restauranteId) => {
+          const revertida = await executarRollbackImportacao(
+            client,
+            restauranteId,
+            importacaoId,
+            req.user,
+          );
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "rollback",
+            entidade: "importacoes",
+            entidade_id: importacaoId,
+            dados_novos: snapshotImportacao(revertida),
+            metadados: {
+              tipo: revertida.tipo,
+              itens_afetados: revertida.itens_afetados,
+            },
+          }));
+          return revertida;
+        },
       );
       if (["categorias", "produtos"].includes(importacao.tipo)) {
         emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
@@ -3987,13 +4226,29 @@ app.get("/api/historico", autenticarJWT, autorizarRoles("financeiro"), async (re
 // Reiniciar numeração
 app.post("/api/pedidos/reiniciar-numeracao", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      `INSERT INTO configuracoes (restaurante_id, chave, valor)
-       VALUES ($1, 'ultimo_reinicio', $2)
-       ON CONFLICT (restaurante_id, chave)
-       DO UPDATE SET valor = EXCLUDED.valor`,
-      [req.user.restaurante_id, new Date().toISOString()],
+      async (client, restauranteId) => {
+        const anterior = await client.query(
+          "SELECT chave, valor FROM configuracoes WHERE restaurante_id = $1 AND chave = 'ultimo_reinicio'",
+          [restauranteId],
+        );
+        const { rows } = await client.query(
+          `INSERT INTO configuracoes (restaurante_id, chave, valor)
+           VALUES ($1, 'ultimo_reinicio', $2)
+           ON CONFLICT (restaurante_id, chave)
+           DO UPDATE SET valor = EXCLUDED.valor
+           RETURNING chave, valor`,
+          [restauranteId, new Date().toISOString()],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "alteracao",
+          entidade: "configuracoes",
+          dados_anteriores: anterior.rows[0] ? snapshotConfiguracaoChave(anterior.rows[0]) : null,
+          dados_novos: snapshotConfiguracaoChave(rows[0]),
+          metadados: { chave: "ultimo_reinicio" },
+        }));
+      },
     );
     res.json({ sucesso: true });
   } catch (e) {
@@ -4075,6 +4330,22 @@ app.get("/api/financeiro/hoje", autenticarJWT, autorizarRoles("financeiro"), asy
 });
 
 // ─── ADMINISTRACAO DA PLATAFORMA ──────────────────────────────────────────
+
+app.get("/api/auditoria", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
+  try {
+    const filtros = validateQuery(req, auditoriaQuerySchema);
+    const auditoria = await withTenantTransaction(
+      req.user.restaurante_id,
+      (client, restauranteId) => listarAuditoriaOperacional(client, restauranteId, filtros),
+    );
+    return res.json(auditoria);
+  } catch (error) {
+    return safeErrorResponse(res, error, {
+      fallbackMessage: "Nao foi possivel carregar a auditoria agora",
+      logPrefix: "Falha ao consultar auditoria",
+    });
+  }
+});
 
 function idPositivo(valor, campo = "ID") {
   const numero = Number(valor);
@@ -4339,6 +4610,102 @@ function snapshotUsuario(row, incluirSenha = false) {
   };
   if (incluirSenha) snapshot.senha = row.senha;
   return snapshot;
+}
+
+function snapshotReserva(row = {}) {
+  return {
+    mesa_id: row.mesa_id || null,
+    mesa_numero: row.mesa_numero || null,
+    salao_id: row.salao_id || null,
+    salao_nome: row.salao_nome || null,
+    data_reserva: row.data_reserva || null,
+    horario: row.horario || null,
+    quantidade_pessoas: Number(row.quantidade_pessoas || 0),
+    status: row.status || null,
+    origem: row.origem || null,
+    tipo: row.tipo || null,
+    cliente_informado: Boolean(row.nome_cliente),
+    telefone_informado: Boolean(row.telefone),
+    email_informado: Boolean(row.email),
+    observacao_informada: Boolean(row.observacao),
+    posicao_fila: row.posicao_fila ? Number(row.posicao_fila) : null,
+  };
+}
+
+function snapshotConfiguracaoReservas(row = {}) {
+  return {
+    ativo: Number(row.ativo ?? 1),
+    dias_semana: Array.isArray(row.dias_semana) ? row.dias_semana : [],
+    hora_inicio: row.hora_inicio || null,
+    hora_fim: row.hora_fim || null,
+    intervalo_minutos: Number(row.intervalo_minutos || 0),
+    duracao_minutos: Number(row.duracao_minutos || 0),
+    antecedencia_minutos: Number(row.antecedencia_minutos || 0),
+    horizonte_dias: Number(row.horizonte_dias || 0),
+    limite_reservas_horario: Number(row.limite_reservas_horario || 0),
+    limite_pessoas_horario: Number(row.limite_pessoas_horario || 0),
+    permitir_fila: Number(row.permitir_fila ?? 1),
+  };
+}
+
+function snapshotSalaoReserva(row = {}) {
+  return {
+    nome: row.nome,
+    capacidade_pessoas: Number(row.capacidade_pessoas || 0),
+    ativo: Number(row.ativo ?? 1),
+    ordem: Number(row.ordem || 0),
+  };
+}
+
+function snapshotImportacao(row = {}) {
+  return {
+    tipo: row.tipo || null,
+    formato: row.formato || null,
+    arquivo_nome: row.arquivo_nome || null,
+    atualizar_existentes: Boolean(row.atualizar_existentes),
+    total_linhas: Number(row.total_linhas || 0),
+    criados: Number(row.criar ?? row.criados ?? 0),
+    atualizados: Number(row.atualizar ?? row.atualizados ?? 0),
+    ignorados: Number(row.ignorar ?? row.ignorados ?? 0),
+    invalidos: Number(row.invalidas ?? row.invalidos ?? 0),
+    status: row.status || null,
+    itens_afetados: Number(row.itens_afetados || 0),
+    rollback_disponivel: Boolean(row.rollback_disponivel),
+    revertido_em: row.revertido_em || null,
+  };
+}
+
+function snapshotItemPedido(row = {}) {
+  return {
+    pedido_id: row.pedido_id ? Number(row.pedido_id) : null,
+    produto_id: row.produto_id ? Number(row.produto_id) : null,
+    quantidade: Number(row.quantidade || 0),
+    status: row.status || null,
+    observacao_informada: Boolean(row.observacao),
+  };
+}
+
+function snapshotWhiteLabel(row = {}) {
+  return {
+    white_label_ativo: Boolean(row.white_label_ativo),
+    nome_exibicao: row.nome_exibicao || null,
+    logo_informada: Boolean(row.logo_url),
+    cor_primaria: row.cor_primaria || null,
+    cor_secundaria: row.cor_secundaria || null,
+    cor_texto_principal: row.cor_texto_principal || null,
+    cor_texto_secundario: row.cor_texto_secundario || null,
+    cor_titulo: row.cor_titulo || null,
+    cor_texto_inverso: row.cor_texto_inverso || null,
+    whatsapp_informado: Boolean(row.whatsapp_numero),
+  };
+}
+
+function snapshotConfiguracaoChave(row = {}) {
+  return {
+    chave: row.chave || null,
+    valor_informado: Boolean(row.valor),
+    atualizado_em: row.atualizado_em || null,
+  };
 }
 
 function itemHistorico(entidade, acao, row, dadosAnteriores, dadosNovos) {
@@ -5207,6 +5574,28 @@ app.get("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => 
   }
 });
 
+app.get("/api/platform/auditoria", autenticarPlataforma, async (req, res) => {
+  try {
+    const { restaurante_id, ...filtros } = validateQuery(req, plataformaAuditoriaQuerySchema);
+    const { rows } = await query(
+      "SELECT id, nome, slug FROM restaurantes WHERE id = $1 AND excluido_em IS NULL LIMIT 1",
+      [restaurante_id],
+    );
+    const restaurante = rows[0];
+    if (!restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    const auditoria = await withTenantTransaction(
+      restaurante_id,
+      (client, restauranteId) => listarAuditoriaOperacional(client, restauranteId, filtros),
+    );
+    return res.json({ restaurante, ...auditoria });
+  } catch (error) {
+    return responderErroPlataforma(res, error);
+  }
+});
+
 app.get("/api/platform/restaurantes/:id/historico-planos", autenticarPlataforma, async (req, res) => {
   try {
     const restauranteId = idPositivo(req.params.id, "Restaurante");
@@ -5539,6 +5928,21 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
         novo: rows[0],
         motivo: payload.motivo_historico || "Cadastro comercial atualizado",
       });
+      if (
+        JSON.stringify(snapshotWhiteLabel(anterior)) !==
+        JSON.stringify(snapshotWhiteLabel(rows[0]))
+      ) {
+        await client.query("SELECT set_config('app.restaurante_id', $1, true)", [
+          restauranteId,
+        ]);
+        await registrarAuditoriaOperacional(client, auditoriaPlataformaReq(req, restauranteId, {
+          acao: "alteracao",
+          entidade: "configuracoes",
+          dados_anteriores: snapshotWhiteLabel(anterior),
+          dados_novos: snapshotWhiteLabel(rows[0]),
+          metadados: { chave: "white_label_plataforma" },
+        }));
+      }
       return rows[0];
     });
     return res.json(await carregarResumoRestaurante(atualizado));
@@ -5759,44 +6163,69 @@ app.patch(
   async (req, res) => {
     try {
       const dados = normalizarWhiteLabel(req.body);
-      const { rows } = await query(
-        `UPDATE restaurantes
-         SET white_label_ativo = $1,
-             nome_exibicao = $2,
-             logo_url = $3,
-             cor_primaria = $4,
-             cor_secundaria = $5,
-             cor_texto_principal = $6,
-             cor_texto_secundario = $7,
-             cor_titulo = $8,
-             cor_texto_inverso = $9,
-             whatsapp_numero = $10,
-             atualizado_em = NOW()
-         WHERE id = $11 AND ativo = 1
-         RETURNING id, nome, slug, ativo, white_label_ativo, nome_exibicao,
-                   logo_url, cor_primaria, cor_secundaria,
-                   cor_texto_principal, cor_texto_secundario,
-                   cor_titulo, cor_texto_inverso, whatsapp_numero,
-                   atualizado_em`,
-        [
-          dados.white_label_ativo,
-          dados.nome_exibicao,
-          dados.logo_url,
-          dados.cor_primaria,
-          dados.cor_secundaria,
-          dados.cor_texto_principal,
-          dados.cor_texto_secundario,
-          dados.cor_titulo,
-          dados.cor_texto_inverso,
-          dados.whatsapp_numero,
-          req.user.restaurante_id,
-        ],
+      const atualizado = await withTenantTransaction(
+        req.user.restaurante_id,
+        async (client, restauranteId) => {
+          const anterior = await client.query(
+            `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+                    logo_url, cor_primaria, cor_secundaria,
+                    cor_texto_principal, cor_texto_secundario,
+                    cor_titulo, cor_texto_inverso, whatsapp_numero
+             FROM restaurantes
+             WHERE id = $1 AND ativo = 1
+             LIMIT 1`,
+            [restauranteId],
+          );
+          const { rows } = await client.query(
+            `UPDATE restaurantes
+             SET white_label_ativo = $1,
+                 nome_exibicao = $2,
+                 logo_url = $3,
+                 cor_primaria = $4,
+                 cor_secundaria = $5,
+                 cor_texto_principal = $6,
+                 cor_texto_secundario = $7,
+                 cor_titulo = $8,
+                 cor_texto_inverso = $9,
+                 whatsapp_numero = $10,
+                 atualizado_em = NOW()
+             WHERE id = $11 AND ativo = 1
+             RETURNING id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+                       logo_url, cor_primaria, cor_secundaria,
+                       cor_texto_principal, cor_texto_secundario,
+                       cor_titulo, cor_texto_inverso, whatsapp_numero,
+                       atualizado_em`,
+            [
+              dados.white_label_ativo,
+              dados.nome_exibicao,
+              dados.logo_url,
+              dados.cor_primaria,
+              dados.cor_secundaria,
+              dados.cor_texto_principal,
+              dados.cor_texto_secundario,
+              dados.cor_titulo,
+              dados.cor_texto_inverso,
+              dados.whatsapp_numero,
+              restauranteId,
+            ],
+          );
+
+          if (!rows[0]) return null;
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "alteracao",
+            entidade: "configuracoes",
+            dados_anteriores: anterior.rows[0] ? snapshotWhiteLabel(anterior.rows[0]) : null,
+            dados_novos: snapshotWhiteLabel(rows[0]),
+            metadados: { chave: "white_label" },
+          }));
+          return rows[0];
+        },
       );
 
-      if (!rows[0]) {
+      if (!atualizado) {
         return res.status(404).json({ erro: "Restaurante nao encontrado" });
       }
-      return res.json(rows[0]);
+      return res.json(atualizado);
     } catch (error) {
       if (error instanceof BrandingValidationError) {
         return res.status(error.statusCode).json({ erro: error.message });

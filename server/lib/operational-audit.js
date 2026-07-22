@@ -1,10 +1,21 @@
-const ACOES_AUDITORIA = new Set(["criacao", "alteracao", "remocao", "fechamento"]);
+const ACOES_AUDITORIA = new Set([
+  "criacao",
+  "alteracao",
+  "remocao",
+  "fechamento",
+  "cancelamento",
+  "rollback",
+]);
 const ENTIDADES_AUDITORIA = new Set([
   "categorias",
   "produtos",
   "usuarios",
   "mesas",
   "financeiro",
+  "reservas",
+  "importacoes",
+  "configuracoes",
+  "itens_pedido",
 ]);
 
 const CHAVES_SENSIVEIS = /(senha|password|token|secret|hash|authorization|cookie|jwt)/i;

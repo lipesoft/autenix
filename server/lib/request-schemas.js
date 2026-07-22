@@ -1,4 +1,8 @@
 const { z } = require("zod");
+const {
+  ACOES_AUDITORIA,
+  ENTIDADES_AUDITORIA,
+} = require("./operational-audit");
 
 const ROLES_RESTAURANTE = ["admin", "garcom", "cozinha", "financeiro"];
 const STATUS_PEDIDO = ["pendente", "preparo", "pronto", "entregue", "finalizado"];
@@ -9,6 +13,8 @@ const PLANOS = ["essencial", "profissional", "enterprise"];
 const CICLOS_COBRANCA = ["mensal", "anual", "experimental", "personalizado"];
 const STATUS_COBRANCA = ["trial", "ativo", "pendente", "atrasado", "isento"];
 const STATUS_COMERCIAL = ["lead", "trial", "cliente", "suspenso", "cancelado", "isento"];
+const ACOES_AUDITORIA_LISTA = Array.from(ACOES_AUDITORIA);
+const ENTIDADES_AUDITORIA_LISTA = Array.from(ENTIDADES_AUDITORIA);
 
 function trimString(value) {
   return typeof value === "string" ? value.trim() : value;
@@ -311,7 +317,35 @@ const importacaoHistoricoQuerySchema = z.object({
   ),
 }).strict();
 
+const auditoriaQuerySchema = z.object({
+  limite: z.preprocess(
+    (value) => (value === undefined || value === null || value === "" ? undefined : value),
+    z.coerce.number().int().min(1).max(100).default(40),
+  ),
+  offset: z.preprocess(
+    (value) => (value === undefined || value === null || value === "" ? undefined : value),
+    z.coerce.number().int().min(0).max(10000).default(0),
+  ),
+  acao: z.enum(ACOES_AUDITORIA_LISTA).optional(),
+  entidade: z.enum(ENTIDADES_AUDITORIA_LISTA).optional(),
+  usuario_id: z.preprocess(
+    (value) => (value === undefined || value === null || value === "" ? undefined : value),
+    idPositivo.optional(),
+  ),
+  entidade_id: z.preprocess(
+    (value) => (value === undefined || value === null || value === "" ? undefined : value),
+    idPositivo.optional(),
+  ),
+  de: dataOpcionalSchema,
+  ate: dataOpcionalSchema,
+}).strict();
+
+const plataformaAuditoriaQuerySchema = auditoriaQuerySchema.extend({
+  restaurante_id: idPositivo,
+}).strict();
+
 module.exports = {
+  auditoriaQuerySchema,
   cancelarItemBodySchema,
   categoriaCreateBodySchema,
   chamadaBodySchema,
@@ -327,6 +361,7 @@ module.exports = {
   mesaIdParamSchema,
   pedidoStatusBodySchema,
   plataformaMinhaSenhaBodySchema,
+  plataformaAuditoriaQuerySchema,
   plataformaRedefinirMasterBodySchema,
   plataformaRestauranteBodySchema,
   plataformaRestauranteStatusBodySchema,
