@@ -299,9 +299,11 @@ comercial, notificacoes e higiene operacional inicial.
   relatorios e filtros diarios no fuso `America/Sao_Paulo`.
 - Implementado: indices das chaves estrangeiras compostas de reservas, eventos
   e sessoes de mesa adicionados conforme o advisor do Supabase.
-- Parcial: auditoria formal de planos e status comercial implementada.
-- Pendente: criar auditoria geral para usuarios, produtos, mesas,
-  configuracoes e operacoes financeiras.
+- Parcial ampliado: auditoria formal de planos/status comercial e auditoria
+  operacional tenant-aware para categorias, produtos, usuarios, mesas e
+  fechamento financeiro, sem armazenar senha, hash, token ou segredo.
+- Pendente: ampliar auditoria geral para configuracoes, reservas, importacoes,
+  cancelamentos e demais operacoes financeiras.
 - Pendente: soft delete completo com rastreio de quem arquivou/excluiu.
 - Pendente: revisar indices com dados reais depois dos primeiros restaurantes em
   producao.
