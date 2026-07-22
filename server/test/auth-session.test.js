@@ -47,6 +47,7 @@ test("revalida usuario no banco e usa a role atual", async () => {
   assert.deepEqual(chamadas[0].params, [7, 3]);
   assert.match(chamadas[0].sql, /u\.ativo/);
   assert.match(chamadas[0].sql, /r\.ativo/);
+  assert.match(chamadas[0].sql, /status_comercial/);
 });
 
 test("revoga sessao quando usuario ou restaurante nao esta ativo", async () => {

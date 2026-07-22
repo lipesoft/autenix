@@ -675,13 +675,20 @@ async function buscarRestaurantePorSlug(slugInformado, options = {}) {
   const incluirInativo = options.incluirInativo === true || incluirArquivado;
 
   const { rows } = await query(
-    `SELECT id, nome, slug, ativo, white_label_ativo, nome_exibicao,
+    `SELECT id, nome, slug, ativo, status_comercial,
+            white_label_ativo, nome_exibicao,
             logo_url, cor_primaria, cor_secundaria,
             cor_texto_principal, cor_texto_secundario, cor_titulo,
             cor_texto_inverso, whatsapp_numero, excluido_em
      FROM restaurantes
      WHERE slug = $1
-       AND ($2::boolean OR ativo = 1)
+       AND (
+         $2::boolean
+         OR (
+           ativo = 1
+           AND COALESCE(status_comercial, 'cliente') NOT IN ('suspenso', 'cancelado')
+         )
+       )
        AND ($3::boolean OR excluido_em IS NULL)
      LIMIT 1`,
     [slug, incluirInativo, incluirArquivado],
@@ -5968,6 +5975,13 @@ app.patch(
           error.statusCode = 404;
           throw error;
         }
+        if (anterior.excluido_em) {
+          const error = new TenantValidationError(
+            "Restaurante excluido nao pode ser pausado ou reativado",
+          );
+          error.statusCode = 409;
+          throw error;
+        }
 
         const { rows } = await client.query(
           `UPDATE restaurantes
@@ -5977,9 +5991,8 @@ app.patch(
                WHEN NOT $1 AND status_comercial <> 'cancelado' THEN 'suspenso'
                ELSE status_comercial
              END,
-             excluido_em = CASE WHEN $1 THEN NULL ELSE excluido_em END,
              atualizado_em = NOW()
-         WHERE id = $2
+         WHERE id = $2 AND excluido_em IS NULL
          RETURNING ${CAMPOS_RESTAURANTE_PLATAFORMA}`,
           [payload.ativo, restauranteId],
         );
@@ -5989,7 +6002,7 @@ app.patch(
           acao: "alteracao_status",
           anterior,
           novo: rows[0],
-          motivo: payload.ativo ? "Restaurante reativado" : "Restaurante suspenso",
+          motivo: payload.ativo ? "Restaurante reativado" : "Restaurante pausado",
         });
         return rows[0];
       });
@@ -6004,12 +6017,12 @@ app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, r
   try {
     validateParams(req, idParamSchema);
     const restauranteId = idPositivo(req.params.id, "Restaurante");
-    const arquivado = await withTransaction(async (client) => {
+    const excluido = await withTransaction(async (client) => {
       const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
         forUpdate: true,
       });
       if (!anterior || anterior.excluido_em) {
-        const error = new TenantValidationError("Restaurante nao encontrado ou ja arquivado");
+        const error = new TenantValidationError("Restaurante nao encontrado ou ja excluido");
         error.statusCode = 404;
         throw error;
       }
@@ -6030,11 +6043,11 @@ app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, r
         acao: "arquivamento",
         anterior,
         novo: rows[0],
-        motivo: req.body?.motivo_historico || "Restaurante arquivado pela plataforma",
+        motivo: req.body?.motivo_historico || "Restaurante excluido pela plataforma",
       });
       return rows[0];
     });
-    return res.json({ ...arquivado, arquivado: true });
+    return res.json({ ...excluido, excluido: true });
   } catch (error) {
     return responderErroPlataforma(res, error);
   }
@@ -6143,7 +6156,11 @@ app.get("/api/restaurante", autenticarJWT, async (req, res) => {
               limite_usuarios, limite_produtos, mensalidade_centavos,
               ciclo_cobranca, status_cobranca, status_comercial, trial_termina_em,
               proxima_cobranca_em, atualizado_em
-       FROM restaurantes WHERE id = $1 AND ativo = 1`,
+       FROM restaurantes
+       WHERE id = $1
+         AND ativo = 1
+         AND excluido_em IS NULL
+         AND COALESCE(status_comercial, 'cliente') NOT IN ('suspenso', 'cancelado')`,
       [req.user.restaurante_id],
     );
     if (!rows[0]) return res.status(404).json({ erro: "Restaurante nao encontrado" });

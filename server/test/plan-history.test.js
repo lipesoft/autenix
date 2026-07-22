@@ -51,7 +51,14 @@ test("descreve alteracoes relevantes do historico", () => {
       dados_anteriores: { ativo: 1 },
       dados_novos: { ativo: 0 },
     }),
-    "Status alterado de ativo para suspenso",
+    "Status alterado de ativo para pausado",
+  );
+  assert.equal(
+    descreverHistoricoPlano({
+      acao: "arquivamento",
+      dados_novos: { excluido_em: "2026-07-22T12:00:00.000Z" },
+    }),
+    "Restaurante excluido",
   );
   assert.equal(
     descreverHistoricoPlano({

@@ -186,7 +186,7 @@ function alertasComerciais(restaurante = {}, hoje = new Date()) {
     alertas.push({
       tipo: "status",
       severidade: "atencao",
-      titulo: "Restaurante suspenso",
+      titulo: "Restaurante pausado",
       detalhe: restaurante.motivo_suspensao || "Operacao bloqueada",
     });
   }

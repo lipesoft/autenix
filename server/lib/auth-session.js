@@ -47,6 +47,7 @@ async function revalidarUsuarioToken({ token, secret, tenantQuery }) {
        AND COALESCE(u.ativo, 0) = 1
        AND r.ativo = 1
        AND r.excluido_em IS NULL
+       AND COALESCE(r.status_comercial, 'cliente') NOT IN ('suspenso', 'cancelado')
      LIMIT 1`,
     [usuarioToken.id, usuarioToken.restaurante_id],
   );

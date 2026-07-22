@@ -126,10 +126,10 @@ function descreverHistoricoPlano(item = {}) {
   const anterior = item.dados_anteriores || {};
   const novo = item.dados_novos || {};
   if (item.acao === "criacao") return "Restaurante criado";
-  if (item.acao === "arquivamento") return "Restaurante arquivado";
+  if (item.acao === "arquivamento") return "Restaurante excluido";
   if (item.acao === "alteracao_status") {
-    const antes = anterior.ativo ? "ativo" : "suspenso";
-    const depois = novo.ativo ? "ativo" : "suspenso";
+    const antes = anterior.ativo ? "ativo" : "pausado";
+    const depois = novo.ativo ? "ativo" : "pausado";
     return `Status alterado de ${antes} para ${depois}`;
   }
   if (item.acao === "alteracao_plano") {
