@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "test": "node --test",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test e2e/production-smoke.spec.js",
+    "test:e2e:controlled": "playwright test e2e/operational-flow.spec.js e2e/table-session-security.spec.js e2e/multi-tenant-isolation.spec.js e2e/reservations.spec.js e2e/importation.spec.js",
     "preview": "vite preview"
   },
   "dependencies": {
