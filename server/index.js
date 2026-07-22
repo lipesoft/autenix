@@ -125,6 +125,7 @@ const {
 } = require("./lib/operational-diagnostics");
 const {
   cancelarItemBodySchema,
+  categoriaCreateBodySchema,
   chamadaBodySchema,
   criarPedidoBodySchema,
   fecharMesaBodySchema,
@@ -137,6 +138,14 @@ const {
   mesaCreateBodySchema,
   mesaIdParamSchema,
   pedidoStatusBodySchema,
+  plataformaMinhaSenhaBodySchema,
+  plataformaRedefinirMasterBodySchema,
+  plataformaRestauranteBodySchema,
+  plataformaRestauranteStatusBodySchema,
+  produtoCreateBodySchema,
+  produtoUpdateBodySchema,
+  reservaConfiguracaoBodySchema,
+  reservaSalaoBodySchema,
   usuarioCreateBodySchema,
   usuarioUpdateBodySchema,
 } = require("./lib/request-schemas");
@@ -2770,7 +2779,8 @@ app.patch(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
-      const configuracao = normalizarConfiguracaoReservas(req.body || {});
+      const payload = validateBody(req, reservaConfiguracaoBodySchema);
+      const configuracao = normalizarConfiguracaoReservas(payload);
       const dados = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
@@ -2829,7 +2839,8 @@ app.post(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
-      const salao = normalizarSalaoReserva(req.body || {});
+      const payload = validateBody(req, reservaSalaoBodySchema);
+      const salao = normalizarSalaoReserva(payload);
       const dados = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
@@ -2866,8 +2877,10 @@ app.patch(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
+      validateParams(req, idParamSchema);
       const salaoId = normalizarSalaoId(req.params.id);
-      const salao = normalizarSalaoReserva(req.body || {});
+      const payload = validateBody(req, reservaSalaoBodySchema);
+      const salao = normalizarSalaoReserva(payload);
       const dados = await withTenantTransaction(
         req.user.restaurante_id,
         async (client, restauranteId) => {
@@ -2914,6 +2927,7 @@ app.delete(
   autorizarRoles("admin"),
   async (req, res) => {
     try {
+      validateParams(req, idParamSchema);
       const salaoId = normalizarSalaoId(req.params.id);
       await withTenantTransaction(
         req.user.restaurante_id,
@@ -3587,7 +3601,7 @@ app.post(
 // Categorias (admin)
 app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { nome } = req.body;
+    const { nome } = validateBody(req, categoriaCreateBodySchema);
     const { rows } = await tenantQuery(
       req.user.restaurante_id,
       `INSERT INTO categorias (nome, ordem, restaurante_id)
@@ -3598,12 +3612,16 @@ app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, 
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel criar a categoria agora",
+      logPrefix: "Falha ao criar categoria",
+    });
   }
 });
 
 app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     await tenantQuery(
       req.user.restaurante_id,
       "DELETE FROM categorias WHERE id = $1 AND restaurante_id = $2",
@@ -3612,14 +3630,22 @@ app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async 
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    if (e.code === "23503") {
+      return res.status(409).json({
+        erro: "Nao e possivel remover uma categoria com produtos vinculados",
+      });
+    }
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel remover a categoria agora",
+      logPrefix: "Falha ao remover categoria",
+    });
   }
 });
 
 // Produtos (admin)
 app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { categoria_id, nome, descricao, preco, imagem } = req.body;
+    const produtoPayload = validateBody(req, produtoCreateBodySchema);
     const limites = await carregarLimitesPlano(req.user.restaurante_id);
     const totalProdutos = await contarRegistrosTenant(req.user.restaurante_id, "produtos");
     if (totalProdutos >= limites.limite_produtos) {
@@ -3633,26 +3659,33 @@ app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, re
       `INSERT INTO produtos
          (categoria_id, nome, descricao, preco, imagem, restaurante_id)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id`,
+      RETURNING id`,
       [
-        categoria_id,
-        nome,
-        descricao,
-        preco,
-        imagem || null,
+        produtoPayload.categoria_id,
+        produtoPayload.nome,
+        produtoPayload.descricao,
+        produtoPayload.preco,
+        produtoPayload.imagem || null,
         req.user.restaurante_id,
       ],
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    if (e.code === "23503") {
+      return res.status(400).json({ erro: "Categoria do produto nao encontrada" });
+    }
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel criar o produto agora",
+      logPrefix: "Falha ao criar produto",
+    });
   }
 });
 
 app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
-    const { nome, descricao, preco, disponivel, imagem, categoria_id } = req.body;
+    validateParams(req, idParamSchema);
+    const produtoPayload = validateBody(req, produtoUpdateBodySchema);
     await tenantQuery(
       req.user.restaurante_id,
       `UPDATE produtos
@@ -3664,12 +3697,12 @@ app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (re
            categoria_id = COALESCE($6, categoria_id)
        WHERE id = $7 AND restaurante_id = $8`,
       [
-        nome,
-        descricao,
-        preco,
-        disponivel ? 1 : 0,
-        imagem || null,
-        categoria_id || null,
+        produtoPayload.nome,
+        produtoPayload.descricao,
+        produtoPayload.preco,
+        produtoPayload.disponivel ? 1 : 0,
+        produtoPayload.imagem || null,
+        produtoPayload.categoria_id || null,
         req.params.id,
         req.user.restaurante_id,
       ],
@@ -3677,12 +3710,19 @@ app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (re
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    if (e.code === "23503") {
+      return res.status(400).json({ erro: "Categoria do produto nao encontrada" });
+    }
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel atualizar o produto agora",
+      logPrefix: "Falha ao atualizar produto",
+    });
   }
 });
 
 app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     await tenantQuery(
       req.user.restaurante_id,
       "DELETE FROM produtos WHERE id = $1 AND restaurante_id = $2",
@@ -3691,7 +3731,15 @@ app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (r
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
   } catch (e) {
-    res.status(500).json({ erro: e.message });
+    if (e.code === "23503") {
+      return res.status(409).json({
+        erro: "Nao e possivel remover um produto usado em pedidos",
+      });
+    }
+    return safeErrorResponse(res, e, {
+      fallbackMessage: "Nao foi possivel remover o produto agora",
+      logPrefix: "Falha ao remover produto",
+    });
   }
 });
 
@@ -5160,7 +5208,8 @@ app.get("/api/platform/diagnostico", autenticarPlataforma, async (req, res) => {
 
 app.post("/api/platform/restaurantes", autenticarPlataforma, async (req, res) => {
   try {
-    const resultado = await provisionarRestaurante(pool, req.body, BCRYPT_ROUNDS, {
+    const payload = validateBody(req, plataformaRestauranteBodySchema);
+    const resultado = await provisionarRestaurante(pool, payload, BCRYPT_ROUNDS, {
       onBeforeCommit: (client, { restaurante }) =>
         registrarHistoricoPlanoRestaurante(client, {
           restauranteId: restaurante.id,
@@ -5178,14 +5227,16 @@ app.post("/api/platform/restaurantes", autenticarPlataforma, async (req, res) =>
 
 app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
+    const payload = validateBody(req, plataformaRestauranteBodySchema);
     const restauranteId = idPositivo(req.params.id, "Restaurante");
-    const nome = String(req.body?.nome || "").trim();
-    const slug = normalizarSlugTenant(req.body?.slug || nome);
-    const planoDetalhes = normalizarPlanoDetalhes(req.body);
-    const comercial = normalizarCamposComerciais(req.body, {
+    const nome = String(payload.nome || "").trim();
+    const slug = normalizarSlugTenant(payload.slug || nome);
+    const planoDetalhes = normalizarPlanoDetalhes(payload);
+    const comercial = normalizarCamposComerciais(payload, {
       statusCobranca: planoDetalhes.statusCobranca,
     });
-    const marca = normalizarWhiteLabel(req.body);
+    const marca = normalizarWhiteLabel(payload);
 
     if (nome.length < 2 || nome.length > 120 || !slug || slug.length > 80) {
       throw new TenantValidationError("Nome ou slug do restaurante invalido");
@@ -5293,7 +5344,7 @@ app.patch("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, re
         acao: "alteracao_plano",
         anterior,
         novo: rows[0],
-        motivo: req.body?.motivo_historico || "Cadastro comercial atualizado",
+        motivo: payload.motivo_historico || "Cadastro comercial atualizado",
       });
       return rows[0];
     });
@@ -5308,10 +5359,9 @@ app.patch(
   autenticarPlataforma,
   async (req, res) => {
     try {
+      validateParams(req, idParamSchema);
+      const payload = validateBody(req, plataformaRestauranteStatusBodySchema);
       const restauranteId = idPositivo(req.params.id, "Restaurante");
-      if (typeof req.body?.ativo !== "boolean") {
-        throw new TenantValidationError("Status do restaurante invalido");
-      }
       const atualizado = await withTransaction(async (client) => {
         const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
           forUpdate: true,
@@ -5334,7 +5384,7 @@ app.patch(
              atualizado_em = NOW()
          WHERE id = $2
          RETURNING ${CAMPOS_RESTAURANTE_PLATAFORMA}`,
-          [req.body.ativo, restauranteId],
+          [payload.ativo, restauranteId],
         );
         await registrarHistoricoPlanoRestaurante(client, {
           restauranteId,
@@ -5342,7 +5392,7 @@ app.patch(
           acao: "alteracao_status",
           anterior,
           novo: rows[0],
-          motivo: req.body.ativo ? "Restaurante reativado" : "Restaurante suspenso",
+          motivo: payload.ativo ? "Restaurante reativado" : "Restaurante suspenso",
         });
         return rows[0];
       });
@@ -5355,6 +5405,7 @@ app.patch(
 
 app.delete("/api/platform/restaurantes/:id", autenticarPlataforma, async (req, res) => {
   try {
+    validateParams(req, idParamSchema);
     const restauranteId = idPositivo(req.params.id, "Restaurante");
     const arquivado = await withTransaction(async (client) => {
       const anterior = await buscarRestaurantePlataforma(client, restauranteId, {
@@ -5397,10 +5448,12 @@ app.post(
   autenticarPlataforma,
   async (req, res) => {
     try {
+      validateParams(req, idParamSchema);
+      const payload = validateBody(req, plataformaRedefinirMasterBodySchema);
       const resultado = await redefinirSenhaMaster(
         pool,
         req.params.id,
-        req.body?.senha,
+        payload.senha,
         BCRYPT_ROUNDS,
       );
       return res.json(resultado);
@@ -5411,22 +5464,17 @@ app.post(
 );
 
 app.patch("/api/platform/minha-senha", autenticarPlataforma, async (req, res) => {
-  const senhaAtual = String(req.body?.senha_atual || "");
-  const novaSenha = String(req.body?.nova_senha || "");
-  if (novaSenha.length < 12) {
-    return res.status(400).json({ erro: "A nova senha deve ter pelo menos 12 caracteres" });
-  }
-
   try {
+    const payload = validateBody(req, plataformaMinhaSenhaBodySchema);
     const { rows } = await query(
       "SELECT senha FROM platform_usuarios WHERE id = $1 AND ativo = TRUE",
       [req.platformUser.id],
     );
-    if (!rows[0] || !(await senhaConfere(senhaAtual, rows[0].senha))) {
+    if (!rows[0] || !(await senhaConfere(payload.senha_atual, rows[0].senha))) {
       return res.status(401).json({ erro: "Senha atual incorreta" });
     }
     await query("UPDATE platform_usuarios SET senha = $1 WHERE id = $2", [
-      await hashSenha(novaSenha),
+      await hashSenha(payload.nova_senha),
       req.platformUser.id,
     ]);
     return res.json({ sucesso: true });
