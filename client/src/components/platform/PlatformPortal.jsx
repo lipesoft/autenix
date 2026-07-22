@@ -186,6 +186,27 @@ const LABEL_STATUS_DIAGNOSTICO = {
   degraded: "Degradado",
 };
 
+const AUDITORIA_ACOES = {
+  criacao: "Criacao",
+  alteracao: "Alteracao",
+  remocao: "Remocao",
+  fechamento: "Fechamento",
+  cancelamento: "Cancelamento",
+  rollback: "Rollback",
+};
+
+const AUDITORIA_ENTIDADES = {
+  categorias: "Categorias",
+  produtos: "Produtos",
+  usuarios: "Usuarios",
+  mesas: "Mesas",
+  financeiro: "Financeiro",
+  reservas: "Reservas",
+  importacoes: "Importacoes",
+  configuracoes: "Configuracoes",
+  itens_pedido: "Itens de pedido",
+};
+
 function DiagnosticoOperacional({ diagnostico, status, onRefresh }) {
   const metricas = diagnostico ? [
     ["Restaurantes ativos", diagnostico.restaurantes?.ativos],
@@ -240,6 +261,142 @@ function DiagnosticoOperacional({ diagnostico, status, onRefresh }) {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+function detalhesAuditoria(item) {
+  return JSON.stringify({
+    anteriores: item.dados_anteriores,
+    novos: item.dados_novos,
+    metadados: item.metadados,
+  }, null, 2);
+}
+
+function AuditoriaOperacional({ restaurantes, request }) {
+  const restaurantesAtivos = useMemo(
+    () => restaurantes.filter((item) => !item.excluido_em),
+    [restaurantes],
+  );
+  const [restauranteId, setRestauranteId] = useState("");
+  const [filtros, setFiltros] = useState({
+    acao: "",
+    entidade: "",
+    de: "",
+    ate: "",
+  });
+  const [dados, setDados] = useState({ itens: [], paginacao: { total: 0 } });
+  const [status, setStatus] = useState("idle");
+  const [erro, setErro] = useState("");
+  const restauranteIdAtivo = restauranteId || String(restaurantesAtivos[0]?.id || "");
+
+  const carregar = useCallback(async () => {
+    if (!restauranteIdAtivo) return;
+    setStatus("loading");
+    setErro("");
+    try {
+      const params = new URLSearchParams({
+        restaurante_id: restauranteIdAtivo,
+        limite: "40",
+      });
+      Object.entries(filtros).forEach(([chave, valor]) => {
+        if (valor) params.set(chave, valor);
+      });
+      const resposta = await request(`/api/platform/auditoria?${params.toString()}`);
+      setDados({
+        itens: Array.isArray(resposta.itens) ? resposta.itens : [],
+        paginacao: resposta.paginacao || { total: 0 },
+      });
+      setStatus("ready");
+    } catch (error) {
+      setErro(error.message);
+      setStatus("error");
+    }
+  }, [filtros, request, restauranteIdAtivo]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      carregar();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [carregar]);
+
+  return (
+    <section className="pf-audit-panel" aria-label="Auditoria operacional">
+      <div className="pf-audit-heading">
+        <div>
+          <span className="pf-kicker"><History size={15} /> Auditoria</span>
+          <h2>Eventos operacionais</h2>
+        </div>
+        <button className="pf-button pf-button-secondary" type="button" onClick={carregar} disabled={status === "loading" || !restauranteIdAtivo}>
+          {status === "loading" ? <LoaderCircle className="is-spinning" size={17} /> : <RefreshCw size={17} />}
+          Atualizar
+        </button>
+      </div>
+
+      <div className="pf-audit-filters">
+        <label>
+          Restaurante
+          <select value={restauranteIdAtivo} onChange={(event) => setRestauranteId(event.target.value)}>
+            {restaurantesAtivos.map((restaurante) => (
+              <option key={restaurante.id} value={restaurante.id}>
+                #{restaurante.id} {restaurante.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Acao
+          <select value={filtros.acao} onChange={(event) => setFiltros((atual) => ({ ...atual, acao: event.target.value }))}>
+            <option value="">Todas</option>
+            {Object.entries(AUDITORIA_ACOES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
+        <label>
+          Entidade
+          <select value={filtros.entidade} onChange={(event) => setFiltros((atual) => ({ ...atual, entidade: event.target.value }))}>
+            <option value="">Todas</option>
+            {Object.entries(AUDITORIA_ENTIDADES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
+        <label>
+          De
+          <input type="date" value={filtros.de} onChange={(event) => setFiltros((atual) => ({ ...atual, de: event.target.value }))} />
+        </label>
+        <label>
+          Ate
+          <input type="date" value={filtros.ate} onChange={(event) => setFiltros((atual) => ({ ...atual, ate: event.target.value }))} />
+        </label>
+      </div>
+
+      {status === "error" && <div className="pf-state is-error">{erro || "Nao foi possivel carregar a auditoria."}</div>}
+      {status === "loading" && !dados.itens.length && <div className="pf-state"><LoaderCircle className="is-spinning" /> Carregando auditoria</div>}
+      {status !== "error" && (
+        <div className="pf-audit-list">
+          {dados.itens.map((item) => (
+            <article className="pf-audit-row" key={item.id}>
+              <div>
+                <strong>{AUDITORIA_ACOES[item.acao] || item.acao}</strong>
+                <span>{AUDITORIA_ENTIDADES[item.entidade] || item.entidade}{item.entidade_id ? ` #${item.entidade_id}` : ""}</span>
+              </div>
+              <div>
+                <span>{item.usuario?.nome || item.usuario?.login || item.usuario?.role || "Sistema"}</span>
+                <small>{formatarDataHora(item.criado_em)}</small>
+              </div>
+              <details>
+                <summary>Detalhes</summary>
+                <pre>{detalhesAuditoria(item)}</pre>
+              </details>
+            </article>
+          ))}
+          {!dados.itens.length && status === "ready" && (
+            <div className="pf-state">Nenhum evento encontrado para os filtros atuais.</div>
+          )}
+        </div>
+      )}
+      <div className="pf-audit-footer">
+        {Number(dados.paginacao?.total || 0)} evento(s) encontrado(s)
+      </div>
     </section>
   );
 }
@@ -1406,6 +1563,8 @@ function PlatformDashboard({ session, onLogout }) {
           status={diagnosticoStatus}
           onRefresh={carregarDiagnostico}
         />
+
+        <AuditoriaOperacional restaurantes={restaurantes} request={request} />
 
         <section className="pf-commercial-board" aria-label="Alertas comerciais">
           <div className="pf-commercial-board-heading">

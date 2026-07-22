@@ -70,7 +70,29 @@ const ADMIN_TABS = [
   "relatorios",
   "marca",
   "importacao",
+  "auditoria",
 ];
+
+const AUDITORIA_ACOES = {
+  criacao: "Criacao",
+  alteracao: "Alteracao",
+  remocao: "Remocao",
+  fechamento: "Fechamento",
+  cancelamento: "Cancelamento",
+  rollback: "Rollback",
+};
+
+const AUDITORIA_ENTIDADES = {
+  categorias: "Categorias",
+  produtos: "Produtos",
+  usuarios: "Usuarios",
+  mesas: "Mesas",
+  financeiro: "Financeiro",
+  reservas: "Reservas",
+  importacoes: "Importacoes",
+  configuracoes: "Configuracoes",
+  itens_pedido: "Itens de pedido",
+};
 
 const DIAS_SEMANA_RESERVA = [
   [0, "Dom"],
@@ -465,6 +487,20 @@ function gerarCSS(t = T) {
   .admin-report-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .admin-report-copy { min-width: 0; }
   .admin-report-value { flex-shrink: 0; text-align: right; }
+  .admin-audit-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .admin-audit-field { min-width: 0; display: grid; gap: 5px; }
+  .admin-audit-field span { color: ${t.muted}; font-size: 11px; font-weight: 700; }
+  .admin-audit-list { display: grid; gap: 8px; }
+  .admin-audit-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .55fr); gap: 12px; align-items: start; }
+  .admin-audit-copy { min-width: 0; display: grid; gap: 3px; }
+  .admin-audit-copy strong { color: ${t.heading}; font-size: 14px; }
+  .admin-audit-copy span,
+  .admin-audit-meta span,
+  .admin-audit-meta small { overflow: hidden; color: ${t.muted}; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-audit-meta { min-width: 0; display: grid; gap: 5px; text-align: right; }
+  .admin-audit-row details { grid-column: 1 / -1; }
+  .admin-audit-row summary { width: fit-content; color: ${t.accent}; cursor: pointer; font-size: 12px; font-weight: 800; }
+  .admin-audit-row pre { max-height: 210px; overflow: auto; margin-top: 8px; padding: 10px; border: 1px solid ${t.border}; border-radius: 7px; background: ${t.heading}; color: ${t.bg2}; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .public-reserva-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(320px, 1.05fr); gap: 18px; }
   .public-reserva-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 28px; }
   .admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -479,6 +515,9 @@ function gerarCSS(t = T) {
     .public-reserva-layout { grid-template-columns: 1fr; }
     .admin-report-filters { grid-template-columns: 1fr 1fr; }
     .admin-report-actions { grid-column: 1 / -1; }
+    .admin-audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .admin-audit-row { grid-template-columns: 1fr; }
+    .admin-audit-meta { text-align: left; }
     .admin-reserva-row { grid-template-columns: 1fr; align-items: stretch; }
     .admin-reserva-actions { justify-content: flex-start; }
   }
@@ -499,6 +538,7 @@ function gerarCSS(t = T) {
     .admin-report-actions .app-btn { width: 100%; }
     .admin-report-row { align-items: flex-start; flex-direction: column; gap: 10px; }
     .admin-report-value { width: 100%; padding-top: 9px; border-top: 1px solid ${t.border}; text-align: left; }
+    .admin-audit-filters { grid-template-columns: 1fr; }
   }
 
   /* Financeiro — qualquer tela */
@@ -1137,6 +1177,14 @@ function formatarDataHoraReservaEvento(valor) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function detalhesAuditoria(item) {
+  return JSON.stringify({
+    anteriores: item?.dados_anteriores || null,
+    novos: item?.dados_novos || null,
+    metadados: item?.metadados || {},
+  }, null, 2);
 }
 
 function rotuloEventoReserva(tipo) {
@@ -5299,6 +5347,18 @@ function PainelAdmin({ usuario, onLogout }) {
     salao_id: "",
     observacao: "",
   });
+  const [auditoriaFiltros, setAuditoriaFiltros] = useState({
+    acao: "",
+    entidade: "",
+    de: "",
+    ate: "",
+  });
+  const [auditoriaItens, setAuditoriaItens] = useState([]);
+  const [auditoriaPaginacao, setAuditoriaPaginacao] = useState({ total: 0 });
+  const [auditoriaStatus, setAuditoriaStatus] = useState({
+    tipo: "idle",
+    mensagem: "",
+  });
 
   const css = gerarCSS(T);
   useEffect(() => {
@@ -5345,6 +5405,23 @@ function PainelAdmin({ usuario, onLogout }) {
     if (!r.ok) throw new Error(dados.erro || "Não foi possível carregar a marca");
     setMarcaConfig(normalizarWhiteLabel(dados));
   }, []);
+  const fetchAuditoria = useCallback(async () => {
+    setAuditoriaStatus({ tipo: "loading", mensagem: "" });
+    try {
+      const params = new URLSearchParams({ limite: "40" });
+      Object.entries(auditoriaFiltros).forEach(([chave, valor]) => {
+        if (valor) params.set(chave, valor);
+      });
+      const r = await authFetch(`${API}/api/auditoria?${params.toString()}`);
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro || "Nao foi possivel carregar auditoria");
+      setAuditoriaItens(Array.isArray(dados.itens) ? dados.itens : []);
+      setAuditoriaPaginacao(dados.paginacao || { total: 0 });
+      setAuditoriaStatus({ tipo: "ready", mensagem: "" });
+    } catch (error) {
+      setAuditoriaStatus({ tipo: "error", mensagem: error.message });
+    }
+  }, [auditoriaFiltros]);
   const fetchRelatorio = useCallback(async (periodo, di, df) => {
     setRelatorio((prev) => ({ ...prev, carregando: true }));
     let url = `${API}/api/relatorio?periodo=${periodo || "hoje"}`;
@@ -5398,6 +5475,12 @@ function PainelAdmin({ usuario, onLogout }) {
       setMarcaStatus({ tipo: "error", mensagem: error.message });
     });
   }, [fetchRestaurante]);
+
+  useEffect(() => {
+    if (aba === "auditoria") {
+      fetchAuditoria();
+    }
+  }, [aba, fetchAuditoria]);
 
   const salvarMarca = async () => {
     setMarcaStatus({ tipo: "loading", mensagem: "" });
@@ -5823,6 +5906,7 @@ function PainelAdmin({ usuario, onLogout }) {
             ["relatorios", "Relatórios"],
             ["marca", "Marca"],
             ["importacao", "Importação"],
+            ["auditoria", "Auditoria"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -7008,6 +7092,158 @@ function PainelAdmin({ usuario, onLogout }) {
                   fetchUsuarios();
                 }}
               />
+            </div>
+          )}
+          {aba === "auditoria" && (
+            <div className="fade-up">
+              <Card style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 9,
+                      color: T.heading,
+                      fontFamily: "'Manrope',sans-serif",
+                      fontSize: 17,
+                      fontWeight: 800,
+                    }}
+                  >
+                    <History size={19} color={T.accent} /> Auditoria operacional
+                  </div>
+                  <Btn
+                    sm
+                    variant="ghost"
+                    onClick={fetchAuditoria}
+                    disabled={auditoriaStatus.tipo === "loading"}
+                  >
+                    {auditoriaStatus.tipo === "loading" ? "Carregando" : "Atualizar"}
+                  </Btn>
+                </div>
+
+                <div className="admin-audit-filters">
+                  <label className="admin-audit-field">
+                    <span>Ação</span>
+                    <select
+                      value={auditoriaFiltros.acao}
+                      onChange={(e) =>
+                        setAuditoriaFiltros((atual) => ({
+                          ...atual,
+                          acao: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Todas</option>
+                      {Object.entries(AUDITORIA_ACOES).map(([id, label]) => (
+                        <option key={id} value={id}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="admin-audit-field">
+                    <span>Entidade</span>
+                    <select
+                      value={auditoriaFiltros.entidade}
+                      onChange={(e) =>
+                        setAuditoriaFiltros((atual) => ({
+                          ...atual,
+                          entidade: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Todas</option>
+                      {Object.entries(AUDITORIA_ENTIDADES).map(([id, label]) => (
+                        <option key={id} value={id}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="admin-audit-field">
+                    <span>De</span>
+                    <input
+                      type="date"
+                      value={auditoriaFiltros.de}
+                      onChange={(e) =>
+                        setAuditoriaFiltros((atual) => ({
+                          ...atual,
+                          de: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="admin-audit-field">
+                    <span>Até</span>
+                    <input
+                      type="date"
+                      value={auditoriaFiltros.ate}
+                      onChange={(e) =>
+                        setAuditoriaFiltros((atual) => ({
+                          ...atual,
+                          ate: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+
+                <div
+                  role="status"
+                  style={{
+                    minHeight: 24,
+                    color:
+                      auditoriaStatus.tipo === "error"
+                        ? T.red
+                        : T.muted,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {auditoriaStatus.tipo === "error"
+                    ? auditoriaStatus.mensagem
+                    : `${Number(auditoriaPaginacao.total || 0)} evento(s) encontrado(s)`}
+                </div>
+              </Card>
+
+              <div className="admin-audit-list">
+                {auditoriaItens.map((item) => (
+                  <Card key={item.id}>
+                    <div className="admin-audit-row">
+                      <div className="admin-audit-copy">
+                        <strong>{AUDITORIA_ACOES[item.acao] || item.acao}</strong>
+                        <span>
+                          {AUDITORIA_ENTIDADES[item.entidade] || item.entidade}
+                          {item.entidade_id ? ` #${item.entidade_id}` : ""}
+                        </span>
+                      </div>
+                      <div className="admin-audit-meta">
+                        <span>{item.usuario?.nome || item.usuario?.login || item.usuario?.role || "Sistema"}</span>
+                        <small>{formatarDataHoraReservaEvento(item.criado_em)}</small>
+                      </div>
+                      <details>
+                        <summary>Detalhes</summary>
+                        <pre>{detalhesAuditoria(item)}</pre>
+                      </details>
+                    </div>
+                  </Card>
+                ))}
+                {auditoriaStatus.tipo === "loading" && !auditoriaItens.length && (
+                  <Card>
+                    <div style={{ color: T.muted, fontSize: 13 }}>Carregando auditoria...</div>
+                  </Card>
+                )}
+                {auditoriaStatus.tipo === "ready" && auditoriaItens.length === 0 && (
+                  <Card>
+                    <div style={{ color: T.muted, fontSize: 13 }}>Nenhum evento encontrado.</div>
+                  </Card>
+                )}
+              </div>
             </div>
           )}
         {aba === "equipe" && (
