@@ -1,11 +1,10 @@
-import { createElement, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BarChart3,
   Beef,
   CakeSlice,
   CalendarCheck,
-  ChartNoAxesCombined,
   Check,
   ChefHat,
   CircleDollarSign,
@@ -38,138 +37,248 @@ import LoginModal from "./LoginModal.jsx";
 import "./LandingPage.css";
 
 const NAV_LINKS = [
-  { label: "Benefícios", href: "#beneficios" },
-  { label: "Áreas do sistema", href: "#areas" },
+  { label: "Produto", href: "#produto" },
+  { label: "Fluxo", href: "#fluxo" },
+  { label: "Operação", href: "#operacao" },
   { label: "Cardápio", href: "#cardapio" },
   { label: "Planos", href: "#planos" },
   { label: "Demonstração", href: "#contato" },
-  { label: "Como funciona", href: "#fluxo" },
+];
+
+const MODULOS = [
+  {
+    id: "admin",
+    label: "Administração",
+    icon: LayoutDashboard,
+    accent: "#f2742d",
+    eyebrow: "Controle central",
+    title: "Veja cada mesa, pedido e reserva sem perder tempo procurando.",
+    text: "O painel concentra cadastros, equipe, QR Codes e indicadores para a gestão decidir com contexto.",
+    metric: "18",
+    metricLabel: "mesas monitoradas",
+    rows: ["Cardápio atualizado", "QR Code da mesa 08 ativo", "Novo garçom criado"],
+    stats: [
+      ["Pedidos ativos", "14"],
+      ["Mesas ocupadas", "9"],
+      ["Ticket médio", "R$ 82"],
+    ],
+  },
+  {
+    id: "cozinha",
+    label: "Cozinha",
+    icon: ChefHat,
+    accent: "#327ca4",
+    eyebrow: "Produção sem ruído",
+    title: "A cozinha sabe o que preparar. O garçom sabe o que entregar.",
+    text: "Itens entram por status, avançam no preparo e avisam o salão quando ficam prontos.",
+    metric: "06",
+    metricLabel: "itens em preparo",
+    rows: ["Burger Autenix entrou", "Filé Executivo preparando", "Pedido #128 pronto"],
+    stats: [
+      ["Recebidos", "8"],
+      ["Preparando", "6"],
+      ["Prontos", "3"],
+    ],
+  },
+  {
+    id: "garcom",
+    label: "Garçom",
+    icon: ClipboardList,
+    accent: "#218c72",
+    eyebrow: "Salão em movimento",
+    title: "Menos mensagem solta. Mais atendimento acontecendo.",
+    text: "O garçom acompanha mesas, chamadas, histórico e fechamento no mesmo lugar.",
+    metric: "03",
+    metricLabel: "chamadas abertas",
+    rows: ["Mesa 03 pediu atendimento", "Mesa 07 aguardando conta", "Mesa 12 recebeu pedido"],
+    stats: [
+      ["Chamadas", "3"],
+      ["Entregas", "11"],
+      ["Contas", "2"],
+    ],
+  },
+  {
+    id: "cliente",
+    label: "Cardápio",
+    icon: QrCode,
+    accent: "#9b6a23",
+    eyebrow: "Pedido direto da mesa",
+    title: "O cliente pede no celular e o pedido já nasce no fluxo certo.",
+    text: "Cada QR Code abre uma sessão segura da mesa, com cardápio, status e acompanhamento.",
+    metric: "QR",
+    metricLabel: "sessão segura",
+    rows: ["Mesa 05 conectada", "2 itens adicionados", "Pedido enviado à cozinha"],
+    stats: [
+      ["Categorias", "5"],
+      ["Produtos", "42"],
+      ["Tempo médio", "1m20s"],
+    ],
+  },
+  {
+    id: "financeiro",
+    label: "Financeiro",
+    icon: WalletCards,
+    accent: "#174b4a",
+    eyebrow: "Conta fechada sem retrabalho",
+    title: "O cliente paga. A mesa fecha. O relatório já sabe.",
+    text: "Formas de pagamento, histórico de comandas e total do período ficam conectados ao atendimento.",
+    metric: "R$ 2,8k",
+    metricLabel: "faturamento do dia",
+    rows: ["Mesa 08 fechada em PIX", "Relatório do dia atualizado", "Histórico pronto para consulta"],
+    stats: [
+      ["PIX", "46%"],
+      ["Cartão", "39%"],
+      ["Dinheiro", "15%"],
+    ],
+  },
+  {
+    id: "reservas",
+    label: "Reservas",
+    icon: CalendarCheck,
+    accent: "#8f4d68",
+    eyebrow: "Demanda antes da chegada",
+    title: "Reserva, fila e chamada entram no mesmo ritmo do salão.",
+    text: "A equipe acompanha confirmações, espera, chamada do cliente e acomodação em mesa.",
+    metric: "05",
+    metricLabel: "reservas na fila",
+    rows: ["Família Lima aguardando", "Mesa 04 liberada", "Cliente chamado pelo salão"],
+    stats: [
+      ["Confirmadas", "12"],
+      ["Fila", "5"],
+      ["Acomodadas", "7"],
+    ],
+  },
 ];
 
 const BENEFICIOS = [
   {
     icon: Radio,
     title: "Pedidos em tempo real",
-    text: "Salão e cozinha acompanham cada pedido no mesmo instante, do envio à entrega.",
+    text: "O pedido sai do celular ou do garçom e aparece para quem precisa agir.",
+    metric: "ao vivo",
     tone: "orange",
   },
   {
     icon: QrCode,
-    title: "Cardápio por QR Code",
-    text: "Cada mesa abre uma experiência digital simples para consultar itens e fazer pedidos.",
+    title: "QR Code com sessão da mesa",
+    text: "O cliente acessa o cardápio da mesa certa, com token de sessão controlado.",
+    metric: "mesa certa",
     tone: "blue",
   },
   {
     icon: Table2,
-    title: "Controle de mesas",
-    text: "Visualize ocupação, comandas, chamadas e fechamento sem perder o contexto do atendimento.",
+    title: "Mesas sem perder contexto",
+    text: "Status, chamadas, histórico e fechamento ficam ligados ao atendimento.",
+    metric: "1 mapa",
     tone: "green",
   },
   {
     icon: ChefHat,
-    title: "Painel da cozinha",
-    text: "Organize a fila de produção por status e mantenha o ritmo mesmo nos horários de pico.",
+    title: "Fila clara na cozinha",
+    text: "Recebido, preparando, pronto e entregue sem depender de recado paralelo.",
+    metric: "3 etapas",
     tone: "navy",
   },
   {
-    icon: CircleDollarSign,
-    title: "Financeiro conectado",
-    text: "Fechamentos, formas de pagamento, histórico e resultados ficam no mesmo fluxo.",
-    tone: "green",
-  },
-  {
-    icon: UsersRound,
-    title: "Equipe por perfil",
-    text: "Administração, garçom, cozinha e financeiro acessam somente o que precisam.",
-    tone: "blue",
+    icon: CalendarCheck,
+    title: "Reservas e espera",
+    text: "A chegada do cliente entra na rotina antes da mesa estar livre.",
+    metric: "fila visível",
+    tone: "rose",
   },
   {
     icon: ShieldCheck,
-    title: "Seguro e pronto para crescer",
-    text: "Login protegido, permissões por função e uma base preparada para novos restaurantes.",
-    tone: "orange",
+    title: "Perfis e isolamento",
+    text: "Admin, garçom, cozinha e financeiro acessam somente o que faz sentido.",
+    metric: "por perfil",
+    tone: "teal",
   },
 ];
 
-const AREAS = [
+const STACKED_STEPS = [
   {
-    id: "administracao",
-    label: "Administração",
-    icon: LayoutDashboard,
-    eyebrow: "Visão central",
-    title: "Decisões e configurações em um só painel.",
-    text: "Gerencie produtos, categorias, mesas, equipe e relatórios sem interromper a operação.",
-    highlights: ["Cardápio e disponibilidade", "Mesas e QR Codes", "Usuários e permissões"],
-    metric: "7 áreas",
-    metricLabel: "integradas",
-    queue: ["Cardápio atualizado", "12 mesas ativas", "Equipe sincronizada"],
-  },
-  {
-    id: "garcom",
-    label: "Garçom",
-    icon: ClipboardList,
-    eyebrow: "Atendimento",
-    title: "O salão responde mais rápido.",
-    text: "Chamadas, pedidos, mesas e contas aparecem em uma interface direta para o atendimento.",
-    highlights: ["Mapa de mesas", "Chamadas em destaque", "Fechamento de conta"],
-    metric: "Agora",
-    metricLabel: "pedidos e alertas",
-    queue: ["Mesa 04 pediu atendimento", "Mesa 08 aguardando conta", "Pedido 127 pronto"],
-  },
-  {
-    id: "cozinha",
-    label: "Cozinha",
-    icon: ChefHat,
-    eyebrow: "Produção",
-    title: "Uma fila clara para cada etapa do preparo.",
-    text: "A cozinha recebe os pedidos em tempo real e acompanha cada item até ficar pronto.",
-    highlights: ["Recebidos", "Em preparo", "Prontos para entrega"],
-    metric: "3 etapas",
-    metricLabel: "do pedido ao prato",
-    queue: ["Pedido 128 recebido", "Pedido 126 em preparo", "Pedido 124 pronto"],
-  },
-  {
-    id: "financeiro",
-    label: "Financeiro",
-    icon: WalletCards,
-    eyebrow: "Controle",
-    title: "Fechamento e histórico sem planilhas soltas.",
-    text: "Acompanhe comandas abertas, pagamentos e resultados do período com rastreabilidade.",
-    highlights: ["Resumo do dia", "Formas de pagamento", "Histórico de comandas"],
-    metric: "1 caixa",
-    metricLabel: "com visão completa",
-    queue: ["Conta da mesa 08 fechada", "Pagamento via PIX", "Resumo diário disponível"],
-  },
-  {
-    id: "cliente",
-    label: "Cliente",
     icon: QrCode,
-    eyebrow: "Experiência digital",
-    title: "O cardápio certo chega direto à mesa.",
-    text: "O cliente escaneia o QR Code, conhece os itens e acompanha seus pedidos no celular.",
-    highlights: ["Acesso sem aplicativo", "Categorias organizadas", "Pedido vinculado à mesa"],
-    metric: "QR",
-    metricLabel: "uma experiência simples",
-    queue: ["Mesa 06 conectada", "2 itens adicionados", "Pedido enviado à cozinha"],
+    title: "Cliente abre o cardápio",
+    text: "A mesa ganha uma sessão segura. O cliente vê categorias, produtos e status sem instalar aplicativo.",
+    signal: "Mesa 12 conectada",
   },
   {
-    id: "relatorios",
-    label: "Relatórios",
-    icon: ChartNoAxesCombined,
-    eyebrow: "Resultados",
-    title: "Dados da operação viram visão de negócio.",
-    text: "Consulte vendas por período, volume de atendimentos e histórico para decidir melhor.",
-    highlights: ["Vendas por período", "Histórico detalhado", "Exportação para análise"],
-    metric: "100%",
-    metricLabel: "do fluxo registrado",
-    queue: ["Vendas consolidadas", "Período comparado", "Relatório pronto"],
+    icon: ChefHat,
+    title: "Pedido chega na cozinha",
+    text: "Os itens entram organizados por status para reduzir esquecimento e conversa paralela.",
+    signal: "Pedido #142 recebido",
+  },
+  {
+    icon: ClipboardList,
+    title: "Garçom acompanha",
+    text: "O salão sabe o que está pronto, quem chamou e qual mesa precisa fechar.",
+    signal: "2 pratos prontos",
+  },
+  {
+    icon: WalletCards,
+    title: "Mesa é fechada",
+    text: "Pagamento, histórico e relatório ficam registrados no mesmo fluxo operacional.",
+    signal: "Conta em PIX",
+  },
+];
+
+const FLOW_STEPS = [
+  { icon: QrCode, title: "QR Code", text: "Mesa inicia sessão segura.", status: "ativo" },
+  { icon: Utensils, title: "Cardápio", text: "Cliente escolhe por categoria.", status: "visualizado" },
+  { icon: ReceiptText, title: "Pedido", text: "Itens são enviados no fluxo.", status: "enviado" },
+  { icon: ChefHat, title: "Cozinha", text: "Preparo avança por status.", status: "preparando" },
+  { icon: ClipboardList, title: "Garçom", text: "Equipe recebe o alerta.", status: "retirar" },
+  { icon: WalletCards, title: "Pagamento", text: "Mesa fecha com forma definida.", status: "fechado" },
+  { icon: BarChart3, title: "Relatório", text: "Financeiro atualiza o período.", status: "registrado" },
+];
+
+const LIVE_SNAPSHOTS = [
+  {
+    label: "Abertura do jantar",
+    mesasLivres: 14,
+    mesasOcupadas: 6,
+    preparo: 3,
+    prontos: 1,
+    reservas: 4,
+    faturamento: "R$ 860",
+    activity: ["Mesa 02 abriu atendimento", "Reserva de 4 pessoas confirmada"],
+  },
+  {
+    label: "Pico do salão",
+    mesasLivres: 5,
+    mesasOcupadas: 15,
+    preparo: 11,
+    prontos: 4,
+    reservas: 7,
+    faturamento: "R$ 2.480",
+    activity: ["Pedido #158 em preparo", "Mesa 09 chamou o garçom"],
+  },
+  {
+    label: "Entrega acelerada",
+    mesasLivres: 7,
+    mesasOcupadas: 13,
+    preparo: 6,
+    prontos: 8,
+    reservas: 3,
+    faturamento: "R$ 3.920",
+    activity: ["Pedido #162 pronto", "Mesa 11 solicitou conta"],
+  },
+  {
+    label: "Fechamento do turno",
+    mesasLivres: 16,
+    mesasOcupadas: 4,
+    preparo: 1,
+    prontos: 0,
+    reservas: 0,
+    faturamento: "R$ 5.740",
+    activity: ["Mesa 03 fechada em débito", "Relatório do dia atualizado"],
   },
 ];
 
 const PRODUTOS = [
   {
     nome: "Batata Suprema",
-    descricao: "Batatas crocantes, queijo cremoso, bacon e cebolinha fresca.",
+    descricao: "Batatas crocantes, queijo cremoso, bacon e cebolinha.",
     preco: "R$ 26,90",
     categoria: "Entradas",
     icon: CookingPot,
@@ -245,51 +354,111 @@ const CATEGORIAS = [
 const PLANOS_COMERCIAIS = [
   {
     nome: "Essencial",
-    subtitulo: "Para restaurantes começando a digitalizar o salão.",
+    necessidade: "Operação pequena",
+    subtitulo: "Para digitalizar mesas, cardápio e pedidos sem montar uma estrutura pesada.",
     preco: "R$ 99",
     periodo: "/mês",
     icon: Table2,
-    limites: ["Até 20 mesas", "5 usuários", "120 produtos"],
+    foco: "Salão enxuto",
+    uso: { mesas: 20, usuarios: 5, produtos: 120, importacoes: 1, reservas: 30, relatorios: 4 },
     recursos: [
       "Cardápio digital com QR Code",
       "Pedidos e chamadas em tempo real",
       "Controle básico de mesas",
-      "Relatórios operacionais essenciais",
+      "Relatórios essenciais",
     ],
   },
   {
     nome: "Profissional",
-    subtitulo: "Para operações que precisam integrar equipe, cozinha e gestão.",
+    necessidade: "Restaurante em ritmo alto",
+    subtitulo: "Para integrar salão, cozinha, reservas, financeiro e equipe no mesmo fluxo.",
     preco: "R$ 199",
     periodo: "/mês",
     icon: Sparkles,
+    foco: "Equipe conectada",
     destaque: true,
-    limites: ["Até 60 mesas", "15 usuários", "400 produtos"],
+    uso: { mesas: 60, usuarios: 15, produtos: 400, importacoes: 6, reservas: 180, relatorios: 12 },
     recursos: [
       "Garçom, cozinha e financeiro conectados",
-      "Reservas e importação inicial de dados",
-      "White label com logo e cores do restaurante",
+      "Reservas, fila de espera e importação inicial",
+      "White label com logo e cores",
       "Painel completo de administração",
     ],
   },
   {
     nome: "Enterprise",
-    subtitulo: "Para grupos, casas maiores e projetos com expansão.",
+    necessidade: "Grupo ou casa grande",
+    subtitulo: "Para operações maiores, limites customizados e implantação acompanhada.",
     preco: "Sob consulta",
     periodo: "",
     icon: ShieldCheck,
-    limites: ["Até 500 mesas", "100 usuários", "2.000 produtos"],
+    foco: "Expansão controlada",
+    uso: { mesas: 500, usuarios: 100, produtos: 2000, importacoes: 30, reservas: 900, relatorios: 36 },
     recursos: [
       "Base preparada para multiunidade",
-      "Onboarding assistido e implantação dedicada",
-      "Limites customizados por operação",
+      "Onboarding assistido",
+      "Limites por operação",
       "Prioridade para integrações futuras",
     ],
   },
 ];
 
+function clamp(valor, minimo = 0, maximo = 1) {
+  return Math.min(maximo, Math.max(minimo, valor));
+}
+
 function Icone({ icon, ...props }) {
   return createElement(icon, props);
+}
+
+function usePrefersReducedMotion() {
+  const [reduzir, setReduzir] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!media) return undefined;
+    const atualizar = () => setReduzir(media.matches);
+    atualizar();
+    media.addEventListener?.("change", atualizar);
+    return () => media.removeEventListener?.("change", atualizar);
+  }, []);
+
+  return reduzir;
+}
+
+function useScrollProgress(ref) {
+  const reduzirMovimento = usePrefersReducedMotion();
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (reduzirMovimento) return undefined;
+
+    let frame = 0;
+    const atualizar = () => {
+      frame = 0;
+      const elemento = ref.current;
+      if (!elemento) return;
+      const rect = elemento.getBoundingClientRect();
+      const viewport = window.innerHeight || 1;
+      const distancia = rect.height - viewport * 0.58;
+      const proximo = clamp((viewport * 0.72 - rect.top) / Math.max(distancia, 1));
+      setProgress((atual) => (Math.abs(atual - proximo) > 0.015 ? proximo : atual));
+    };
+    const aoRolar = () => {
+      if (!frame) frame = window.requestAnimationFrame(atualizar);
+    };
+
+    atualizar();
+    window.addEventListener("scroll", aoRolar, { passive: true });
+    window.addEventListener("resize", aoRolar);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", aoRolar);
+      window.removeEventListener("resize", aoRolar);
+    };
+  }, [reduzirMovimento, ref]);
+
+  return reduzirMovimento ? 0 : progress;
 }
 
 function MarcaLogo({ marca }) {
@@ -374,76 +543,208 @@ function Header({ usuario, onAccess, marca }) {
   );
 }
 
-function Hero({ usuario, onAccess, marca }) {
+function ProductMockup({ modulo, dense = false }) {
   return (
-    <section className="lp-hero" id="inicio">
-      <div className="lp-hero-image" aria-hidden="true" />
-      <div className="lp-hero-shade" aria-hidden="true" />
-      <div className="lp-container lp-hero-inner">
+    <div className={`lp-product-mockup ${dense ? "is-dense" : ""}`}>
+      <div className="lp-mockup-topbar">
+        <div className="lp-mockup-brandline">
+          <span />
+          <strong>{modulo.label}</strong>
+        </div>
+        <div className="lp-mockup-live"><i /> ao vivo</div>
+      </div>
+      <div className="lp-mockup-body">
+        <aside className="lp-mockup-sidebar" aria-hidden="true">
+          {MODULOS.slice(0, 5).map((item) => (
+            <span key={item.id} className={item.id === modulo.id ? "is-active" : ""}>
+              <Icone icon={item.icon} size={16} />
+            </span>
+          ))}
+        </aside>
+        <div className="lp-mockup-content">
+          <div className="lp-mockup-headline">
+            <span>{modulo.metricLabel}</span>
+            <strong>{modulo.metric}</strong>
+          </div>
+          <div className="lp-mockup-stats">
+            {modulo.stats.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="lp-mockup-feed">
+            <div className="lp-mockup-feed-title">
+              <span>Fluxo recente</span>
+              <Clock3 size={14} />
+            </div>
+            {modulo.rows.map((item, index) => (
+              <div className="lp-mockup-row" key={item}>
+                <span className={`lp-status-dot dot-${index + 1}`} />
+                <p>{item}</p>
+                <small>{index === 0 ? "agora" : `${index + 1} min`}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Hero({ marca, onDemo }) {
+  const [moduloAtivo, setModuloAtivo] = useState(0);
+  const reduzirMovimento = usePrefersReducedMotion();
+  const heroRef = useRef(null);
+  const modulo = MODULOS[moduloAtivo];
+
+  useEffect(() => {
+    if (reduzirMovimento) return undefined;
+    const interval = window.setInterval(() => {
+      setModuloAtivo((atual) => (atual + 1) % MODULOS.length);
+    }, 3600);
+    return () => window.clearInterval(interval);
+  }, [reduzirMovimento]);
+
+  const moverHero = useCallback((event) => {
+    const podeMover = window.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches;
+    if (!podeMover || reduzirMovimento) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+    event.currentTarget.style.setProperty("--lp-hero-x", x.toFixed(3));
+    event.currentTarget.style.setProperty("--lp-hero-y", y.toFixed(3));
+  }, [reduzirMovimento]);
+
+  const resetarHero = useCallback((event) => {
+    event.currentTarget.style.setProperty("--lp-hero-x", "0");
+    event.currentTarget.style.setProperty("--lp-hero-y", "0");
+  }, []);
+
+  return (
+    <section
+      className="lp-hero"
+      id="inicio"
+      ref={heroRef}
+      onPointerMove={moverHero}
+      onPointerLeave={resetarHero}
+    >
+      <div className="lp-hero-texture" aria-hidden="true" />
+      <div className="lp-container lp-hero-grid">
         <div className="lp-hero-copy">
           <span className="lp-live-label">
-            <span /> Operação conectada em tempo real
+            <span /> SaaS operacional para restaurantes
           </span>
-          <h1>{marca.nome}</h1>
-          <p className="lp-hero-statement">Seu restaurante no ritmo certo.</p>
-          <p className="lp-hero-description">
-            Pedidos, mesas, cozinha, equipe e financeiro em um único fluxo,
-            para o atendimento acontecer com mais clareza do início ao fim.
+          <h1>Do pedido ao fechamento da mesa, tudo no mesmo fluxo.</h1>
+          <p>
+            O {marca.nome} organiza salão, cozinha, reservas, financeiro e
+            equipe sem depender de recados soltos durante o pico.
           </p>
           <div className="lp-hero-actions">
-            <button className="lp-button lp-button-primary" type="button" onClick={onAccess}>
-              {usuario ? "Abrir meu painel" : "Acessar restaurante"}
+            <button className="lp-button lp-button-primary" type="button" onClick={onDemo}>
+              Agendar demonstração
               <ArrowRight size={19} />
             </button>
-            <a className="lp-button lp-button-light" href="#beneficios">
+            <a className="lp-button lp-button-outline-dark" href="#fluxo">
               Conhecer o sistema
             </a>
           </div>
           <div className="lp-hero-proof">
-            <span><Check size={16} /> Acesso por perfil</span>
-            <span><Check size={16} /> Cardápio via QR Code</span>
-            <span><Check size={16} /> Fluxo em tempo real</span>
+            <span><Check size={16} /> QR Code com sessão segura</span>
+            <span><Check size={16} /> Perfis por área</span>
+            <span><Check size={16} /> Multi-restaurante</span>
           </div>
         </div>
-      </div>
-      <div className="lp-operation-strip">
-        <div className="lp-container">
-          <span><Radio size={17} /> Pedidos ao vivo</span>
-          <span><ChefHat size={17} /> Cozinha sincronizada</span>
-          <span><Table2 size={17} /> Mesas organizadas</span>
-          <span><BarChart3 size={17} /> Resultados visíveis</span>
+
+        <div className="lp-hero-visual" style={{ "--module-accent": modulo.accent }}>
+          <div className="lp-hero-device" aria-label={`Prévia do módulo ${modulo.label}`}>
+            <ProductMockup modulo={modulo} />
+          </div>
+
+          <div className="lp-floating-card card-orders">
+            <Radio size={17} />
+            <div>
+              <span>Pedidos ativos</span>
+              <strong>{modulo.stats[0][1]}</strong>
+            </div>
+          </div>
+          <div className="lp-floating-card card-ready">
+            <ChefHat size={17} />
+            <div>
+              <span>Fila da cozinha</span>
+              <strong>{modulo.rows.length} status</strong>
+            </div>
+          </div>
+          <div className="lp-floating-card card-money">
+            <CircleDollarSign size={17} />
+            <div>
+              <span>Financeiro</span>
+              <strong>registrado</strong>
+            </div>
+          </div>
+
+          <div className="lp-hero-switcher" aria-label="Módulos demonstrados">
+            {MODULOS.map((item, index) => (
+              <button
+                key={item.id}
+                className={index === moduloAtivo ? "is-active" : ""}
+                type="button"
+                onClick={() => setModuloAtivo(index)}
+                aria-label={`Mostrar ${item.label}`}
+              >
+                <span style={{ backgroundColor: item.accent }} />
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function Beneficios() {
-  return (
-    <section className="lp-section lp-benefits" id="beneficios">
-      <div className="lp-container">
-        <div className="lp-section-heading lp-heading-split">
-          <div>
-            <span className="lp-eyebrow">Gestão que acompanha o serviço</span>
-            <h2>Menos ruído. Mais restaurante.</h2>
-          </div>
-          <p>
-            O Autenix conecta cada etapa da operação para a equipe enxergar o
-            que precisa, agir mais rápido e manter o cliente bem atendido.
-          </p>
-        </div>
+function StickyModules() {
+  const ref = useRef(null);
+  const progress = useScrollProgress(ref);
+  const activeIndex = Math.min(MODULOS.length - 1, Math.floor(progress * MODULOS.length));
+  const ativo = MODULOS[activeIndex] || MODULOS[0];
 
-        <div className="lp-benefit-grid">
-          {BENEFICIOS.map(({ icon, title, text, tone }, index) => (
+  return (
+    <section
+      className="lp-section lp-sticky-modules"
+      id="produto"
+      ref={ref}
+      style={{ "--module-accent": ativo.accent }}
+    >
+      <div className="lp-container lp-sticky-grid">
+        <aside className="lp-sticky-copy">
+          <span className="lp-eyebrow">Sistema em funcionamento</span>
+          <h2>Enquanto a operação anda, cada área recebe só o que precisa.</h2>
+          <p>
+            Role a página e acompanhe como o Autenix muda de contexto sem mudar
+            o fluxo do restaurante.
+          </p>
+          <div className="lp-module-counter">
+            <strong>{String(activeIndex + 1).padStart(2, "0")}</strong>
+            <span>/ {String(MODULOS.length).padStart(2, "0")}</span>
+          </div>
+        </aside>
+
+        <div className="lp-module-stack" aria-label="Módulos do Autenix">
+          {MODULOS.map((modulo, index) => (
             <article
-              className={`lp-benefit-card tone-${tone} ${index === 6 ? "is-wide" : ""}`}
-              key={title}
+              className={`lp-module-card ${index === activeIndex ? "is-active" : ""} ${index < activeIndex ? "is-past" : ""}`}
+              key={modulo.id}
             >
-              <span className="lp-benefit-icon">
-                <Icone icon={icon} size={23} strokeWidth={1.8} />
-              </span>
-              <h3>{title}</h3>
-              <p>{text}</p>
+              <div className="lp-module-card-icon" style={{ color: modulo.accent }}>
+                <Icone icon={modulo.icon} size={24} />
+              </div>
+              <div>
+                <span>{modulo.eyebrow}</span>
+                <h3>{modulo.title}</h3>
+                <p>{modulo.text}</p>
+              </div>
+              <ProductMockup modulo={modulo} dense />
             </article>
           ))}
         </div>
@@ -452,84 +753,225 @@ function Beneficios() {
   );
 }
 
-function AreasDoSistema() {
-  const [areaAtiva, setAreaAtiva] = useState(AREAS[0].id);
-  const area = AREAS.find((item) => item.id === areaAtiva) || AREAS[0];
+function StackedOperation() {
+  return (
+    <section className="lp-section lp-stacked" id="fluxo">
+      <div className="lp-container lp-stack-heading">
+        <span className="lp-eyebrow">Rotina sem quebra</span>
+        <h2>O atendimento avança em camadas, não em telas isoladas.</h2>
+      </div>
+      <div className="lp-container lp-stack-list">
+        {STACKED_STEPS.map((step, index) => (
+          <article className="lp-stack-card" key={step.title} style={{ "--stack-index": index }}>
+            <div className="lp-stack-number">{String(index + 1).padStart(2, "0")}</div>
+            <div className="lp-stack-icon">
+              <Icone icon={step.icon} size={26} />
+            </div>
+            <div>
+              <h3>{step.title}</h3>
+              <p>{step.text}</p>
+            </div>
+            <span className="lp-stack-signal">{step.signal}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HorizontalFlow() {
+  const ref = useRef(null);
+  const progress = useScrollProgress(ref);
+  const activeIndex = Math.min(FLOW_STEPS.length - 1, Math.round(progress * (FLOW_STEPS.length - 1)));
+  const shift = -progress * 1370;
 
   return (
-    <section className="lp-section lp-areas" id="areas">
-      <div className="lp-container">
-        <div className="lp-section-heading lp-heading-centered">
-          <span className="lp-eyebrow">Um sistema, várias rotinas</span>
-          <h2>Cada área trabalha com foco. A gestão enxerga o todo.</h2>
+    <section
+      className="lp-section lp-horizontal-flow"
+      ref={ref}
+      style={{ "--flow-progress": progress, "--flow-shift": `${shift}px` }}
+      aria-label="Fluxo operacional do Autenix"
+    >
+      <div className="lp-flow-sticky">
+        <div className="lp-container lp-section-heading lp-heading-split">
+          <div>
+            <span className="lp-eyebrow">Do QR Code ao relatório</span>
+            <h2>O cliente pede. A equipe recebe. O financeiro registra.</h2>
+          </div>
           <p>
-            Navegue pelos perfis e veja como o Autenix organiza o fluxo de cada
-            ponto do restaurante.
+            A trilha acompanha o caminho real de uma comanda dentro do restaurante.
+          </p>
+        </div>
+        <div className="lp-flow-viewport">
+          <div className="lp-flow-track">
+            {FLOW_STEPS.map((step, index) => (
+              <article
+                key={step.title}
+                className={`lp-flow-step ${index === activeIndex ? "is-active" : ""} ${index < activeIndex ? "is-complete" : ""}`}
+              >
+                <span className="lp-flow-step-index">{String(index + 1).padStart(2, "0")}</span>
+                <div className="lp-flow-step-icon">
+                  <Icone icon={step.icon} size={24} />
+                </div>
+                <h3>{step.title}</h3>
+                <p>{step.text}</p>
+                <strong>{step.status}</strong>
+              </article>
+            ))}
+          </div>
+          <div className="lp-flow-line" aria-hidden="true">
+            <span />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LiveRestaurant() {
+  const ref = useRef(null);
+  const progress = useScrollProgress(ref);
+  const index = Math.min(LIVE_SNAPSHOTS.length - 1, Math.floor(progress * LIVE_SNAPSHOTS.length));
+  const snapshot = LIVE_SNAPSHOTS[index] || LIVE_SNAPSHOTS[0];
+
+  const indicadores = [
+    ["Mesas livres", snapshot.mesasLivres, Table2],
+    ["Mesas ocupadas", snapshot.mesasOcupadas, UsersRound],
+    ["Em preparo", snapshot.preparo, ChefHat],
+    ["Prontos", snapshot.prontos, Zap],
+    ["Reservas aguardando", snapshot.reservas, CalendarCheck],
+    ["Faturamento do dia", snapshot.faturamento, BarChart3],
+  ];
+
+  return (
+    <section className="lp-section lp-live-restaurant" id="operacao" ref={ref}>
+      <div className="lp-container lp-live-grid">
+        <div className="lp-section-heading">
+          <span className="lp-eyebrow">Restaurante ao vivo</span>
+          <h2>Uma visão operacional que muda junto com o salão.</h2>
+          <p>
+            Dados fictícios realistas mostram como o painel acompanha abertura,
+            pico, entrega e fechamento do turno.
+          </p>
+        </div>
+        <div className="lp-live-panel">
+          <div className="lp-live-panel-top">
+            <div>
+              <span>Momento atual</span>
+              <strong>{snapshot.label}</strong>
+            </div>
+            <span className="lp-preview-live"><i /> sincronizado</span>
+          </div>
+          <div className="lp-live-metrics">
+            {indicadores.map(([label, value, icon]) => (
+              <div key={label} className="lp-live-metric">
+                <Icone icon={icon} size={18} />
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="lp-live-activity">
+            {snapshot.activity.map((item) => (
+              <div key={item}>
+                <span />
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BeforeAfter() {
+  const ref = useRef(null);
+  const progress = useScrollProgress(ref);
+
+  return (
+    <section className="lp-section lp-compare" ref={ref} style={{ "--compare-progress": progress }}>
+      <div className="lp-container lp-compare-heading">
+        <span className="lp-eyebrow">Antes e depois</span>
+        <h2>O ganho aparece quando a operação para de depender de memória.</h2>
+      </div>
+      <div className="lp-container lp-compare-stage">
+        <div className="lp-compare-panel lp-before-panel">
+          <span className="lp-compare-label">Sem Autenix</span>
+          <h3>Pedido espalhado</h3>
+          <ul>
+            <li>Comanda no papel e mensagem separada</li>
+            <li>Cozinha sem prioridade clara</li>
+            <li>Garçom procura status mesa por mesa</li>
+            <li>Fechamento exige conferência manual</li>
+          </ul>
+        </div>
+        <div className="lp-compare-panel lp-after-panel">
+          <span className="lp-compare-label">Com Autenix</span>
+          <h3>Fluxo organizado</h3>
+          <ul>
+            <li>Pedido nasce vinculado à mesa</li>
+            <li>Cozinha avança por status</li>
+            <li>Garçom recebe alerta do que está pronto</li>
+            <li>Financeiro registra a conta fechada</li>
+          </ul>
+        </div>
+        <div className="lp-compare-divider" aria-hidden="true">
+          <span>Autenix</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReactiveResources() {
+  const moverCard = useCallback((event) => {
+    const podeMover = window.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches;
+    if (!podeMover) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    event.currentTarget.style.setProperty("--mx", `${x.toFixed(1)}%`);
+    event.currentTarget.style.setProperty("--my", `${y.toFixed(1)}%`);
+    event.currentTarget.style.setProperty("--rx", `${((y - 50) / -18).toFixed(2)}deg`);
+    event.currentTarget.style.setProperty("--ry", `${((x - 50) / 18).toFixed(2)}deg`);
+  }, []);
+
+  const sairCard = useCallback((event) => {
+    event.currentTarget.style.setProperty("--rx", "0deg");
+    event.currentTarget.style.setProperty("--ry", "0deg");
+  }, []);
+
+  return (
+    <section className="lp-section lp-resources">
+      <div className="lp-container">
+        <div className="lp-section-heading lp-heading-split">
+          <div>
+            <span className="lp-eyebrow">O que muda na prática</span>
+            <h2>Recursos ligados à rotina real do restaurante.</h2>
+          </div>
+          <p>
+            Nada aqui é vitrine vazia: cada bloco representa uma área que já
+            existe no Autenix e reduz uma perda comum do atendimento.
           </p>
         </div>
 
-        <div className="lp-area-tabs" role="tablist" aria-label="Áreas do Autenix">
-          {AREAS.map(({ id, label, icon }) => (
-            <button
-              key={id}
-              className={areaAtiva === id ? "is-active" : ""}
-              type="button"
-              role="tab"
-              aria-selected={areaAtiva === id}
-              onClick={() => setAreaAtiva(id)}
+        <div className="lp-resource-grid">
+          {BENEFICIOS.map(({ icon, title, text, metric, tone }, index) => (
+            <article
+              className={`lp-resource-card tone-${tone} ${index === 0 ? "is-large" : ""} ${index === 5 ? "is-wide" : ""}`}
+              key={title}
+              onPointerMove={moverCard}
+              onPointerLeave={sairCard}
             >
-              <Icone icon={icon} size={18} /> {label}
-            </button>
+              <div className="lp-resource-top">
+                <span><Icone icon={icon} size={22} /></span>
+                <strong>{metric}</strong>
+              </div>
+              <h3>{title}</h3>
+              <p>{text}</p>
+            </article>
           ))}
-        </div>
-
-        <div className="lp-area-stage" role="tabpanel" key={area.id}>
-          <div className="lp-area-copy">
-            <span>{area.eyebrow}</span>
-            <h3>{area.title}</h3>
-            <p>{area.text}</p>
-            <ul>
-              {area.highlights.map((highlight) => (
-                <li key={highlight}><Check size={17} /> {highlight}</li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="lp-product-preview" aria-label={`Prévia da área ${area.label}`}>
-            <div className="lp-preview-topbar">
-              <div>
-                <img src="/logoGuia.png" alt="" />
-                <span>{area.label}</span>
-              </div>
-              <span className="lp-preview-live"><i /> ao vivo</span>
-            </div>
-            <div className="lp-preview-body">
-              <aside>
-                <span className="is-active"><LayoutDashboard size={16} /></span>
-                <span><ClipboardList size={16} /></span>
-                <span><BarChart3 size={16} /></span>
-              </aside>
-              <div className="lp-preview-content">
-                <div className="lp-preview-summary">
-                  <span>{area.metricLabel}</span>
-                  <strong>{area.metric}</strong>
-                </div>
-                <div className="lp-preview-queue">
-                  <div className="lp-preview-queue-header">
-                    <span>Fluxo recente</span>
-                    <Clock3 size={15} />
-                  </div>
-                  {area.queue.map((item, index) => (
-                    <div className="lp-preview-row" key={item}>
-                      <span className={`lp-preview-status status-${index + 1}`} />
-                      <p>{item}</p>
-                      <small>{index === 0 ? "agora" : `${index + 1} min`}</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -550,12 +992,12 @@ function CardapioVitrine() {
       <div className="lp-container">
         <div className="lp-section-heading lp-heading-split">
           <div>
-            <span className="lp-eyebrow">Experiência do cliente</span>
-            <h2>Um cardápio que abre o apetite e simplifica o pedido.</h2>
+            <span className="lp-eyebrow">Cardápio demonstrativo</span>
+            <h2>Produtos, categorias e preços organizados para o cliente pedir sem dúvida.</h2>
           </div>
           <p>
-            Uma vitrine demonstrativa de como produtos, categorias e preços
-            podem ganhar clareza no celular do cliente.
+            A vitrine abaixo usa itens fictícios para demonstrar como o cardápio
+            aparece de forma clara antes do pedido chegar à cozinha.
           </p>
         </div>
 
@@ -574,92 +1016,143 @@ function CardapioVitrine() {
           ))}
         </div>
 
-        <div className="lp-menu-grid">
-          {produtosVisiveis.map(({ nome, descricao, preco, categoria: cat, icon, tone }) => (
-            <article className="lp-menu-card" key={nome}>
-              <div className={`lp-menu-visual tone-${tone}`}>
-                <Icone icon={icon} size={48} strokeWidth={1.25} aria-hidden="true" />
-                <span>{cat}</span>
-              </div>
-              <div className="lp-menu-card-body">
-                <div>
+        <div className="lp-menu-layout">
+          <aside className="lp-phone-menu" aria-label="Prévia mobile do cardápio">
+            <div className="lp-phone-notch" />
+            <span>Mesa 08</span>
+            <h3>Pedido em andamento</h3>
+            <div className="lp-phone-order">
+              <p>1x Burger Autenix</p>
+              <strong>R$ 39,90</strong>
+            </div>
+            <div className="lp-phone-order">
+              <p>1x Suco Natural</p>
+              <strong>R$ 12,90</strong>
+            </div>
+            <button type="button">Enviar pedido</button>
+          </aside>
+
+          <div className="lp-menu-grid">
+            {produtosVisiveis.map(({ nome, descricao, preco, categoria: cat, icon, tone }) => (
+              <article className="lp-menu-card" key={nome}>
+                <div className={`lp-menu-visual tone-${tone}`}>
+                  <Icone icon={icon} size={42} strokeWidth={1.4} aria-hidden="true" />
+                  <span>{cat}</span>
+                </div>
+                <div className="lp-menu-card-body">
                   <h3>{nome}</h3>
                   <p>{descricao}</p>
+                  <div className="lp-menu-card-footer">
+                    <strong>{preco}</strong>
+                    <span><Check size={15} /> Disponível</span>
+                  </div>
                 </div>
-                <div className="lp-menu-card-footer">
-                  <strong>{preco}</strong>
-                  <span><Sparkles size={15} /> Disponível</span>
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            ))}
+          </div>
         </div>
-        <p className="lp-menu-note">
-          Cardápio demonstrativo. Os itens reais são cadastrados pela administração do restaurante.
-        </p>
       </div>
     </section>
   );
 }
 
+function PlanoUso({ plano, selecionado }) {
+  const maximos = { mesas: 500, usuarios: 100, produtos: 2000, importacoes: 30, reservas: 900, relatorios: 36 };
+  const labels = {
+    mesas: "mesas",
+    usuarios: "usuários",
+    produtos: "produtos",
+    importacoes: "importações",
+    reservas: "reservas",
+    relatorios: "relatórios",
+  };
+
+  return (
+    <div className={`lp-plan-usage ${selecionado ? "is-selected" : ""}`}>
+      {Object.entries(plano.uso).map(([key, value]) => (
+        <div key={key}>
+          <span>{labels[key]}</span>
+          <strong>{value}</strong>
+          <i style={{ "--usage": `${Math.min(100, (value / maximos[key]) * 100)}%` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlanosLanding({ usuario, onAccess, onPlanSelect }) {
+  const [planoAtivo, setPlanoAtivo] = useState("Profissional");
+
   return (
     <section className="lp-section lp-plans" id="planos">
       <div className="lp-container">
         <div className="lp-section-heading lp-heading-split">
           <div>
-            <span className="lp-eyebrow">Planos para cada fase</span>
-            <h2>Comece enxuto e evolua conforme a operação cresce.</h2>
+            <span className="lp-eyebrow">Planos comerciais</span>
+            <h2>O plano muda conforme a pressão da operação.</h2>
           </div>
           <p>
-            Os planos do Autenix combinam limites comerciais, recursos do
-            restaurante e uma base pronta para expansão SaaS com mais clientes.
+            Selecione um plano para ver os limites ganhando peso na simulação.
+            A diferenciação é por necessidade, não por brilho.
           </p>
         </div>
 
         <div className="lp-plan-grid">
-          {PLANOS_COMERCIAIS.map((plano) => (
-            <article
-              className={`lp-plan-card ${plano.destaque ? "is-featured" : ""}`}
-              key={plano.nome}
-            >
-              <div className="lp-plan-top">
-                <span className="lp-plan-icon">
-                  <Icone icon={plano.icon} size={23} strokeWidth={1.8} />
-                </span>
-                {plano.destaque && <span className="lp-plan-badge">Mais indicado</span>}
-              </div>
-              <div className="lp-plan-title">
-                <h3>{plano.nome}</h3>
-                <p>{plano.subtitulo}</p>
-              </div>
-              <div className="lp-plan-price">
-                <strong>{plano.preco}</strong>
-                {plano.periodo && <span>{plano.periodo}</span>}
-              </div>
-              <div className="lp-plan-limits">
-                {plano.limites.map((limite) => (
-                  <span key={limite}>{limite}</span>
-                ))}
-              </div>
-              <ul className="lp-plan-features">
-                {plano.recursos.map((recurso) => (
-                  <li key={recurso}>
-                    <Check size={16} />
-                    <span>{recurso}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                className={`lp-button ${plano.destaque ? "lp-button-primary" : "lp-button-outline"}`}
-                type="button"
-                onClick={() => (usuario ? onAccess() : onPlanSelect(plano.nome))}
+          {PLANOS_COMERCIAIS.map((plano) => {
+            const selecionado = planoAtivo === plano.nome;
+            return (
+              <article
+                className={`lp-plan-card ${selecionado ? "is-selected" : ""} ${plano.destaque ? "is-featured" : ""}`}
+                key={plano.nome}
+                onMouseEnter={() => setPlanoAtivo(plano.nome)}
+                onFocus={() => setPlanoAtivo(plano.nome)}
               >
-                {usuario ? "Abrir meu painel" : "Solicitar demonstração"}
-                <ArrowRight size={18} />
-              </button>
-            </article>
-          ))}
+                <div className="lp-plan-top">
+                  <span className="lp-plan-icon">
+                    <Icone icon={plano.icon} size={23} strokeWidth={1.8} />
+                  </span>
+                  <button
+                    type="button"
+                    className="lp-plan-select"
+                    onClick={() => setPlanoAtivo(plano.nome)}
+                    aria-pressed={selecionado}
+                  >
+                    {selecionado ? "Selecionado" : "Comparar"}
+                  </button>
+                </div>
+                <div className="lp-plan-title">
+                  <span>{plano.necessidade}</span>
+                  <h3>{plano.nome}</h3>
+                  <p>{plano.subtitulo}</p>
+                </div>
+                <div className="lp-plan-price">
+                  <strong>{plano.preco}</strong>
+                  {plano.periodo && <span>{plano.periodo}</span>}
+                </div>
+                <PlanoUso plano={plano} selecionado={selecionado} />
+                <div className="lp-plan-focus">
+                  <span>Foco</span>
+                  <strong>{plano.foco}</strong>
+                </div>
+                <ul className="lp-plan-features">
+                  {plano.recursos.map((recurso) => (
+                    <li key={recurso}>
+                      <Check size={16} />
+                      <span>{recurso}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className={`lp-button ${selecionado ? "lp-button-primary" : "lp-button-outline"}`}
+                  type="button"
+                  onClick={() => (usuario ? onAccess() : onPlanSelect(plano.nome))}
+                >
+                  {usuario ? "Abrir meu painel" : `Ver ${plano.nome}`}
+                  <ArrowRight size={18} />
+                </button>
+              </article>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -708,13 +1201,13 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
           <span className="lp-eyebrow">Demonstração guiada</span>
           <h2>Veja o Autenix aplicado ao ritmo do seu restaurante.</h2>
           <p>
-            Informe o plano de interesse e os dados principais para alinharmos
-            uma apresentação objetiva da operação.
+            Informe os dados principais para uma conversa objetiva sobre salão,
+            cozinha, reservas, financeiro e implantação inicial.
           </p>
           <div className="lp-commercial-points">
-            <span><Check size={16} /> Fluxo do salão à cozinha</span>
+            <span><Check size={16} /> Fluxo completo do atendimento</span>
             <span><Check size={16} /> Multi-restaurante e white label</span>
-            <span><Check size={16} /> Implantação com dados iniciais</span>
+            <span><Check size={16} /> Importação de dados iniciais</span>
           </div>
         </div>
 
@@ -769,45 +1262,15 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
   );
 }
 
-function Fluxo() {
-  const etapas = [
-    { numero: "01", icon: QrCode, title: "Cliente escolhe", text: "O QR Code abre o cardápio vinculado à mesa." },
-    { numero: "02", icon: Zap, title: "Pedido circula", text: "Salão e cozinha recebem a informação em tempo real." },
-    { numero: "03", icon: ChefHat, title: "Equipe executa", text: "Cada perfil acompanha sua parte do atendimento." },
-    { numero: "04", icon: ReceiptText, title: "Gestão fecha", text: "Conta, histórico e resultados concluem o fluxo." },
-  ];
-
-  return (
-    <section className="lp-section lp-flow" id="fluxo">
-      <div className="lp-container">
-        <div className="lp-section-heading lp-heading-centered">
-          <span className="lp-eyebrow">Do QR Code ao caixa</span>
-          <h2>O fluxo completo, sem perder o fio da operação.</h2>
-        </div>
-        <div className="lp-flow-grid">
-          {etapas.map(({ numero, icon, title, text }) => (
-            <article key={numero}>
-              <span className="lp-flow-number">{numero}</span>
-              <Icone icon={icon} size={24} />
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function FinalCta({ usuario, onAccess, marca, restauranteSlug }) {
   return (
     <section className="lp-final-cta">
       <div className="lp-container lp-final-cta-inner">
         <div>
-          <span className="lp-eyebrow">Seu restaurante, conectado</span>
-          <h2>Entre no {marca.nome} e continue a operação.</h2>
+          <span className="lp-eyebrow">Acesso operacional</span>
+          <h2>Entre no {marca.nome} e continue o atendimento.</h2>
           <p>
-            Acesse com seu perfil e abra diretamente a área preparada para o seu trabalho.
+            Cada perfil abre direto na área preparada para sua rotina no restaurante.
           </p>
         </div>
         <div className="lp-final-actions">
@@ -833,18 +1296,18 @@ function Footer({ marca }) {
         <a className="lp-brand" href="#inicio" aria-label={`${marca.nome} - voltar ao início`}>
           <MarcaLogo marca={marca} />
         </a>
-        <p>Gestão conectada para restaurantes que querem servir melhor.</p>
+        <p>Gestão conectada para restaurantes que precisam operar com clareza.</p>
         <div>
-          <a href="#beneficios">Benefícios</a>
-          <a href="#areas">Sistema</a>
-          <a href="#cardapio">Cardápio</a>
+          <a href="#produto">Produto</a>
+          <a href="#fluxo">Fluxo</a>
+          <a href="#operacao">Operação</a>
           <a href="#planos">Planos</a>
           <a href="#contato">Demonstração</a>
         </div>
       </div>
       <div className="lp-container lp-footer-bottom">
         <span>© {new Date().getFullYear()} {marca.nome}.</span>
-        <span>Operação, equipe e resultados no mesmo fluxo.</span>
+        <span>Pedidos, equipe e resultados no mesmo fluxo.</span>
       </div>
     </footer>
   );
@@ -854,6 +1317,7 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
   const [loginAberto, setLoginAberto] = useState(false);
   const [planoContato, setPlanoContato] = useState("Profissional");
   const marca = useBranding();
+  const reduzirMovimento = usePrefersReducedMotion();
 
   useEffect(() => {
     document.title = `${marca.nome} | Gestão completa para restaurantes`;
@@ -861,24 +1325,22 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
 
   useEffect(() => {
     const seletores = [
+      ".lp-hero-copy",
+      ".lp-hero-visual",
       ".lp-section-heading",
-      ".lp-benefit-card",
-      ".lp-area-tabs",
-      ".lp-area-stage",
+      ".lp-stack-card",
+      ".lp-resource-card",
       ".lp-menu-card",
-      ".lp-menu-note",
       ".lp-plan-card",
       ".lp-commercial-copy",
       ".lp-commercial-form",
-      ".lp-flow-grid article",
       ".lp-final-cta-inner",
     ].join(",");
     const elementos = Array.from(document.querySelectorAll(seletores));
-    const reduzirMovimento = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
     elementos.forEach((elemento, index) => {
       elemento.classList.add("lp-reveal");
-      elemento.style.setProperty("--lp-reveal-delay", `${Math.min(index % 6, 5) * 55}ms`);
+      elemento.style.setProperty("--lp-reveal-delay", `${Math.min(index % 5, 4) * 55}ms`);
     });
 
     if (reduzirMovimento || !("IntersectionObserver" in window)) {
@@ -894,12 +1356,12 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
           observer.unobserve(entry.target);
         });
       },
-      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+      { threshold: 0.12, rootMargin: "0px 0px -7% 0px" },
     );
 
     elementos.forEach((elemento) => observer.observe(elemento));
     return () => observer.disconnect();
-  }, []);
+  }, [reduzirMovimento]);
 
   const acessar = () => {
     if (usuario) {
@@ -911,20 +1373,29 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
     setLoginAberto(true);
   };
 
+  const irParaContato = () => {
+    document.getElementById("contato")?.scrollIntoView({
+      behavior: reduzirMovimento ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+
   const selecionarPlano = (plano) => {
     setPlanoContato(plano);
-    window.requestAnimationFrame(() => {
-      document.getElementById("contato")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    window.requestAnimationFrame(irParaContato);
   };
 
   return (
     <div className="lp-page">
       <Header usuario={usuario} onAccess={acessar} marca={marca} />
       <main>
-        <Hero usuario={usuario} onAccess={acessar} marca={marca} />
-        <Beneficios />
-        <AreasDoSistema />
+        <Hero marca={marca} onDemo={irParaContato} />
+        <StickyModules />
+        <StackedOperation />
+        <HorizontalFlow />
+        <LiveRestaurant />
+        <BeforeAfter />
+        <ReactiveResources />
         <CardapioVitrine />
         <PlanosLanding usuario={usuario} onAccess={acessar} onPlanSelect={selecionarPlano} />
         <ContatoComercial
@@ -932,7 +1403,6 @@ export default function LandingPage({ usuario, onLogin, restauranteSlug }) {
           onPlanoChange={setPlanoContato}
           marca={marca}
         />
-        <Fluxo />
         <FinalCta
           usuario={usuario}
           onAccess={acessar}
