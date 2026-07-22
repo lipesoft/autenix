@@ -1,6 +1,8 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 import {
+  CalendarClock,
+  Clock,
   Copy,
   ExternalLink,
   History,
@@ -9,6 +11,7 @@ import {
   Mail,
   MessageCircle,
   Palette,
+  QrCode,
   Save,
 } from "lucide-react";
 import BrandingProvider from "./components/branding/BrandingProvider.jsx";
@@ -503,6 +506,38 @@ function gerarCSS(t = T) {
   .admin-audit-row pre { max-height: 210px; overflow: auto; margin-top: 8px; padding: 10px; border: 1px solid ${t.border}; border-radius: 7px; background: ${t.heading}; color: ${t.bg2}; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .public-reserva-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(320px, 1.05fr); gap: 18px; }
   .public-reserva-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 28px; }
+  .public-access-shell { width: min(1080px, calc(100% - 28px)); margin: 0 auto; padding: clamp(22px, 5vw, 52px) 0 48px; }
+  .public-access-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr); gap: clamp(18px, 4vw, 42px); align-items: stretch; }
+  .public-access-copy { min-width: 0; display: grid; align-content: center; gap: 16px; }
+  .public-access-kicker { display: inline-flex; align-items: center; gap: 8px; width: fit-content; color: ${t.accent}; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+  .public-access-copy h1 { max-width: 640px; margin: 0; color: ${t.heading}; font-family: 'Manrope', sans-serif; font-size: clamp(34px, 6vw, 64px); line-height: .98; letter-spacing: 0; }
+  .public-access-copy p { max-width: 560px; margin: 0; color: ${t.text2}; font-size: clamp(14px, 2vw, 17px); line-height: 1.65; }
+  .public-access-status { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 8px 11px; border: 1px solid ${t.border}; border-radius: 999px; background: ${t.card}; color: ${t.text2}; font-size: 12px; font-weight: 800; }
+  .public-access-status span { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+  .public-access-status.is-open { color: ${t.green}; }
+  .public-access-status.is-wait { color: ${t.amber}; }
+  .public-access-status.is-paused { color: ${t.red}; }
+  .public-access-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .public-access-action { min-width: 0; min-height: 132px; display: grid; align-content: space-between; gap: 14px; padding: 16px; border: 1px solid ${t.border}; border-radius: 8px; background: ${t.card}; color: ${t.text}; text-decoration: none; transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+  .public-access-action:hover { transform: translateY(-2px); border-color: color-mix(in srgb, ${t.accent} 45%, ${t.border}); box-shadow: 0 14px 30px ${t.shadow}; }
+  .public-access-action.is-primary { border-color: color-mix(in srgb, ${t.accent} 42%, ${t.border}); background: linear-gradient(135deg, ${t.accent} 0%, ${t.accent2} 100%); color: ${t.onPrimary}; }
+  .public-access-action.is-muted { background: ${t.card2}; }
+  .public-access-action-icon { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; background: color-mix(in srgb, currentColor 10%, transparent); }
+  .public-access-action strong { display: block; font-family: 'Manrope', sans-serif; font-size: 18px; line-height: 1.12; }
+  .public-access-action small { display: block; margin-top: 6px; color: inherit; font-size: 12px; font-weight: 650; line-height: 1.45; opacity: .78; }
+  .public-access-panel { min-width: 0; display: grid; gap: 12px; padding: clamp(16px, 3vw, 22px); border: 1px solid ${t.border}; border-radius: 8px; background: ${t.card}; box-shadow: 0 18px 40px ${t.shadow}; }
+  .public-access-panel h2 { margin: 0; color: ${t.heading}; font-family: 'Manrope', sans-serif; font-size: 22px; line-height: 1.1; }
+  .public-access-code { display: grid; gap: 8px; padding: 12px; border: 1px solid ${t.border}; border-radius: 8px; background: ${t.card2}; }
+  .public-access-code label { color: ${t.text}; font-size: 12px; font-weight: 800; }
+  .public-access-code-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .public-access-code input { width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid ${t.border2}; border-radius: 8px; background: ${t.bg2}; color: ${t.text}; outline: none; font-size: 13px; font-weight: 700; }
+  .public-access-code input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accentGlow}; }
+  .public-access-code button { min-height: 42px; padding: 0 13px; border: 1px solid ${t.accent}; border-radius: 8px; background: ${t.accent}; color: ${t.onPrimary}; cursor: pointer; font-size: 12px; font-weight: 900; }
+  .public-access-steps { display: grid; gap: 8px; }
+  .public-access-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px; border: 1px solid ${t.border}; border-radius: 8px; background: ${t.bg2}; }
+  .public-access-step span { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: ${t.accentGlow}; color: ${t.accent}; font-size: 12px; font-weight: 900; }
+  .public-access-step strong { display: block; color: ${t.text}; font-size: 13px; line-height: 1.2; }
+  .public-access-step small { display: block; margin-top: 3px; color: ${t.muted}; font-size: 12px; line-height: 1.35; }
   .admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .admin-form-grid .is-full { grid-column: 1 / -1; }
   .admin-reserva-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(150px, .55fr) auto; gap: 14px; align-items: center; }
@@ -512,6 +547,7 @@ function gerarCSS(t = T) {
   @media (max-width: 768px) {
     .admin-tabs button { font-size: 12px !important; min-width: 64px; }
     .admin-produto-acoes { flex-direction: column !important; }
+    .public-access-hero { grid-template-columns: 1fr; }
     .public-reserva-layout { grid-template-columns: 1fr; }
     .admin-report-filters { grid-template-columns: 1fr 1fr; }
     .admin-report-actions { grid-column: 1 / -1; }
@@ -523,6 +559,11 @@ function gerarCSS(t = T) {
   }
   @media (max-width: 560px) {
     .admin-content { padding: 12px; }
+    .public-access-shell { width: min(100% - 22px, 1080px); padding-top: 18px; }
+    .public-access-actions { grid-template-columns: 1fr; }
+    .public-access-action { min-height: 116px; }
+    .public-access-code-row { grid-template-columns: 1fr; }
+    .public-access-code button { width: 100%; }
     .public-reserva-highlights { grid-template-columns: 1fr; }
     .admin-form-grid { grid-template-columns: 1fr; }
     .admin-form-grid .is-full { grid-column: auto; }
@@ -1213,19 +1254,257 @@ function textoAutorEventoReserva(evento) {
   return rotuloOrigemEventoReserva(evento?.origem);
 }
 
+function modoReservaDaUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get("modo") === "fila"
+      ? "fila"
+      : "reserva";
+  } catch {
+    return "reserva";
+  }
+}
+
+function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
+  const marca = useBranding();
+  const css = gerarCSS(T);
+  const [codigo, setCodigo] = useState("");
+  const [disponibilidade, setDisponibilidade] = useState(null);
+
+  useEffect(() => {
+    document.title = `${marca.nome} - Acesso`;
+  }, [marca.nome]);
+
+  useEffect(() => {
+    let ativo = true;
+    fetch(apiComRestaurante("/api/reservas/disponibilidade", restauranteSlug))
+      .then((resposta) => resposta.json())
+      .then((dados) => {
+        if (ativo) setDisponibilidade(dados);
+      })
+      .catch(() => {
+        if (ativo) setDisponibilidade(null);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [restauranteSlug]);
+
+  const configReservas = normalizarConfigReservaFrontend(
+    disponibilidade?.configuracao,
+  );
+  const reservasPausadas = disponibilidade && !configReservas.ativo;
+  const filaAtiva = Boolean(configReservas.ativo && configReservas.permitir_fila);
+  const statusClasse = !disponibilidade
+    ? ""
+    : reservasPausadas
+      ? "is-paused"
+      : disponibilidade.restaurante_cheio
+        ? "is-wait"
+        : "is-open";
+  const textoStatus = !disponibilidade
+    ? "Consultando disponibilidade"
+    : reservasPausadas
+      ? "Reservas pausadas no momento"
+      : disponibilidade.restaurante_cheio
+        ? filaAtiva
+          ? "Restaurante cheio, fila disponivel"
+          : "Restaurante cheio agora"
+        : `${disponibilidade.mesas_livres} mesa(s) livres agora`;
+  const linkWhats = linkWhatsApp(
+    marca.whatsappNumero,
+    `Ola, gostaria de falar com ${marca.nome}.`,
+  );
+
+  const abrirAcompanhamento = (event) => {
+    event.preventDefault();
+    const codigoSeguro = codigo.trim().replace(/\s+/g, "").toUpperCase();
+    if (!codigoSeguro) return;
+    window.location.href = rotaRestaurante(
+      restauranteSlug,
+      `reservas/acompanhar/${encodeURIComponent(codigoSeguro)}`,
+    );
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: `linear-gradient(180deg,${T.bg2} 0%,${T.bg} 54%)`,
+      }}
+    >
+      <style>{css}</style>
+      <header className="panel-header">
+        <div className="panel-header-main">
+          <Logo />
+          <div className="panel-header-copy">
+            <div className="panel-header-title">{marca.nome}</div>
+            <div className="panel-header-subtitle">Atendimento online</div>
+          </div>
+        </div>
+        <div className="panel-header-actions">
+          <a
+            href={rotaRestaurante(restauranteSlug, "central")}
+            style={{
+              textDecoration: "none",
+              color: T.text2,
+              fontSize: 12,
+              fontWeight: 800,
+            }}
+          >
+            Equipe
+          </a>
+        </div>
+      </header>
+
+      <main className="public-access-shell">
+        <section className="public-access-hero">
+          <div className="public-access-copy">
+            <span className="public-access-kicker">
+              <LayoutGrid size={15} />
+              Acesso do cliente
+            </span>
+            <h1>Escolha como quer ser atendido.</h1>
+            <p>
+              Reserve uma mesa, entre na fila de espera ou acompanhe uma
+              solicitação já feita. Para fazer pedidos, use o QR Code seguro da
+              mesa quando estiver no restaurante.
+            </p>
+            <div className={`public-access-status ${statusClasse}`}>
+              <span />
+              {textoStatus}
+            </div>
+
+            <div className="public-access-actions">
+              <a
+                className="public-access-action is-primary"
+                href={rotaRestaurante(restauranteSlug, "reservas?modo=reserva")}
+              >
+                <span className="public-access-action-icon">
+                  <CalendarClock size={20} />
+                </span>
+                <span>
+                  <strong>Fazer reserva</strong>
+                  <small>Escolha data, horário, salão e quantidade de pessoas.</small>
+                </span>
+              </a>
+              <a
+                className="public-access-action"
+                href={rotaRestaurante(restauranteSlug, "reservas?modo=fila")}
+                aria-disabled={!filaAtiva}
+                onClick={(event) => {
+                  if (!filaAtiva) event.preventDefault();
+                }}
+                style={!filaAtiva ? { opacity: 0.58, cursor: "not-allowed" } : undefined}
+              >
+                <span className="public-access-action-icon">
+                  <Clock size={20} />
+                </span>
+                <span>
+                  <strong>{filaAtiva ? "Entrar na fila" : "Fila indisponivel"}</strong>
+                  <small>
+                    {filaAtiva
+                      ? "Use quando chegou agora e o restaurante está cheio."
+                      : "A fila online está pausada para este restaurante."}
+                  </small>
+                </span>
+              </a>
+              <div className="public-access-action is-muted">
+                <span className="public-access-action-icon">
+                  <QrCode size={20} />
+                </span>
+                <span>
+                  <strong>Pedido na mesa</strong>
+                  <small>Leia o QR Code da mesa para abrir o cardápio e pedir.</small>
+                </span>
+              </div>
+              {linkWhats ? (
+                <a
+                  className="public-access-action is-muted"
+                  href={linkWhats}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="public-access-action-icon">
+                    <MessageCircle size={20} />
+                  </span>
+                  <span>
+                    <strong>Falar no WhatsApp</strong>
+                    <small>Abra uma conversa direta com a equipe do restaurante.</small>
+                  </span>
+                </a>
+              ) : (
+                <a
+                  className="public-access-action is-muted"
+                  href={rotaRestaurante(restauranteSlug, "central")}
+                >
+                  <span className="public-access-action-icon">
+                    <ExternalLink size={20} />
+                  </span>
+                  <span>
+                    <strong>Acesso da equipe</strong>
+                    <small>Entrada para garçom, cozinha, financeiro e administração.</small>
+                  </span>
+                </a>
+              )}
+            </div>
+          </div>
+
+          <aside className="public-access-panel">
+            <h2>Acompanhar reserva ou fila</h2>
+            <form className="public-access-code" onSubmit={abrirAcompanhamento}>
+              <label htmlFor="codigo-reserva">Código de acompanhamento</label>
+              <div className="public-access-code-row">
+                <input
+                  id="codigo-reserva"
+                  value={codigo}
+                  onChange={(event) => setCodigo(event.target.value)}
+                  placeholder="Ex: RSV123"
+                  autoCapitalize="characters"
+                />
+                <button type="submit" disabled={!codigo.trim()}>
+                  Abrir
+                </button>
+              </div>
+            </form>
+
+            <div className="public-access-steps">
+              {[
+                ["1", "Solicite", "Faça a reserva ou entre na fila online."],
+                ["2", "Acompanhe", "Veja status, posição e chamada pelo link."],
+                ["3", "Na mesa", "Use o QR Code seguro para pedir no cardápio."],
+              ].map(([numero, titulo, texto]) => (
+                <div className="public-access-step" key={numero}>
+                  <span>{numero}</span>
+                  <div>
+                    <strong>{titulo}</strong>
+                    <small>{texto}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  );
+}
+
 function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   const marca = useBranding();
   const css = gerarCSS(T);
-  const [modo, setModo] = useState("reserva");
-  const [form, setForm] = useState({
+  const [modo, setModo] = useState(() => modoReservaDaUrl());
+  const [form, setForm] = useState(() => {
+    const modoInicial = modoReservaDaUrl();
+    return {
     nome_cliente: "",
     telefone: "",
     email: "",
-    data_reserva: dataReservaInicial(),
-    horario: "19:30",
+      data_reserva: modoInicial === "fila" ? dataLocalISO() : dataReservaInicial(),
+      horario: modoInicial === "fila" ? horaLocalHHMM() : "19:30",
     quantidade_pessoas: 2,
     salao_id: "",
     observacao: "",
+    };
   });
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
   const [disponibilidade, setDisponibilidade] = useState(null);
@@ -7829,7 +8108,8 @@ function AppContent() {
   }, [usuarioLogado]);
 
   useEffect(() => {
-    if (rota.area !== "landing") {
+    const areasComTituloProprio = new Set(["landing", "acesso", "reservas", "mesa"]);
+    if (!areasComTituloProprio.has(rota.area)) {
       document.title = `Painel Principal - ${marca.nome}`;
     }
     sessionStorage.removeItem("autAdmin");
@@ -7853,6 +8133,10 @@ function AppContent() {
 
   if (rota.area === "plataforma") {
     return <PlatformPortal />;
+  }
+
+  if (rota.escopada && (rota.area === "landing" || rota.area === "acesso")) {
+    return <TelaAcessoCliente restauranteSlug={rota.slug} />;
   }
 
   if (rota.area === "reservas") {
@@ -7976,6 +8260,7 @@ export default function App() {
     "garcom",
     "mesa",
     "reservas",
+    "acesso",
   ]);
   const slug = escopada
     ? normalizarSlugRestaurante(decodeURIComponent(partes[1]))
