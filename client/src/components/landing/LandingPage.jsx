@@ -426,7 +426,7 @@ function usePrefersReducedMotion() {
   return reduzir;
 }
 
-function useScrollProgress(ref) {
+function usePinnedScrollProgress(ref) {
   const reduzirMovimento = usePrefersReducedMotion();
   const [progress, setProgress] = useState(0);
 
@@ -438,10 +438,9 @@ function useScrollProgress(ref) {
       frame = 0;
       const elemento = ref.current;
       if (!elemento) return;
-      const rect = elemento.getBoundingClientRect();
       const viewport = window.innerHeight || 1;
-      const distancia = rect.height - viewport * 0.58;
-      const proximo = clamp((viewport * 0.72 - rect.top) / Math.max(distancia, 1));
+      const distancia = Math.max(1, elemento.offsetHeight - viewport);
+      const proximo = clamp((window.scrollY - elemento.offsetTop) / distancia);
       setProgress((atual) => (Math.abs(atual - proximo) > 0.015 ? proximo : atual));
     };
     const aoRolar = () => {
@@ -705,8 +704,11 @@ function Hero({ marca, onDemo }) {
 
 function StickyModules() {
   const ref = useRef(null);
-  const progress = useScrollProgress(ref);
-  const activeIndex = Math.min(MODULOS.length - 1, Math.floor(progress * MODULOS.length));
+  const progress = usePinnedScrollProgress(ref);
+  const activeIndex = Math.min(
+    MODULOS.length - 1,
+    Math.floor(clamp(progress * MODULOS.length, 0, MODULOS.length - 0.001)),
+  );
   const ativo = MODULOS[activeIndex] || MODULOS[0];
 
   return (
@@ -728,6 +730,18 @@ function StickyModules() {
             <strong>{String(activeIndex + 1).padStart(2, "0")}</strong>
             <span>/ {String(MODULOS.length).padStart(2, "0")}</span>
           </div>
+          <div className="lp-module-rail" aria-label="Módulos apresentados">
+            {MODULOS.map((modulo, index) => (
+              <span
+                key={modulo.id}
+                className={index === activeIndex ? "is-active" : ""}
+                style={{ "--rail-accent": modulo.accent }}
+              >
+                <Icone icon={modulo.icon} size={15} />
+                {modulo.label}
+              </span>
+            ))}
+          </div>
         </aside>
 
         <div className="lp-module-stack" aria-label="Módulos do Autenix">
@@ -735,14 +749,23 @@ function StickyModules() {
             <article
               className={`lp-module-card ${index === activeIndex ? "is-active" : ""} ${index < activeIndex ? "is-past" : ""}`}
               key={modulo.id}
+              style={{ "--module-accent": modulo.accent }}
             >
               <div className="lp-module-card-icon" style={{ color: modulo.accent }}>
                 <Icone icon={modulo.icon} size={24} />
               </div>
-              <div>
+              <div className="lp-module-card-copy">
                 <span>{modulo.eyebrow}</span>
                 <h3>{modulo.title}</h3>
                 <p>{modulo.text}</p>
+                <div className="lp-module-snapshot" aria-label={`Indicadores de ${modulo.label}`}>
+                  {modulo.stats.map(([label, value]) => (
+                    <div key={label}>
+                      <small>{label}</small>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
               </div>
               <ProductMockup modulo={modulo} dense />
             </article>
@@ -781,15 +804,19 @@ function StackedOperation() {
 
 function HorizontalFlow() {
   const ref = useRef(null);
-  const progress = useScrollProgress(ref);
-  const activeIndex = Math.min(FLOW_STEPS.length - 1, Math.round(progress * (FLOW_STEPS.length - 1)));
-  const shift = -progress * 1370;
+  const progress = usePinnedScrollProgress(ref);
+  const flowProgress = clamp((progress - 0.05) / 0.9);
+  const activeIndex = Math.min(
+    FLOW_STEPS.length - 1,
+    Math.round(flowProgress * (FLOW_STEPS.length - 1)),
+  );
+  const shift = -flowProgress * 900;
 
   return (
     <section
       className="lp-section lp-horizontal-flow"
       ref={ref}
-      style={{ "--flow-progress": progress, "--flow-shift": `${shift}px` }}
+      style={{ "--flow-progress": flowProgress, "--flow-shift": `${shift}px` }}
       aria-label="Fluxo operacional do Autenix"
     >
       <div className="lp-flow-sticky">
@@ -830,8 +857,12 @@ function HorizontalFlow() {
 
 function LiveRestaurant() {
   const ref = useRef(null);
-  const progress = useScrollProgress(ref);
-  const index = Math.min(LIVE_SNAPSHOTS.length - 1, Math.floor(progress * LIVE_SNAPSHOTS.length));
+  const progress = usePinnedScrollProgress(ref);
+  const liveProgress = clamp((progress - 0.08) / 0.84);
+  const index = Math.min(
+    LIVE_SNAPSHOTS.length - 1,
+    Math.floor(clamp(liveProgress * LIVE_SNAPSHOTS.length, 0, LIVE_SNAPSHOTS.length - 0.001)),
+  );
   const snapshot = LIVE_SNAPSHOTS[index] || LIVE_SNAPSHOTS[0];
 
   const indicadores = [
@@ -844,7 +875,12 @@ function LiveRestaurant() {
   ];
 
   return (
-    <section className="lp-section lp-live-restaurant" id="operacao" ref={ref}>
+    <section
+      className="lp-section lp-live-restaurant"
+      id="operacao"
+      ref={ref}
+      style={{ "--live-progress": liveProgress }}
+    >
       <div className="lp-container lp-live-grid">
         <div className="lp-section-heading">
           <span className="lp-eyebrow">Restaurante ao vivo</span>
@@ -861,6 +897,13 @@ function LiveRestaurant() {
               <strong>{snapshot.label}</strong>
             </div>
             <span className="lp-preview-live"><i /> sincronizado</span>
+          </div>
+          <div className="lp-live-stage-rail" aria-label="Ritmo da operação">
+            {LIVE_SNAPSHOTS.map((item, itemIndex) => (
+              <span key={item.label} className={itemIndex === index ? "is-active" : ""}>
+                {item.label}
+              </span>
+            ))}
           </div>
           <div className="lp-live-metrics">
             {indicadores.map(([label, value, icon]) => (
@@ -887,10 +930,11 @@ function LiveRestaurant() {
 
 function BeforeAfter() {
   const ref = useRef(null);
-  const progress = useScrollProgress(ref);
+  const progress = usePinnedScrollProgress(ref);
+  const compareProgress = clamp((progress - 0.08) / 0.84);
 
   return (
-    <section className="lp-section lp-compare" ref={ref} style={{ "--compare-progress": progress }}>
+    <section className="lp-section lp-compare" ref={ref} style={{ "--compare-progress": compareProgress }}>
       <div className="lp-container lp-compare-heading">
         <span className="lp-eyebrow">Antes e depois</span>
         <h2>O ganho aparece quando a operação para de depender de memória.</h2>
