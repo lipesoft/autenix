@@ -123,6 +123,7 @@ const {
   montarDiagnosticoOperacional,
   somarDiagnosticosTenant,
 } = require("./lib/operational-diagnostics");
+const { normalizarAuditoriaOperacional } = require("./lib/operational-audit");
 const {
   cancelarItemBodySchema,
   categoriaCreateBodySchema,
@@ -491,6 +492,65 @@ function tenantQuery(restauranteId, sql, params = []) {
   return withTenantTransaction(restauranteId, (client) =>
     client.query(sql, params),
   );
+}
+
+async function registrarAuditoriaOperacional(client, payload = {}) {
+  let auditoria;
+  let savepointCriado = false;
+  try {
+    auditoria = normalizarAuditoriaOperacional(payload);
+    await client.query("SAVEPOINT auditoria_operacional");
+    savepointCriado = true;
+    await client.query(
+      `INSERT INTO auditoria_operacional
+         (restaurante_id, usuario_id, usuario_nome, usuario_login, usuario_role,
+          acao, entidade, entidade_id, dados_anteriores, dados_novos,
+          metadados, request_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12)`,
+      [
+        auditoria.restaurante_id,
+        auditoria.usuario_id,
+        auditoria.usuario_nome,
+        auditoria.usuario_login,
+        auditoria.usuario_role,
+        auditoria.acao,
+        auditoria.entidade,
+        auditoria.entidade_id,
+        auditoria.dados_anteriores ? JSON.stringify(auditoria.dados_anteriores) : null,
+        auditoria.dados_novos ? JSON.stringify(auditoria.dados_novos) : null,
+        JSON.stringify(auditoria.metadados),
+        auditoria.request_id,
+      ],
+    );
+    await client.query("RELEASE SAVEPOINT auditoria_operacional");
+  } catch (error) {
+    if (savepointCriado) {
+      await client
+        .query("ROLLBACK TO SAVEPOINT auditoria_operacional")
+        .catch(() => {});
+      await client
+        .query("RELEASE SAVEPOINT auditoria_operacional")
+        .catch(() => {});
+    }
+    console.warn(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      type: "operational_audit_failed",
+      request_id: payload.request_id || null,
+      restaurante_id: payload.restaurante_id || null,
+      entidade: payload.entidade || null,
+      acao: payload.acao || null,
+      code: error.code || error.name || "audit_error",
+    }));
+  }
+}
+
+function auditoriaReq(req, extra = {}) {
+  return {
+    restaurante_id: req.user?.restaurante_id,
+    usuario: req.user,
+    request_id: req.requestId,
+    ...extra,
+  };
 }
 
 function normalizarLogin(valor) {
@@ -1938,12 +1998,23 @@ app.post("/api/mesas", autenticarJWT, autorizarRoles("admin"), async (req, res) 
       });
     }
 
-    const { rows } = await tenantQuery(
+    const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
-      `INSERT INTO mesas (numero, restaurante_id)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [String(mesaPayload.numero), req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const resultado = await client.query(
+          `INSERT INTO mesas (numero, restaurante_id)
+           VALUES ($1, $2)
+           RETURNING *`,
+          [String(mesaPayload.numero), restauranteId],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "criacao",
+          entidade: "mesas",
+          entidade_id: resultado.rows[0].id,
+          dados_novos: snapshotMesa(resultado.rows[0]),
+        }));
+        return resultado;
+      },
     );
     emitirEquipe(req.user.restaurante_id, "mesa_atualizada", rows[0]);
     res.json(rows[0]);
@@ -1966,10 +2037,20 @@ app.delete("/api/mesas/:id", autenticarJWT, autorizarRoles("admin"), async (req,
     );
     if (!rows[0]) return res.status(404).json({ erro: "Mesa não encontrada" });
     if (rows[0].status === "ocupada") return res.status(400).json({ erro: "Mesa ocupada" });
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      "DELETE FROM mesas WHERE id = $1 AND restaurante_id = $2",
-      [req.params.id, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        await client.query(
+          "DELETE FROM mesas WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, restauranteId],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "remocao",
+          entidade: "mesas",
+          entidade_id: req.params.id,
+          dados_anteriores: snapshotMesa(rows[0]),
+        }));
+      },
     );
     res.json({ sucesso: true });
   } catch (e) {
@@ -2319,6 +2400,10 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
     const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
       async (client) => {
+        const mesaAnterior = await client.query(
+          "SELECT * FROM mesas WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, req.user.restaurante_id],
+        );
         const mesaAtualizada = await client.query(
           `UPDATE mesas
            SET status = 'livre', forma_pagamento = $1, obs_pagamento = $2
@@ -2336,6 +2421,21 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
           error.statusCode = 404;
           throw error;
         }
+        const totais = await client.query(
+          `SELECT
+             COUNT(DISTINCT p.id)::integer AS pedidos_fechados,
+             COALESCE(SUM(ip.quantidade * pr.preco), 0)::numeric AS total_centavos_base
+           FROM pedidos p
+           JOIN itens_pedido ip
+             ON ip.pedido_id = p.id AND ip.restaurante_id = p.restaurante_id
+           JOIN produtos pr
+             ON pr.id = ip.produto_id AND pr.restaurante_id = ip.restaurante_id
+           WHERE p.mesa_id = $1
+             AND p.restaurante_id = $2
+             AND p.status != 'finalizado'
+             AND ip.status != 'cancelado'`,
+          [req.params.id, req.user.restaurante_id],
+        );
         await client.query(
           `UPDATE pedidos
            SET status = 'finalizado',
@@ -2351,6 +2451,23 @@ app.post("/api/mesas/:id/fechar", autenticarJWT, autorizarRoles("garcom", "finan
           req.params.id,
           client,
         );
+        const totalCentavos = Math.round(Number(totais.rows[0]?.total_centavos_base || 0) * 100);
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "fechamento",
+          entidade: "financeiro",
+          entidade_id: req.params.id,
+          dados_anteriores: mesaAnterior.rows[0] ? snapshotMesa(mesaAnterior.rows[0]) : null,
+          dados_novos: {
+            mesa_id: Number(req.params.id),
+            mesa_status: "livre",
+            forma_pagamento,
+            pedidos_fechados: Number(totais.rows[0]?.pedidos_fechados || 0),
+            total_centavos: totalCentavos,
+          },
+          metadados: {
+            obs_pagamento_informada: Boolean(obs_pagamento),
+          },
+        }));
         return mesaAtualizada;
       },
     );
@@ -3602,12 +3719,23 @@ app.post(
 app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     const { nome } = validateBody(req, categoriaCreateBodySchema);
-    const { rows } = await tenantQuery(
+    const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
-      `INSERT INTO categorias (nome, ordem, restaurante_id)
-       VALUES ($1, $2, $3)
-       RETURNING id`,
-      [nome, 99, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const resultado = await client.query(
+          `INSERT INTO categorias (nome, ordem, restaurante_id)
+           VALUES ($1, $2, $3)
+           RETURNING id, nome, ordem, ativo`,
+          [nome, 99, restauranteId],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "criacao",
+          entidade: "categorias",
+          entidade_id: resultado.rows[0].id,
+          dados_novos: snapshotCategoria(resultado.rows[0]),
+        }));
+        return resultado;
+      },
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
@@ -3622,10 +3750,26 @@ app.post("/api/categorias", autenticarJWT, autorizarRoles("admin"), async (req, 
 app.delete("/api/categorias/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     validateParams(req, idParamSchema);
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      "DELETE FROM categorias WHERE id = $1 AND restaurante_id = $2",
-      [req.params.id, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const anterior = await client.query(
+          "SELECT id, nome, ordem, ativo FROM categorias WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, restauranteId],
+        );
+        await client.query(
+          "DELETE FROM categorias WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, restauranteId],
+        );
+        if (anterior.rows[0]) {
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "remocao",
+            entidade: "categorias",
+            entidade_id: req.params.id,
+            dados_anteriores: snapshotCategoria(anterior.rows[0]),
+          }));
+        }
+      },
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
@@ -3654,20 +3798,31 @@ app.post("/api/produtos", autenticarJWT, autorizarRoles("admin"), async (req, re
       });
     }
 
-    const { rows } = await tenantQuery(
+    const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
-      `INSERT INTO produtos
-         (categoria_id, nome, descricao, preco, imagem, restaurante_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id`,
-      [
-        produtoPayload.categoria_id,
-        produtoPayload.nome,
-        produtoPayload.descricao,
-        produtoPayload.preco,
-        produtoPayload.imagem || null,
-        req.user.restaurante_id,
-      ],
+      async (client, restauranteId) => {
+        const resultado = await client.query(
+          `INSERT INTO produtos
+             (categoria_id, nome, descricao, preco, imagem, restaurante_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, categoria_id, nome, descricao, preco, imagem, disponivel`,
+          [
+            produtoPayload.categoria_id,
+            produtoPayload.nome,
+            produtoPayload.descricao,
+            produtoPayload.preco,
+            produtoPayload.imagem || null,
+            restauranteId,
+          ],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "criacao",
+          entidade: "produtos",
+          entidade_id: resultado.rows[0].id,
+          dados_novos: snapshotProduto(resultado.rows[0]),
+        }));
+        return resultado;
+      },
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ id: rows[0].id });
@@ -3686,26 +3841,46 @@ app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (re
   try {
     validateParams(req, idParamSchema);
     const produtoPayload = validateBody(req, produtoUpdateBodySchema);
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      `UPDATE produtos
-       SET nome = $1,
-           descricao = $2,
-           preco = $3,
-           disponivel = $4,
-           imagem = $5,
-           categoria_id = COALESCE($6, categoria_id)
-       WHERE id = $7 AND restaurante_id = $8`,
-      [
-        produtoPayload.nome,
-        produtoPayload.descricao,
-        produtoPayload.preco,
-        produtoPayload.disponivel ? 1 : 0,
-        produtoPayload.imagem || null,
-        produtoPayload.categoria_id || null,
-        req.params.id,
-        req.user.restaurante_id,
-      ],
+      async (client, restauranteId) => {
+        const anterior = await client.query(
+          `SELECT id, categoria_id, nome, descricao, preco, imagem, disponivel
+           FROM produtos
+           WHERE id = $1 AND restaurante_id = $2`,
+          [req.params.id, restauranteId],
+        );
+        const atualizado = await client.query(
+          `UPDATE produtos
+           SET nome = $1,
+               descricao = $2,
+               preco = $3,
+               disponivel = $4,
+               imagem = $5,
+               categoria_id = COALESCE($6, categoria_id)
+           WHERE id = $7 AND restaurante_id = $8
+           RETURNING id, categoria_id, nome, descricao, preco, imagem, disponivel`,
+          [
+            produtoPayload.nome,
+            produtoPayload.descricao,
+            produtoPayload.preco,
+            produtoPayload.disponivel ? 1 : 0,
+            produtoPayload.imagem || null,
+            produtoPayload.categoria_id || null,
+            req.params.id,
+            restauranteId,
+          ],
+        );
+        if (atualizado.rows[0]) {
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "alteracao",
+            entidade: "produtos",
+            entidade_id: req.params.id,
+            dados_anteriores: anterior.rows[0] ? snapshotProduto(anterior.rows[0]) : null,
+            dados_novos: snapshotProduto(atualizado.rows[0]),
+          }));
+        }
+      },
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
@@ -3723,10 +3898,28 @@ app.patch("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (re
 app.delete("/api/produtos/:id", autenticarJWT, autorizarRoles("admin"), async (req, res) => {
   try {
     validateParams(req, idParamSchema);
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      "DELETE FROM produtos WHERE id = $1 AND restaurante_id = $2",
-      [req.params.id, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const anterior = await client.query(
+          `SELECT id, categoria_id, nome, descricao, preco, imagem, disponivel
+           FROM produtos
+           WHERE id = $1 AND restaurante_id = $2`,
+          [req.params.id, restauranteId],
+        );
+        await client.query(
+          "DELETE FROM produtos WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, restauranteId],
+        );
+        if (anterior.rows[0]) {
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "remocao",
+            entidade: "produtos",
+            entidade_id: req.params.id,
+            dados_anteriores: snapshotProduto(anterior.rows[0]),
+          }));
+        }
+      },
     );
     emitirRestaurante(req.user.restaurante_id, "cardapio_atualizado");
     res.json({ sucesso: true });
@@ -5656,13 +5849,24 @@ app.post("/api/usuarios", autenticarJWT, autorizarRoles("admin"), async (req, re
       });
     }
 
-    const { rows } = await tenantQuery(
+    const { rows } = await withTenantTransaction(
       req.user.restaurante_id,
-      `INSERT INTO usuarios
-         (nome, login, senha, role, restaurante_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
-      [nome, loginFinal, await hashSenha(senha), role, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const resultado = await client.query(
+          `INSERT INTO usuarios
+             (nome, login, senha, role, restaurante_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, nome, login, role, ativo, restaurante_id`,
+          [nome, loginFinal, await hashSenha(senha), role, restauranteId],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "criacao",
+          entidade: "usuarios",
+          entidade_id: resultado.rows[0].id,
+          dados_novos: snapshotUsuario(resultado.rows[0]),
+        }));
+        return resultado;
+      },
     );
     res.json({ id: rows[0].id, login: loginFinal });
   } catch (e) {
@@ -5700,20 +5904,35 @@ app.patch("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (re
         });
       }
     }
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      `UPDATE usuarios
-       SET nome = $1, login = $2, senha = $3, ativo = $4, role = $5
-       WHERE id = $6 AND restaurante_id = $7`,
-      [
-        nome ?? u.nome,
-        novoLogin,
-        novaSenha,
-        novoAtivo,
-        role ?? u.role,
-        req.params.id,
-        req.user.restaurante_id,
-      ],
+      async (client, restauranteId) => {
+        const atualizado = await client.query(
+          `UPDATE usuarios
+           SET nome = $1, login = $2, senha = $3, ativo = $4, role = $5
+           WHERE id = $6 AND restaurante_id = $7
+           RETURNING id, nome, login, role, ativo, restaurante_id`,
+          [
+            nome ?? u.nome,
+            novoLogin,
+            novaSenha,
+            novoAtivo,
+            role ?? u.role,
+            req.params.id,
+            restauranteId,
+          ],
+        );
+        await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+          acao: "alteracao",
+          entidade: "usuarios",
+          entidade_id: req.params.id,
+          dados_anteriores: snapshotUsuario(u),
+          dados_novos: snapshotUsuario(atualizado.rows[0] || {}),
+          metadados: {
+            senha_alterada: Boolean(senha && senha.length > 0),
+          },
+        }));
+      },
     );
     res.json({ sucesso: true });
   } catch (e) {
@@ -5730,10 +5949,28 @@ app.delete("/api/usuarios/:id", autenticarJWT, autorizarRoles("admin"), async (r
     if (Number(req.params.id) === req.user.id) {
       return res.status(400).json({ erro: "Nao e possivel remover o usuario atual" });
     }
-    await tenantQuery(
+    await withTenantTransaction(
       req.user.restaurante_id,
-      "DELETE FROM usuarios WHERE id = $1 AND restaurante_id = $2",
-      [req.params.id, req.user.restaurante_id],
+      async (client, restauranteId) => {
+        const anterior = await client.query(
+          `SELECT id, nome, login, role, ativo, restaurante_id
+           FROM usuarios
+           WHERE id = $1 AND restaurante_id = $2`,
+          [req.params.id, restauranteId],
+        );
+        await client.query(
+          "DELETE FROM usuarios WHERE id = $1 AND restaurante_id = $2",
+          [req.params.id, restauranteId],
+        );
+        if (anterior.rows[0]) {
+          await registrarAuditoriaOperacional(client, auditoriaReq(req, {
+            acao: "remocao",
+            entidade: "usuarios",
+            entidade_id: req.params.id,
+            dados_anteriores: snapshotUsuario(anterior.rows[0]),
+          }));
+        }
+      },
     );
     res.json({ sucesso: true });
   } catch (e) {
