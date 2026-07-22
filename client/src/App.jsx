@@ -538,6 +538,10 @@ function gerarCSS(t = T) {
   .public-access-step span { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: ${t.accentGlow}; color: ${t.accent}; font-size: 12px; font-weight: 900; }
   .public-access-step strong { display: block; color: ${t.text}; font-size: 13px; line-height: 1.2; }
   .public-access-step small { display: block; margin-top: 3px; color: ${t.muted}; font-size: 12px; line-height: 1.35; }
+  .public-access-unavailable { width: min(620px, 100%); display: grid; gap: 14px; padding: clamp(18px, 4vw, 28px); border: 1px solid ${t.border}; border-radius: 8px; background: ${t.card}; box-shadow: 0 18px 40px ${t.shadow}; }
+  .public-access-unavailable h1 { margin: 0; color: ${t.heading}; font-family: 'Manrope', sans-serif; font-size: clamp(28px, 6vw, 44px); line-height: 1.05; letter-spacing: 0; }
+  .public-access-unavailable p { margin: 0; color: ${t.text2}; font-size: 14px; line-height: 1.6; }
+  .public-access-unavailable strong { color: ${t.red}; font-size: 12px; text-transform: uppercase; }
   .admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .admin-form-grid .is-full { grid-column: 1 / -1; }
   .admin-reserva-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(150px, .55fr) auto; gap: 14px; align-items: center; }
@@ -1200,6 +1204,28 @@ function normalizarConfigReservaFrontend(config = {}) {
   };
 }
 
+async function carregarJsonPublico(url, mensagemFallback) {
+  const resposta = await fetch(url);
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) {
+    throw new Error(dados.erro || mensagemFallback);
+  }
+  return dados;
+}
+
+function normalizarDisponibilidadePublica(dados = {}) {
+  const totalMesas = Number(dados.total_mesas ?? 0);
+  const mesasLivres = Number(dados.mesas_livres ?? 0);
+  const mesasOcupadas = Number(dados.mesas_ocupadas ?? 0);
+  return {
+    ...dados,
+    total_mesas: Number.isFinite(totalMesas) ? totalMesas : 0,
+    mesas_livres: Number.isFinite(mesasLivres) ? mesasLivres : 0,
+    mesas_ocupadas: Number.isFinite(mesasOcupadas) ? mesasOcupadas : 0,
+    restaurante_cheio: Boolean(dados.restaurante_cheio),
+  };
+}
+
 function textoDiasReserva(dias = []) {
   const selecionados = DIAS_SEMANA_RESERVA
     .filter(([dia]) => dias.map(Number).includes(dia))
@@ -1269,6 +1295,7 @@ function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
   const css = gerarCSS(T);
   const [codigo, setCodigo] = useState("");
   const [disponibilidade, setDisponibilidade] = useState(null);
+  const [erroDisponibilidade, setErroDisponibilidade] = useState("");
 
   useEffect(() => {
     document.title = `${marca.nome} - Acesso`;
@@ -1276,13 +1303,21 @@ function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
 
   useEffect(() => {
     let ativo = true;
-    fetch(apiComRestaurante("/api/reservas/disponibilidade", restauranteSlug))
-      .then((resposta) => resposta.json())
+    carregarJsonPublico(
+      apiComRestaurante("/api/reservas/disponibilidade", restauranteSlug),
+      "Restaurante indisponivel",
+    )
       .then((dados) => {
-        if (ativo) setDisponibilidade(dados);
+        if (ativo) {
+          setDisponibilidade(normalizarDisponibilidadePublica(dados));
+          setErroDisponibilidade("");
+        }
       })
-      .catch(() => {
-        if (ativo) setDisponibilidade(null);
+      .catch((error) => {
+        if (ativo) {
+          setDisponibilidade(null);
+          setErroDisponibilidade(error.message || "Restaurante indisponivel");
+        }
       });
     return () => {
       ativo = false;
@@ -1356,6 +1391,20 @@ function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
         </div>
       </header>
 
+      {erroDisponibilidade && (
+        <main className="public-access-shell">
+          <section className="public-access-unavailable">
+            <strong>Acesso indisponivel</strong>
+            <h1>Este restaurante nao esta aceitando acessos online.</h1>
+            <p>
+              O restaurante pode estar pausado ou excluido na plataforma Autenix.
+              Para reservas, fila ou pedidos, fale diretamente com a equipe.
+            </p>
+          </section>
+        </main>
+      )}
+
+      {!erroDisponibilidade && (
       <main className="public-access-shell">
         <section className="public-access-hero">
           <div className="public-access-copy">
@@ -1485,6 +1534,7 @@ function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
           </aside>
         </section>
       </main>
+      )}
     </div>
   );
 }
@@ -1508,6 +1558,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   });
   const [status, setStatus] = useState({ tipo: "idle", mensagem: "" });
   const [disponibilidade, setDisponibilidade] = useState(null);
+  const [disponibilidadeErro, setDisponibilidadeErro] = useState("");
   const [acompanhamento, setAcompanhamento] = useState(null);
   const [copiado, setCopiado] = useState(false);
 
@@ -1524,18 +1575,24 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
       if (form.salao_id) params.set("salao_id", form.salao_id);
     }
     const query = params.toString();
-    fetch(
+    carregarJsonPublico(
       apiComRestaurante(
         `/api/reservas/disponibilidade${query ? `?${query}` : ""}`,
         restauranteSlug,
       ),
+      "Reservas indisponiveis",
     )
-      .then((resposta) => resposta.json())
       .then((dados) => {
-        if (ativo) setDisponibilidade(dados);
+        if (ativo) {
+          setDisponibilidade(normalizarDisponibilidadePublica(dados));
+          setDisponibilidadeErro("");
+        }
       })
-      .catch(() => {
-        if (ativo) setDisponibilidade(null);
+      .catch((error) => {
+        if (ativo) {
+          setDisponibilidade(null);
+          setDisponibilidadeErro(error.message || "Reservas indisponiveis");
+        }
       });
     return () => {
       ativo = false;
@@ -1583,6 +1640,10 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
 
   const enviar = async (event) => {
     event.preventDefault();
+    if (disponibilidadeErro) {
+      setStatus({ tipo: "error", mensagem: disponibilidadeErro });
+      return;
+    }
     setStatus({ tipo: "loading", mensagem: "" });
     setAcompanhamento(null);
     setCopiado(false);
@@ -1741,7 +1802,9 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 borderRadius: 999,
                 background: T.card2,
                 color:
-                  !configuracaoReservas.ativo
+                  disponibilidadeErro
+                    ? T.red
+                    : !configuracaoReservas.ativo
                     ? T.red
                     : disponibilidade?.restaurante_cheio
                       ? T.amber
@@ -1758,7 +1821,9 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                   background: "currentColor",
                 }}
               />
-              {disponibilidade
+              {disponibilidadeErro
+                ? "Restaurante indisponivel"
+                : disponibilidade
                 ? !configuracaoReservas.ativo
                   ? "Reservas online pausadas"
                   : disponibilidade.restaurante_cheio
@@ -1768,6 +1833,24 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                     : `${disponibilidade.mesas_livres} mesa(s) livres agora`
                 : "Consulta de disponibilidade ativa"}
             </div>
+            {disponibilidadeErro && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: 12,
+                  border: `1px solid ${T.red}`,
+                  borderRadius: 8,
+                  background: "rgba(220, 69, 55, .08)",
+                  color: T.red,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  lineHeight: 1.45,
+                }}
+              >
+                {disponibilidadeErro}. Esta pagina nao aceita novas reservas ou
+                fila enquanto o restaurante estiver pausado ou excluido.
+              </div>
+            )}
           </div>
           <div
             style={{
@@ -1784,7 +1867,10 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
               <button
                 key={valor}
                 type="button"
-                disabled={valor === "fila" && !configuracaoReservas.permitir_fila}
+                disabled={
+                  Boolean(disponibilidadeErro) ||
+                  (valor === "fila" && !configuracaoReservas.permitir_fila)
+                }
                 onClick={() => selecionarModo(valor)}
                 style={{
                   minHeight: 42,
@@ -1793,13 +1879,18 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                   background: modo === valor ? T.accentGlow : T.card2,
                   color: modo === valor ? T.accent : T.text2,
                   cursor:
-                    valor === "fila" && !configuracaoReservas.permitir_fila
+                    disponibilidadeErro ||
+                    (valor === "fila" && !configuracaoReservas.permitir_fila)
                       ? "not-allowed"
                       : "pointer",
                   fontFamily: "Inter,sans-serif",
                   fontSize: 13,
                   fontWeight: 800,
-                  opacity: valor === "fila" && !configuracaoReservas.permitir_fila ? 0.45 : 1,
+                  opacity:
+                    disponibilidadeErro ||
+                    (valor === "fila" && !configuracaoReservas.permitir_fila)
+                      ? 0.45
+                      : 1,
                 }}
               >
                 {label}
@@ -2032,6 +2123,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
             <Btn
               full
               disabled={
+                Boolean(disponibilidadeErro) ||
                 status.tipo === "loading" ||
                 !form.nome_cliente.trim() ||
                 !form.telefone.trim()

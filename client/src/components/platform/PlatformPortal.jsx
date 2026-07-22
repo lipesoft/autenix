@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Archive,
   BadgeDollarSign,
   Building2,
   CalendarClock,
@@ -27,6 +26,7 @@ import {
   Store,
   Table2,
   TrendingUp,
+  Trash2,
   UserCheck,
   UsersRound,
   X,
@@ -94,7 +94,7 @@ const STATUS_COMERCIAL = {
   lead: "Lead",
   trial: "Trial",
   cliente: "Cliente",
-  suspenso: "Suspenso",
+  suspenso: "Pausado",
   cancelado: "Cancelado",
   isento: "Isento",
 };
@@ -112,8 +112,8 @@ const FILTROS_RESTAURANTES = {
   trial: "Trial",
   alertas: "Alertas",
   atrasados: "Atrasados",
-  suspensos: "Suspensos",
-  arquivados: "Arquivados",
+  suspensos: "Pausados",
+  arquivados: "Excluidos",
 };
 
 const formatarMoeda = (centavos = 0) =>
@@ -235,6 +235,13 @@ const AUDITORIA_ENTIDADES = {
   importacoes: "Importacoes",
   configuracoes: "Configuracoes",
   itens_pedido: "Itens de pedido",
+};
+
+const HISTORICO_PLANO_ACOES = {
+  criacao: "Criacao",
+  alteracao_plano: "Alteracao de plano",
+  alteracao_status: "Status",
+  arquivamento: "Exclusao",
 };
 
 function DiagnosticoOperacional({ diagnostico, status, onRefresh }) {
@@ -988,7 +995,7 @@ function NovoRestaurante({ onClose, onCreated, request }) {
             <Campo label="Ultimo contato">
               <input type="date" value={form.ultimo_contato_comercial_em} onChange={(event) => alterar("ultimo_contato_comercial_em", event.target.value)} />
             </Campo>
-            <Campo label="Motivo de suspensao" wide>
+            <Campo label="Motivo de pausa" wide>
               <input maxLength={500} value={form.motivo_suspensao} onChange={(event) => alterar("motivo_suspensao", event.target.value)} />
             </Campo>
             <Campo label="Observacoes comerciais" wide>
@@ -1267,7 +1274,7 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
           <Campo label="Ultimo contato">
             <input type="date" value={form.ultimo_contato_comercial_em} onChange={(event) => alterar("ultimo_contato_comercial_em", event.target.value)} />
           </Campo>
-          <Campo label="Motivo de suspensao" wide>
+          <Campo label="Motivo de pausa" wide>
             <input maxLength={500} value={form.motivo_suspensao} onChange={(event) => alterar("motivo_suspensao", event.target.value)} />
           </Campo>
           <Campo label="Observacoes comerciais" wide>
@@ -1310,7 +1317,9 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
             const planoNovo = item.dados_novos?.plano;
             return (
               <article className="pf-plan-history-item" key={item.id}>
-                <span className={`pf-plan-history-action is-${item.acao}`}>{item.acao.replace(/_/g, " ")}</span>
+                <span className={`pf-plan-history-action is-${item.acao}`}>
+                  {HISTORICO_PLANO_ACOES[item.acao] || item.acao.replace(/_/g, " ")}
+                </span>
                 <div>
                   <strong>{item.descricao || "Historico registrado"}</strong>
                   <small>{formatarDataHora(item.criado_em)} / {usuario}</small>
@@ -1521,18 +1530,18 @@ function PlatformDashboard({ session, onLogout }) {
         body: JSON.stringify({ ativo: !restaurante.ativo }),
       });
       atualizarItem(atualizado);
-      setToast(atualizado.ativo ? "Restaurante ativado." : "Restaurante suspenso.");
+      setToast(atualizado.ativo ? "Restaurante ativado." : "Restaurante pausado.");
     } catch (error) {
       setToast(error.message);
     }
   };
 
-  const arquivar = async (restaurante) => {
-    if (!window.confirm(`Arquivar ${restaurante.nome}? Os dados serão preservados.`)) return;
+  const excluir = async (restaurante) => {
+    if (!window.confirm(`Excluir ${restaurante.nome}? O acesso sera bloqueado e os dados operacionais serao preservados.`)) return;
     try {
       await request(`/api/platform/restaurantes/${restaurante.id}`, { method: "DELETE" });
       await carregar();
-      setToast("Restaurante arquivado.");
+      setToast("Restaurante excluido.");
     } catch (error) {
       setToast(error.message);
     }
@@ -1667,7 +1676,7 @@ function PlatformDashboard({ session, onLogout }) {
                       <span className={`pf-usage-pill ${classeUso(usoMesas.percentual)}`}><Table2 size={14} /> {usoMesas.atual}/{usoMesas.limite}</span>
                       <span className={`pf-usage-pill ${classeUso(usoUsuarios.percentual)}`}><UsersRound size={14} /> {usoUsuarios.atual}/{usoUsuarios.limite}</span>
                       <span className={`pf-usage-pill ${classeUso(usoProdutos.percentual)}`}><Package size={14} /> {usoProdutos.atual}/{usoProdutos.limite}</span>
-                      <span className={`pf-status ${ativo ? "is-active" : arquivado ? "is-archived" : "is-paused"}`}>{ativo ? "Ativo" : arquivado ? "Arquivado" : "Suspenso"}</span>
+                      <span className={`pf-status ${ativo ? "is-active" : arquivado ? "is-archived" : "is-paused"}`}>{ativo ? "Ativo" : arquivado ? "Excluido" : "Pausado"}</span>
                       {alertas.slice(0, 2).map((alerta) => (
                         <span key={`${alerta.tipo}-${alerta.campo || alerta.titulo}`} className={`pf-inline-alert is-${alerta.severidade}`}>
                           <AlertTriangle size={13} /> {alerta.titulo}
@@ -1676,11 +1685,15 @@ function PlatformDashboard({ session, onLogout }) {
                     </div>
                     <div className="pf-master"><strong>{restaurante.master?.nome || "Sem master"}</strong><small>{restaurante.master?.login || "-"}</small></div>
                     <div className="pf-row-actions">
-                      <a className="pf-icon-button" href={rotaRestaurante(restaurante.slug)} target="_blank" rel="noreferrer" title="Abrir restaurante"><ExternalLink size={17} /></a>
+                      {!arquivado ? (
+                        <a className="pf-icon-button" href={rotaRestaurante(restaurante.slug)} target="_blank" rel="noreferrer" title="Abrir restaurante"><ExternalLink size={17} /></a>
+                      ) : (
+                        <button className="pf-icon-button" type="button" disabled title="Restaurante excluido"><ExternalLink size={17} /></button>
+                      )}
                       <button className="pf-icon-button" type="button" onClick={() => setModal({ tipo: "editar", restaurante })} title="Editar"><Pencil size={17} /></button>
                       {!arquivado && <button className="pf-icon-button" type="button" onClick={() => redefinirMaster(restaurante)} title="Redefinir master"><KeyRound size={17} /></button>}
-                      <button className="pf-icon-button" type="button" onClick={() => alterarStatus(restaurante)} title={ativo ? "Suspender" : "Ativar"}>{ativo ? <CirclePause size={17} /> : <Check size={17} />}</button>
-                      {!arquivado && <button className="pf-icon-button is-danger" type="button" onClick={() => arquivar(restaurante)} title="Arquivar"><Archive size={17} /></button>}
+                      {!arquivado && <button className="pf-icon-button" type="button" onClick={() => alterarStatus(restaurante)} title={ativo ? "Pausar" : "Ativar"}>{ativo ? <CirclePause size={17} /> : <Check size={17} />}</button>}
+                      {!arquivado && <button className="pf-icon-button is-danger" type="button" onClick={() => excluir(restaurante)} title="Excluir"><Trash2 size={17} /></button>}
                     </div>
                   </article>
                 );
