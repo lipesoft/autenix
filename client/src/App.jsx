@@ -1376,19 +1376,21 @@ function TelaAcessoCliente({ restauranteSlug = "autenix" }) {
             <div className="panel-header-subtitle">Atendimento online</div>
           </div>
         </div>
-        <div className="panel-header-actions">
-          <a
-            href={rotaRestaurante(restauranteSlug, "central")}
-            style={{
-              textDecoration: "none",
-              color: T.text2,
-              fontSize: 12,
-              fontWeight: 800,
-            }}
-          >
-            Equipe
-          </a>
-        </div>
+        {!erroDisponibilidade && (
+          <div className="panel-header-actions">
+            <a
+              href={rotaRestaurante(restauranteSlug, "central")}
+              style={{
+                textDecoration: "none",
+                color: T.text2,
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              Equipe
+            </a>
+          </div>
+        )}
       </header>
 
       {erroDisponibilidade && (
