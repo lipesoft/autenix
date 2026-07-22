@@ -5,11 +5,13 @@ const {
   safeErrorResponse,
 } = require("../lib/http-validation");
 const {
+  auditoriaQuerySchema,
   categoriaCreateBodySchema,
   criarPedidoBodySchema,
   fecharMesaBodySchema,
   importacaoBodySchema,
   loginBodySchema,
+  plataformaAuditoriaQuerySchema,
   plataformaMinhaSenhaBodySchema,
   plataformaRestauranteBodySchema,
   produtoCreateBodySchema,
@@ -228,6 +230,42 @@ test("limita importacao a 500 linhas e exige registros", () => {
       rows: [...rows, { nome: "Produto extra" }],
     }),
     /500/,
+  );
+});
+
+test("valida filtros seguros de auditoria operacional", () => {
+  const filtros = parseWithSchema(auditoriaQuerySchema, {
+    limite: "80",
+    offset: "10",
+    acao: "cancelamento",
+    entidade: "reservas",
+    usuario_id: "2",
+    entidade_id: "9",
+    de: "2026-07-01",
+    ate: "2026-07-22",
+  });
+
+  assert.equal(filtros.limite, 80);
+  assert.equal(filtros.offset, 10);
+  assert.equal(filtros.acao, "cancelamento");
+  assert.equal(filtros.entidade, "reservas");
+  assert.equal(filtros.usuario_id, 2);
+
+  const plataforma = parseWithSchema(plataformaAuditoriaQuerySchema, {
+    restaurante_id: "3",
+    acao: "rollback",
+    entidade: "importacoes",
+  });
+  assert.equal(plataforma.restaurante_id, 3);
+  assert.equal(plataforma.limite, 40);
+
+  assert.throws(
+    () => parseWithSchema(auditoriaQuerySchema, {
+      limite: "500",
+      entidade: "segredos",
+      authorization: "Bearer x",
+    }),
+    /limite|entidade|authorization|Unrecognized key/,
   );
 });
 

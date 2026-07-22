@@ -71,6 +71,38 @@ test("rejeita acao e entidade fora do catalogo", () => {
   );
 });
 
+test("aceita novos eventos criticos de auditoria operacional", () => {
+  const auditoria = normalizarAuditoriaOperacional({
+    restaurante_id: 1,
+    usuario: { id: 2, nome: "Admin", login: "master", role: "admin" },
+    acao: "cancelamento",
+    entidade: "reservas",
+    entidade_id: 8,
+    dados_novos: {
+      status: "cancelada",
+      telefone: "nao deve aparecer",
+      token_acompanhamento: "segredo",
+    },
+  });
+
+  assert.equal(auditoria.acao, "cancelamento");
+  assert.equal(auditoria.entidade, "reservas");
+  assert.deepEqual(auditoria.dados_novos, {
+    status: "cancelada",
+    telefone: "nao deve aparecer",
+  });
+
+  const rollback = normalizarAuditoriaOperacional({
+    restaurante_id: 1,
+    acao: "rollback",
+    entidade: "importacoes",
+    entidade_id: 3,
+  });
+
+  assert.equal(rollback.acao, "rollback");
+  assert.equal(rollback.entidade, "importacoes");
+});
+
 test("sanitiza arrays e objetos aninhados", () => {
   assert.deepEqual(
     sanitizarValor({
