@@ -142,11 +142,16 @@ comercial, notificacoes e higiene operacional inicial.
   via variaveis de marca.
 - Implementado: preview visual de fontes antes de salvar a identidade do
   restaurante.
+- Implementado: normalizacao do payload de white label no frontend para evitar
+  envio de campos calculados da plataforma ao salvar o restaurante.
 - Pendente: auditoria automatica de contraste/acessibilidade antes de salvar.
 
 ## Prioridade 3 - Reservas
 
 - Implementado: area publica `/r/{slug}/reservas` para solicitacao de reserva.
+- Implementado: portal publico `/r/{slug}` e `/r/{slug}/acesso` com atalhos
+  objetivos para reserva, fila de espera, acompanhamento e orientacao de QR
+  seguro da mesa.
 - Implementado: aba Reservas no painel administrativo com criacao interna,
   listagem, vinculo opcional de mesa e mudanca de status.
 - Implementado: aba Reservas na sessao do garcom para visualizar agenda,
