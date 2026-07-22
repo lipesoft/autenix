@@ -18,8 +18,11 @@ um runbook completo de producao, mas define o minimo operacional seguro.
 - Backend: executar `cd server && npm test` e `npm audit --omit=dev`.
 - Frontend: executar `cd client && npm test`, `npm run lint`,
   `npm run build` e `npm audit`.
-- E2E: executar `cd client && npm run test:e2e` em staging/controlado com as
-  variaveis `E2E_*`.
+- E2E smoke: executar `cd client && npm run test:e2e:smoke` contra producao ou
+  staging. Esse teste e somente leitura e valida landing, health, readiness,
+  cardapio publico e protecao do diagnostico da plataforma.
+- E2E controlado: executar `cd client && npm run test:e2e:controlled` em
+  staging/controlado com as variaveis `E2E_*` e `E2E_ALLOW_WRITE=true`.
 - Carga: executar os scripts em `load-tests/k6` somente contra staging ou com
   `ALLOW_PRODUCTION_LOAD_TEST=true` em janela aprovada.
 - Health: validar `GET /api/health` e `GET /api/health/readiness`.
@@ -193,6 +196,39 @@ npm run test:e2e
 ```
 
 Sem variaveis, os testes de escrita ficam marcados como skip.
+
+Smoke seguro em producao, sem escrita:
+
+```powershell
+cd client
+$env:E2E_APP_URL="https://autenix.vercel.app"
+$env:E2E_API_URL="https://autenix-api.vercel.app"
+$env:E2E_RESTAURANTE_SLUG="<slug-restaurante-validacao>"
+npm run test:e2e:smoke
+```
+
+Se o slug informado nao existir no ambiente, o smoke de cardapio fica marcado
+como skip, mas health, readiness, rota protegida e landing continuam sendo
+validados.
+
+Fluxo completo com escrita somente em restaurante de validacao:
+
+```powershell
+cd client
+$env:E2E_APP_URL="https://autenix.vercel.app"
+$env:E2E_API_URL="https://autenix-api.vercel.app"
+$env:E2E_RESTAURANTE_SLUG="<slug-restaurante-validacao-1>"
+$env:E2E_ADMIN_LOGIN="<login-admin-validacao-1>"
+$env:E2E_ADMIN_PASSWORD="<senha-admin-validacao-1>"
+$env:E2E_SECOND_RESTAURANTE_SLUG="<slug-restaurante-validacao-2>"
+$env:E2E_SECOND_ADMIN_LOGIN="<login-admin-validacao-2>"
+$env:E2E_SECOND_ADMIN_PASSWORD="<senha-admin-validacao-2>"
+$env:E2E_ALLOW_WRITE="true"
+npm run test:e2e:controlled
+```
+
+Nao use restaurante real de cliente para `test:e2e:controlled`, porque ele cria
+categorias, produtos, mesas, reservas, pedidos e importacoes de teste.
 
 ## Plano de incidente
 

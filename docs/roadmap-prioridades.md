@@ -52,6 +52,9 @@ comercial, notificacoes e higiene operacional inicial.
 - Implementado: suite E2E completa executada contra producao controlada com
   dois restaurantes de validacao, cobrindo fluxo operacional, sessao de mesa,
   isolamento multi-tenant, reservas e importacao.
+- Implementado: smoke E2E somente leitura para producao, validando landing,
+  health, readiness, cardapio publico e protecao do diagnostico tecnico sem
+  criar dados no banco.
 
 ## Prioridade 0 - Seguranca e isolamento
 
@@ -276,6 +279,8 @@ comercial, notificacoes e higiene operacional inicial.
 - Implementado: testes E2E com Playwright adicionados e executados com
   credenciais temporarias em ambiente controlado, cobrindo login operacional,
   pedidos, fechamento de mesa, reservas, importacao e isolamento multi-tenant.
+- Implementado: scripts separados `test:e2e:smoke` e `test:e2e:controlled`
+  para diferenciar validacao segura de producao e fluxo completo com escrita.
 - Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
   ao editar categoria/produto.
 - Pendente: revisar pool de conexoes e estrategia de conexao no Supabase para
