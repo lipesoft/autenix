@@ -41,11 +41,13 @@ financeiro, cardapio do cliente e importacao inicial de dados.
 - editar nome, slug, plano e limite de mesas;
 - abrir o restaurante em uma nova guia;
 - redefinir a senha do master;
-- suspender ou reativar o acesso;
-- arquivar o cliente preservando seus dados;
+- pausar ou reativar o acesso;
+- excluir o cliente preservando seus dados operacionais;
 - alterar a senha do operador global.
 
-O arquivamento e logico. A exclusao nao remove pedidos, usuarios ou historico.
+A exclusao e logica: marca `excluido_em`, bloqueia login, portal publico,
+reservas, fila, cardapio e QR Code, mas nao remove pedidos, usuarios,
+reservas ou historico. Para parar temporariamente um cliente, use `Pausar`.
 
 ## White label
 
@@ -76,4 +78,4 @@ As configuracoes sao aplicadas apenas ao `restaurante_id` autorizado.
 ## Migrations
 
 - `009_restaurant_white_label.sql`: identidade por restaurante.
-- `010_platform_administration.sql`: planos, limites, arquivamento e usuarios globais.
+- `010_platform_administration.sql`: planos, limites, exclusao logica e usuarios globais.

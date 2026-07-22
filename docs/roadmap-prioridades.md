@@ -72,6 +72,9 @@ comercial, notificacoes e higiene operacional inicial.
   `produtos_public_read_active` removidas.
 - Implementado: usuario, role e restaurante ativo revalidados no banco em cada
   requisicao autenticada e na conexao Socket.IO.
+- Implementado: acesso publico, login e revalidacao de token bloqueiam
+  restaurantes pausados, cancelados ou excluidos logicamente, inclusive quando
+  o slug e digitado manualmente.
 - Implementado: rate limit em pedido, chamada, cancelamento, reserva,
   acompanhamento, disponibilidade e demais leituras publicas.
 - Implementado: upload com validacao da assinatura real, limite de pixels,
@@ -100,6 +103,9 @@ comercial, notificacoes e higiene operacional inicial.
 - Implementado: historico formal de mudancas de plano, status comercial,
   suspensao/reativacao e arquivamento, com usuario da plataforma, snapshots,
   migration RLS e visualizacao no modal de edicao do restaurante.
+- Implementado: acoes da plataforma padronizadas como `Pausar/Reativar` para
+  bloqueio temporario e `Excluir` para soft delete bloqueante com preservacao
+  de dados operacionais.
 
 ## Prioridade 1.1 - Importacao de dados
 
