@@ -130,6 +130,36 @@ const campoParaCentavos = (valor) => {
   return Math.round(numero * 100);
 };
 
+const montarPayloadRestaurantePlataforma = (form) => ({
+  nome: form.nome,
+  slug: form.slug,
+  plano: form.plano,
+  limite_mesas: Number(form.limite_mesas),
+  limite_usuarios: Number(form.limite_usuarios),
+  limite_produtos: Number(form.limite_produtos),
+  mensalidade_centavos: campoParaCentavos(form.mensalidade),
+  ciclo_cobranca: form.ciclo_cobranca,
+  status_cobranca: form.status_cobranca,
+  status_comercial: form.status_comercial,
+  data_inicio_contrato: form.data_inicio_contrato || undefined,
+  ultimo_contato_comercial_em: form.ultimo_contato_comercial_em || undefined,
+  responsavel_comercial: form.responsavel_comercial,
+  motivo_suspensao: form.motivo_suspensao,
+  trial_termina_em: form.trial_termina_em || undefined,
+  proxima_cobranca_em: form.proxima_cobranca_em || undefined,
+  observacoes_plano: form.observacoes_plano,
+  white_label_ativo: Boolean(form.white_label_ativo),
+  nome_exibicao: form.nome_exibicao,
+  logo_url: form.logo_url,
+  cor_primaria: form.cor_primaria,
+  cor_secundaria: form.cor_secundaria,
+  cor_texto_principal: form.cor_texto_principal,
+  cor_texto_secundario: form.cor_texto_secundario,
+  cor_titulo: form.cor_titulo,
+  cor_texto_inverso: form.cor_texto_inverso,
+  whatsapp_numero: form.whatsapp_numero,
+});
+
 const dataParaCampo = (valor) => {
   if (!valor) return "";
   return String(valor).slice(0, 10);
@@ -1168,13 +1198,7 @@ function EditarRestaurante({ restaurante, onClose, onSaved, request }) {
     try {
       const dados = await request(`/api/platform/restaurantes/${restaurante.id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          ...form,
-          limite_mesas: Number(form.limite_mesas),
-          limite_usuarios: Number(form.limite_usuarios),
-          limite_produtos: Number(form.limite_produtos),
-          mensalidade_centavos: campoParaCentavos(form.mensalidade),
-        }),
+        body: JSON.stringify(montarPayloadRestaurantePlataforma(form)),
       });
       onSaved(dados);
     } catch (error) {

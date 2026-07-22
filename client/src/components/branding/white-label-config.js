@@ -14,8 +14,6 @@ export const WHITE_LABEL_PADRAO = {
 export function normalizarWhiteLabel(value = {}) {
   const dados = value || {};
   return {
-    ...WHITE_LABEL_PADRAO,
-    ...dados,
     white_label_ativo: Boolean(dados.white_label_ativo),
     nome_exibicao: dados.nome_exibicao ?? "",
     logo_url: dados.logo_url ?? "",
