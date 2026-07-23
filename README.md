@@ -247,3 +247,6 @@ Variaveis:
 
 Runbook de entrega, onboarding, suporte, backup/restore e incidentes:
 `docs/entrega-piloto.md`.
+
+Privacidade, LGPD, cookies e consentimentos:
+`docs/lgpd-privacidade.md`.
