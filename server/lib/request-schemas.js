@@ -317,6 +317,34 @@ const importacaoHistoricoQuerySchema = z.object({
   ),
 }).strict();
 
+const consentimentoCategoriasSchema = z.object({
+  necessarios: z.boolean().default(true),
+  funcionais: z.boolean().default(false),
+  estatisticas: z.boolean().default(false),
+  marketing: z.boolean().default(false),
+}).strict();
+
+const consentimentoLegalBodySchema = z.object({
+  contexto: z.enum([
+    "contato_comercial",
+    "reserva_publica",
+    "fila_publica",
+    "preferencias_cookies",
+  ]),
+  restaurante_slug: slugOpcionalSchema,
+  politica_versao: textoObrigatorio(20),
+  termos_versao: textoOpcional(20),
+  aceite_privacidade: z.boolean(),
+  aceite_termos: z.boolean().optional().default(false),
+  categorias: consentimentoCategoriasSchema.optional().default({
+    necessarios: true,
+    funcionais: false,
+    estatisticas: false,
+    marketing: false,
+  }),
+  metadados: z.record(z.string(), z.unknown()).optional().default({}),
+}).strict();
+
 const auditoriaQuerySchema = z.object({
   limite: z.preprocess(
     (value) => (value === undefined || value === null || value === "" ? undefined : value),
@@ -349,6 +377,7 @@ module.exports = {
   cancelarItemBodySchema,
   categoriaCreateBodySchema,
   chamadaBodySchema,
+  consentimentoLegalBodySchema,
   criarPedidoBodySchema,
   fecharMesaBodySchema,
   idParamSchema,

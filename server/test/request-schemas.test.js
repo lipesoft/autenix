@@ -7,6 +7,7 @@ const {
 const {
   auditoriaQuerySchema,
   categoriaCreateBodySchema,
+  consentimentoLegalBodySchema,
   criarPedidoBodySchema,
   fecharMesaBodySchema,
   importacaoBodySchema,
@@ -213,6 +214,39 @@ test("valida payloads sensiveis da plataforma", () => {
     nova_senha: "NovaSenhaMuitoForte123!",
   });
   assert.equal(senha.nova_senha, "NovaSenhaMuitoForte123!");
+});
+
+test("valida registro legal de consentimento", () => {
+  const payload = parseWithSchema(consentimentoLegalBodySchema, {
+    contexto: "reserva_publica",
+    restaurante_slug: "restaurante-demo",
+    politica_versao: "2026-07-23",
+    termos_versao: "2026-07-23",
+    aceite_privacidade: true,
+    aceite_termos: true,
+    categorias: {
+      necessarios: true,
+      funcionais: false,
+      estatisticas: false,
+      marketing: false,
+    },
+    metadados: { modo: "reserva" },
+  });
+
+  assert.equal(payload.contexto, "reserva_publica");
+  assert.equal(payload.restaurante_slug, "restaurante-demo");
+  assert.equal(payload.categorias.necessarios, true);
+  assert.equal(payload.categorias.marketing, false);
+
+  assert.throws(
+    () => parseWithSchema(consentimentoLegalBodySchema, {
+      contexto: "pixel_marketing",
+      politica_versao: "2026-07-23",
+      aceite_privacidade: true,
+      token: "nao",
+    }),
+    /contexto|token|Unrecognized key/,
+  );
 });
 
 test("limita importacao a 500 linhas e exige registros", () => {

@@ -129,6 +129,7 @@ const {
   cancelarItemBodySchema,
   categoriaCreateBodySchema,
   chamadaBodySchema,
+  consentimentoLegalBodySchema,
   criarPedidoBodySchema,
   fecharMesaBodySchema,
   idParamSchema,
@@ -325,6 +326,70 @@ const loginRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: "Muitas tentativas de login. Tente novamente em 1 minuto." },
+});
+
+const consentimentoRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: "Muitos registros de consentimento. Tente novamente em 1 minuto." },
+});
+
+app.post("/api/consentimentos", consentimentoRateLimit, async (req, res) => {
+  try {
+    const payload = validateBody(req, consentimentoLegalBodySchema);
+    const restaurante = payload.restaurante_slug
+      ? await buscarRestaurantePorSlug(payload.restaurante_slug)
+      : null;
+
+    if (payload.restaurante_slug && !restaurante) {
+      return res.status(404).json({ erro: "Restaurante nao encontrado" });
+    }
+
+    if (restaurante) registrarRestauranteRequest(req, restaurante);
+
+    const categorias = payload.categorias || {};
+    const metadados = {
+      ...payload.metadados,
+      origem: "web",
+      request_id: req.requestId,
+    };
+
+    const { rows } = await query(
+      `INSERT INTO consentimentos_legais
+         (restaurante_id, contexto, origem, politica_versao, termos_versao,
+          aceite_privacidade, aceite_termos, cookie_necessarios,
+          cookie_funcionais, cookie_estatisticas, cookie_marketing,
+          ip_hash, user_agent_hash, metadados)
+       VALUES ($1, $2, 'web', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING id, contexto, politica_versao, termos_versao, criado_em`,
+      [
+        restaurante?.id || null,
+        payload.contexto,
+        payload.politica_versao,
+        payload.termos_versao || null,
+        payload.aceite_privacidade,
+        payload.aceite_termos,
+        categorias.necessarios !== false,
+        Boolean(categorias.funcionais),
+        Boolean(categorias.estatisticas),
+        Boolean(categorias.marketing),
+        hashPrivacidade(ipDaRequisicao(req)),
+        hashPrivacidade(req.headers["user-agent"]),
+        metadados,
+      ],
+    );
+
+    return res.status(201).json({
+      consentimento: rows[0],
+    });
+  } catch (error) {
+    return safeErrorResponse(res, error, {
+      fallbackMessage: "Nao foi possivel registrar o consentimento agora",
+      logPrefix: "Falha ao registrar consentimento legal",
+    });
+  }
 });
 
 const uploadImagem = multer({
@@ -1480,6 +1545,24 @@ function normalizarConfigReservaLinha(linha = {}) {
     hora_inicio: linha.hora_inicio?.slice?.(0, 5) || linha.hora_inicio,
     hora_fim: linha.hora_fim?.slice?.(0, 5) || linha.hora_fim,
   });
+}
+
+function hashPrivacidade(valor) {
+  const texto = String(valor || "").trim();
+  if (!texto) return null;
+  const salt = JWT_SECRET || "autenix-privacy";
+  return crypto
+    .createHmac("sha256", salt)
+    .update(texto)
+    .digest("hex");
+}
+
+function ipDaRequisicao(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  const bruto = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  return String(bruto || req.ip || "")
+    .split(",")[0]
+    .trim();
 }
 
 async function buscarConfiguracaoReservas(client, restauranteId) {
