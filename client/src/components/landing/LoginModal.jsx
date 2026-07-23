@@ -191,7 +191,9 @@ export default function LoginModal({ aberto, onClose, onLogin, restauranteSlug, 
           </form>
 
           <p className="lp-login-help">
-            O acesso é gerenciado pelo administrador do seu restaurante.
+            O acesso e gerenciado pelo administrador do seu restaurante. Consulte a{" "}
+            <a href="/privacidade" target="_blank" rel="noreferrer">Politica de Privacidade</a>
+            {" "}e os <a href="/termos" target="_blank" rel="noreferrer">Termos de Uso</a>.
           </p>
         </div>
       </div>

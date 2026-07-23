@@ -1,0 +1,237 @@
+.privacy-banner {
+  position: fixed;
+  right: clamp(14px, 3vw, 28px);
+  bottom: clamp(14px, 3vw, 28px);
+  z-index: 2000;
+  width: min(720px, calc(100vw - 28px));
+  padding: 16px;
+  border: 1px solid rgba(15, 35, 52, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 70px rgba(15, 35, 52, 0.18);
+  color: #122437;
+  backdrop-filter: blur(12px);
+}
+
+.privacy-banner-main {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 13px;
+  align-items: start;
+}
+
+.privacy-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #fff2eb;
+  color: #f2742d;
+}
+
+.privacy-banner strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.privacy-banner p {
+  margin: 6px 0 0;
+  color: #536476;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.privacy-banner-links,
+.privacy-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.privacy-banner-links {
+  margin-top: 9px;
+}
+
+.privacy-banner-links a {
+  color: #c65d24;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.privacy-banner-links a:hover {
+  text-decoration: underline;
+}
+
+.privacy-preferences {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 35, 52, 0.1);
+}
+
+.privacy-category {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 35, 52, 0.1);
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+
+.privacy-category small {
+  display: block;
+  margin-top: 3px;
+  color: #617385;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.privacy-category input {
+  width: 20px;
+  height: 20px;
+  accent-color: #f2742d;
+}
+
+.privacy-banner-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.privacy-primary,
+.privacy-secondary,
+.privacy-link-button,
+.privacy-floating-button {
+  min-height: 38px;
+  border-radius: 9px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.privacy-primary,
+.privacy-secondary,
+.privacy-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+}
+
+.privacy-primary {
+  border: 1px solid #f2742d;
+  background: #f2742d;
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(242, 116, 45, 0.22);
+}
+
+.privacy-secondary,
+.privacy-link-button {
+  border: 1px solid rgba(15, 35, 52, 0.14);
+  background: #ffffff;
+  color: #26394d;
+}
+
+.privacy-link-button {
+  color: #c65d24;
+}
+
+.privacy-banner-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(15, 35, 52, 0.12);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #42556a;
+  cursor: pointer;
+}
+
+.privacy-floating-button {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 1900;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 35, 52, 0.16);
+  background: #ffffff;
+  color: #42556a;
+  box-shadow: 0 12px 30px rgba(15, 35, 52, 0.14);
+}
+
+.privacy-primary:focus-visible,
+.privacy-secondary:focus-visible,
+.privacy-link-button:focus-visible,
+.privacy-banner-close:focus-visible,
+.privacy-floating-button:focus-visible {
+  outline: 3px solid rgba(242, 116, 45, 0.3);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .privacy-primary:hover,
+  .privacy-secondary:hover,
+  .privacy-link-button:hover,
+  .privacy-floating-button:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (max-width: 680px) {
+  .privacy-banner {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    overflow: auto;
+  }
+
+  .privacy-banner-main {
+    grid-template-columns: 1fr;
+  }
+
+  .privacy-banner-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .privacy-primary,
+  .privacy-secondary,
+  .privacy-link-button {
+    width: 100%;
+  }
+
+  .privacy-floating-button {
+    left: 10px;
+    bottom: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .privacy-primary,
+  .privacy-secondary,
+  .privacy-link-button,
+  .privacy-floating-button {
+    transition: none;
+  }
+
+  .privacy-primary:hover,
+  .privacy-secondary:hover,
+  .privacy-link-button:hover,
+  .privacy-floating-button:hover {
+    transform: none;
+  }
+}

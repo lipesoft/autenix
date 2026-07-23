@@ -644,6 +644,10 @@ function PlatformLogin({ onLogin }) {
           <span className="pf-kicker"><LockKeyhole size={15} /> Master da plataforma</span>
           <h2>Entrar na plataforma</h2>
           <p>Use sua credencial administrativa global.</p>
+          <p className="pf-legal-note">
+            Ao entrar, consulte a <a href="/privacidade" target="_blank" rel="noreferrer">Politica de Privacidade</a>
+            {" "}e os <a href="/termos" target="_blank" rel="noreferrer">Termos de Uso</a>.
+          </p>
 
           <label htmlFor="platform-login">Usuário</label>
           <input

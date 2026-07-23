@@ -27,6 +27,17 @@ import {
 import CentralOperacao from "./components/central/CentralOperacao.jsx";
 import ImportacaoDados from "./components/importacao/ImportacaoDados.jsx";
 import LandingPage from "./components/landing/LandingPage.jsx";
+import CookieConsentBanner from "./components/legal/CookieConsentBanner.jsx";
+import {
+  PrivacyPolicyPage,
+  TermsOfUsePage,
+} from "./components/legal/LegalPages.jsx";
+import {
+  DEFAULT_COOKIE_PREFERENCES,
+  PRIVACY_POLICY_VERSION,
+  recordLegalConsent,
+  TERMS_VERSION,
+} from "./components/legal/privacy-consent.js";
 import PlatformPortal from "./components/platform/PlatformPortal.jsx";
 import ImageUploadField from "./components/upload/ImageUploadField.jsx";
 import { API_URL as API } from "./services/api.js";
@@ -1563,6 +1574,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
   const [disponibilidadeErro, setDisponibilidadeErro] = useState("");
   const [acompanhamento, setAcompanhamento] = useState(null);
   const [copiado, setCopiado] = useState(false);
+  const [consentimentoLegal, setConsentimentoLegal] = useState(false);
 
   useEffect(() => {
     document.title = `Reservas - ${marca.nome}`;
@@ -1646,10 +1658,28 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
       setStatus({ tipo: "error", mensagem: disponibilidadeErro });
       return;
     }
+    if (!consentimentoLegal) {
+      setStatus({
+        tipo: "error",
+        mensagem: "Aceite a Politica de Privacidade e os Termos de Uso para continuar.",
+      });
+      return;
+    }
     setStatus({ tipo: "loading", mensagem: "" });
     setAcompanhamento(null);
     setCopiado(false);
     try {
+      await recordLegalConsent({
+        contexto: modo === "fila" ? "fila_publica" : "reserva_publica",
+        restauranteSlug,
+        aceites: { privacidade: true, termos: true },
+        categorias: DEFAULT_COOKIE_PREFERENCES,
+        metadados: {
+          modo,
+          politica_versao_exibida: PRIVACY_POLICY_VERSION,
+          termos_versao_exibida: TERMS_VERSION,
+        },
+      });
       const resposta = await fetch(`${API}/api/reservas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1688,6 +1718,7 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
         email: "",
         observacao: "",
       }));
+      setConsentimentoLegal(false);
     } catch (error) {
       setStatus({ tipo: "error", mensagem: error.message });
     }
@@ -2043,6 +2074,40 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 )}
               </div>
             )}
+            <label
+              style={{
+                display: "grid",
+                gridTemplateColumns: "18px 1fr",
+                gap: 10,
+                alignItems: "start",
+                marginTop: 14,
+                padding: 12,
+                border: `1px solid ${T.border}`,
+                borderRadius: 8,
+                background: T.card2,
+                color: T.text2,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={consentimentoLegal}
+                onChange={(e) => setConsentimentoLegal(e.target.checked)}
+                style={{ marginTop: 2, accentColor: T.accent }}
+              />
+              <span>
+                Li e aceito a{" "}
+                <a href="/privacidade" target="_blank" rel="noreferrer" style={{ color: T.accent, fontWeight: 800 }}>
+                  Politica de Privacidade
+                </a>{" "}
+                e os{" "}
+                <a href="/termos" target="_blank" rel="noreferrer" style={{ color: T.accent, fontWeight: 800 }}>
+                  Termos de Uso
+                </a>{" "}
+                para o tratamento dos dados informados nesta solicitacao.
+              </span>
+            </label>
             <div
               role="status"
               style={{
@@ -2128,7 +2193,8 @@ function TelaReservasPublicas({ restauranteSlug = "autenix" }) {
                 Boolean(disponibilidadeErro) ||
                 status.tipo === "loading" ||
                 !form.nome_cliente.trim() ||
-                !form.telefone.trim()
+                !form.telefone.trim() ||
+                !consentimentoLegal
               }
             >
               {status.tipo === "loading"
@@ -8202,7 +8268,14 @@ function AppContent() {
   }, [usuarioLogado]);
 
   useEffect(() => {
-    const areasComTituloProprio = new Set(["landing", "acesso", "reservas", "mesa"]);
+    const areasComTituloProprio = new Set([
+      "landing",
+      "acesso",
+      "reservas",
+      "mesa",
+      "privacidade",
+      "termos",
+    ]);
     if (!areasComTituloProprio.has(rota.area)) {
       document.title = `Painel Principal - ${marca.nome}`;
     }
@@ -8224,6 +8297,14 @@ function AppContent() {
     sessionStorage.removeItem("usuarioLogado");
     setUsuarioLogado(undefined);
   }, []);
+
+  if (rota.area === "privacidade") {
+    return <PrivacyPolicyPage />;
+  }
+
+  if (rota.area === "termos") {
+    return <TermsOfUsePage />;
+  }
 
   if (rota.area === "plataforma") {
     return <PlatformPortal />;
@@ -8364,6 +8445,7 @@ export default function App() {
   return (
     <BrandingProvider slug={slug} ativo={marcaAtiva}>
       <AppContent />
+      <CookieConsentBanner />
     </BrandingProvider>
   );
 }

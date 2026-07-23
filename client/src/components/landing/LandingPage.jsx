@@ -33,6 +33,12 @@ import {
 } from "lucide-react";
 import { rotaDoPerfil, rotaRestaurante } from "../../services/auth.js";
 import { useBranding } from "../branding/branding-context.js";
+import {
+  DEFAULT_COOKIE_PREFERENCES,
+  PRIVACY_POLICY_VERSION,
+  recordLegalConsent,
+  TERMS_VERSION,
+} from "../legal/privacy-consent.js";
 import LoginModal from "./LoginModal.jsx";
 import "./LandingPage.css";
 
@@ -1210,6 +1216,8 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
     telefone: "",
   });
   const [status, setStatus] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [consentimentoLegal, setConsentimentoLegal] = useState(false);
   const planoAtual = planoSelecionado || "Profissional";
 
   const atualizar = (campo, valor) => {
@@ -1221,8 +1229,30 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
     setForm((atual) => ({ ...atual, [campo]: valor }));
   };
 
-  const enviar = (event) => {
+  const enviar = async (event) => {
     event.preventDefault();
+    if (!consentimentoLegal) {
+      setStatus("Aceite a Politica de Privacidade e os Termos de Uso para continuar.");
+      return;
+    }
+    setEnviando(true);
+    setStatus("");
+    try {
+      await recordLegalConsent({
+        contexto: "contato_comercial",
+        aceites: { privacidade: true, termos: true },
+        categorias: DEFAULT_COOKIE_PREFERENCES,
+        metadados: {
+          plano: planoAtual,
+          politica_versao_exibida: PRIVACY_POLICY_VERSION,
+          termos_versao_exibida: TERMS_VERSION,
+        },
+      });
+    } catch (error) {
+      setStatus(error.message || "Nao foi possivel registrar o consentimento.");
+      setEnviando(false);
+      return;
+    }
     const assunto = encodeURIComponent(`Demonstração ${marca.nome} - ${planoAtual}`);
     const corpo = encodeURIComponent(
       [
@@ -1235,6 +1265,7 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
       ].join("\n"),
     );
     window.location.href = `mailto:comercial@autenix.com.br?subject=${assunto}&body=${corpo}`;
+    setEnviando(false);
     setStatus("Solicitação preparada no seu aplicativo de email.");
   };
 
@@ -1294,8 +1325,24 @@ function ContatoComercial({ planoSelecionado, onPlanoChange, marca }) {
             ))}
           </select>
 
-          <button className="lp-button lp-button-primary" type="submit">
-            Solicitar demonstração <Send size={17} />
+          <label className="lp-consent-check">
+            <input
+              type="checkbox"
+              checked={consentimentoLegal}
+              onChange={(event) => setConsentimentoLegal(event.target.checked)}
+            />
+            <span>
+              Li e aceito a <a href="/privacidade" target="_blank" rel="noreferrer">Politica de Privacidade</a> e os{" "}
+              <a href="/termos" target="_blank" rel="noreferrer">Termos de Uso</a> para contato comercial.
+            </span>
+          </label>
+
+          <button
+            className="lp-button lp-button-primary"
+            type="submit"
+            disabled={enviando || !consentimentoLegal}
+          >
+            {enviando ? "Registrando aceite..." : "Solicitar demonstracao"} <Send size={17} />
           </button>
           <div className="lp-commercial-status" role="status" aria-live="polite">
             {status}
@@ -1347,6 +1394,15 @@ function Footer({ marca }) {
           <a href="#operacao">Operação</a>
           <a href="#planos">Planos</a>
           <a href="#contato">Demonstração</a>
+          <a href="/privacidade">Privacidade</a>
+          <a href="/termos">Termos</a>
+          <button
+            className="lp-footer-privacy-button"
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("autenix:open-cookie-preferences"))}
+          >
+            Preferencias de cookies
+          </button>
         </div>
       </div>
       <div className="lp-container lp-footer-bottom">

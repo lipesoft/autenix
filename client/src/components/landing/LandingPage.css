@@ -2132,6 +2132,40 @@ html {
   margin-top: 22px;
 }
 
+.lp-consent-check {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid rgba(15, 35, 52, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--lp-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.lp-consent-check input {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: var(--lp-orange);
+}
+
+.lp-consent-check a,
+.lp-login-help a {
+  color: var(--lp-orange-dark);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.lp-consent-check a:hover,
+.lp-login-help a:hover {
+  text-decoration: underline;
+}
+
 .lp-commercial-status {
   min-height: 20px;
   margin-top: 12px;
@@ -2212,8 +2246,25 @@ html {
   font-weight: 800;
 }
 
-.lp-footer-inner > div a:hover {
+.lp-footer-privacy-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4f6271;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lp-footer-inner > div a:hover,
+.lp-footer-privacy-button:hover {
   color: var(--lp-orange-dark);
+}
+
+.lp-footer-privacy-button:focus-visible {
+  outline: 3px solid rgba(242, 116, 45, 0.3);
+  outline-offset: 3px;
 }
 
 .lp-footer-bottom {
