@@ -1,353 +1,479 @@
-# Roadmap de prioridades
+# AUTENIX ROADMAP
 
-Status atualizado apos a base multi-restaurante, painel da plataforma, white label,
-reservas, seguranca por sessao de mesa, Importacao de Dados 2.0, historico
-comercial, notificacoes e higiene operacional inicial.
+## P0 - Obrigatorio para Producao
 
-## Visao executiva
+### Feature: Seguranca
 
-- Produto operacional para restaurante: 80% a 85% concluido.
-- Plataforma SaaS multi-restaurante: 65% a 70% concluida.
-- Produto pronto para escala comercial mais ampla: 50% a 60% concluido.
-- Estimativa para pilotos pagos com poucos restaurantes: 2 a 3 semanas.
-- Estimativa para SaaS v1 confiavel: 6 a 8 semanas.
-- Estimativa para escalar com seguranca para muitos restaurantes: 10 a 14
-  semanas.
+Status: 95%
 
-## Prioridade imediata - Higiene operacional antes de pilotos
+Tasks
 
-- Implementado: `server/node_modules` removido do versionamento com
-  `git rm -r --cached server/node_modules`, mantendo `node_modules/` no
-  `.gitignore`, para reduzir clone, diff e ruído de CI.
-- Implementado: lookup de restaurante por slug centralizado com opcao
-  `buscarRestaurantePorSlug(slug, { incluirArquivado: true })`, removendo query
-  crua duplicada no fluxo de inicializacao.
-- Implementado: middleware de log estruturado por request com
-  `timestamp`, `request_id`, `method`, `path`, `status`, `latencia_ms`,
-  `restaurante_id`, `role` e `user_id`, sem registrar body, senha, token,
-  email completo, telefone completo ou segredo.
-- Implementado: `/api/health` e `/api/health/readiness` com resposta segura,
-  versao da API, ambiente, timestamp, banco e status resumido de Storage sem
-  expor credenciais.
-- Implementado: pool PostgreSQL configuravel por ambiente com
-  `DB_POOL_MAX`, `DB_IDLE_TIMEOUT_MS`, `DB_CONNECTION_TIMEOUT_MS` e
-  `DB_STATEMENT_TIMEOUT_MS`.
+✔ RLS nas tabelas publicas principais
+✔ Backend tenant-aware com `restaurante_id`
+✔ Isolamento por tenant via contexto `app.restaurante_id`
+✔ QR Code seguro com token de sessao da mesa
+✔ Bloqueio de pedido com token invalido, expirado ou encerrado
+✔ Rate limit em login, pedidos, chamadas, reservas e leituras publicas
+✔ Upload seguro com validacao real de imagem e conversao WebP
+✔ Mensagens de erro seguras sem stack trace no frontend
+✔ Revalidacao de usuario, role e restaurante ativo a cada requisicao
+✔ Bloqueio de restaurantes pausados, cancelados ou excluidos
+✔ Service role fora do frontend
+✔ Health Check
+✔ Readiness
 
-## Antes dos pilotos pagos - Validacao operacional
+Pendente
 
-- Implementado: scripts k6 separados para carga leve, piloto e pico controlado
-  do polling, com bloqueio obrigatorio para producao sem
-  `ALLOW_PRODUCTION_LOAD_TEST=true`.
-- Implementado: executada carga real de polling autenticado em producao com
-  tenant de validacao, sessao segura de mesa e tokens de admin, garcom,
-  cozinha e financeiro. Resultado do perfil piloto: 1.723 requisicoes,
-  28,33 RPS, 0 erros, 0 respostas 5xx, 0 respostas 429, p95 global de
-  1030 ms e p99 global de 1416 ms.
-- Parcial ampliado: validacao de entrada centralizada com Zod aplicada em
-  pedidos, itens, chamadas, fechamento de mesa, importacao, autenticacao,
-  usuarios, parametros de mesa/QR, categorias, produtos, configuracao de
-  reservas, saloes de reservas e rotas sensiveis da plataforma.
-- Implementado: base Playwright com cinco specs E2E para fluxo operacional,
-  seguranca de sessao de mesa, isolamento multi-tenant, reservas e importacao,
-  protegidas por `E2E_ALLOW_WRITE=true` e variaveis de ambiente.
-- Implementado: suite E2E completa executada contra producao controlada com
-  dois restaurantes de validacao, cobrindo fluxo operacional, sessao de mesa,
-  isolamento multi-tenant, reservas e importacao.
-- Implementado: smoke E2E somente leitura para producao, validando landing,
-  health, readiness, cardapio publico e protecao do diagnostico tecnico sem
-  criar dados no banco.
+□ Rotacionar tokens operacionais compartilhados fora da Vercel
+□ Revisar indices apos trafego real
+□ Avaliar restricao opcional por IP/Wi-Fi para setores internos
 
-## Prioridade 0 - Seguranca e isolamento
+------------------------------
 
-- Implementado: RLS ativado nas tabelas publicas principais do Supabase.
-- Implementado: backend tenant-aware usando `restaurante_id` e contexto
-  `app.restaurante_id` por transacao.
-- Implementado: painel da plataforma separado do login dos restaurantes.
-- Implementado: QR Code de mesa com token de sessao, hash no banco e expiracao.
-- Implementado: `service_role` usado somente no backend para Storage, nao no
-  frontend.
-- Implementado: `SELECT` direto de `anon` e `authenticated` revogado em
-  `categorias` e `produtos`; o cardapio passa somente pelo backend tenant-aware.
-- Implementado: policies publicas antigas `categorias_public_read_active` e
-  `produtos_public_read_active` removidas.
-- Implementado: usuario, role e restaurante ativo revalidados no banco em cada
-  requisicao autenticada e na conexao Socket.IO.
-- Implementado: acesso publico, login e revalidacao de token bloqueiam
-  restaurantes pausados, cancelados ou excluidos logicamente, inclusive quando
-  o slug e digitado manualmente.
-- Implementado: rate limit em pedido, chamada, cancelamento, reserva,
-  acompanhamento, disponibilidade e demais leituras publicas.
-- Implementado: upload com validacao da assinatura real, limite de pixels,
-  remocao de metadados e conversao segura para WebP.
-- Implementado: respostas 500 de endpoints sensiveis de cardapio, mesas,
-  pedidos, chamadas, importacao, login e usuarios passaram a usar mensagens
-  seguras sem expor erro interno ao frontend.
-- Pendente: rotacionar tokens operacionais compartilhados fora da Vercel e
-  manter somente variaveis criptografadas no provedor.
-- Implementado: advisors do Supabase executados sem alertas de seguranca; as
-  chaves estrangeiras compostas apontadas pelo advisor foram indexadas.
-- Pendente: reavaliar indices marcados como nao usados depois de acumular trafego
-  real suficiente para uma decisao segura.
+### Feature: LGPD e Cookies
 
-## Prioridade 1 - Planos e controle comercial
+Status: 85%
 
-- Implementado: cadastro de restaurantes no painel da plataforma com planos,
-  limites, mensalidade, status de cobranca, status comercial e ciclo de cobranca.
-- Implementado: campos comerciais de inicio do contrato, ultimo contato,
-  responsavel comercial e motivo de suspensao.
-- Implementado: limites do plano aplicados na operacao: mesas, usuarios,
-  produtos e importacao.
-- Implementado: alertas comerciais para trial vencendo, cobranca vencida ou
-  atrasada e uso alto/limite atingido.
-- Implementado: base para upgrades, downgrades e cobranca futura.
-- Implementado: historico formal de mudancas de plano, status comercial,
-  suspensao/reativacao e arquivamento, com usuario da plataforma, snapshots,
-  migration RLS e visualizacao no modal de edicao do restaurante.
-- Implementado: acoes da plataforma padronizadas como `Pausar/Reativar` para
-  bloqueio temporario e `Excluir` para soft delete bloqueante com preservacao
-  de dados operacionais.
+Tasks
 
-## Prioridade 1.1 - Importacao de dados
+✔ Banner de cookies
+✔ Aceitar todos
+✔ Recusar nao essenciais
+✔ Personalizar preferencias
+✔ Categorias: necessarios, funcionais, estatisticas e marketing
+✔ Preferencias salvas com versao e data de aceite
+✔ Politica de Privacidade
+✔ Termos de Uso
+✔ Consentimento no formulario comercial
+✔ Consentimento em reservas e fila publica
+✔ Registro backend de consentimentos
+✔ Migration `consentimentos_legais`
+✔ RLS na tabela de consentimentos
+✔ Auditoria do `localStorage`
+✔ Auditoria do `sessionStorage`
+✔ Auditoria dos cookies
+✔ Revisao de scripts de terceiros
+✔ Bloqueio de scripts opcionais antes do consentimento
 
-- Implementado: importacao CSV e XLSX de categorias, produtos, mesas e usuarios pelo
-  painel administrativo do restaurante.
-- Implementado: validacao previa, preview de acoes, modelos CSV e respeito aos
-  limites do plano.
-- Implementado: mapeamento manual e automatico das colunas antes da validacao.
-- Implementado: historico formal de importacoes com usuario,
-  data, tipo, quantidade de linhas, criados, atualizados, ignorados e erros.
-- Implementado: detalhe dos registros afetados sem expor snapshots internos ou
-  hashes de senha no frontend.
-- Implementado: rollback transacional por 24 horas, isolado por restaurante e
-  bloqueado quando o registro foi alterado ou usado depois da importacao.
-- Implementado: importacao de imagens de produtos por arquivo, vinculando a
-  coluna `imagem` do CSV/XLSX aos uploads enviados para o Supabase Storage.
-- Implementado: presets de importacao por sistema concorrente para Saipos,
-  Consumer, Anota AI e Goomer, com aliases adicionais para colunas comuns de
-  cardapio.
-- Pendente: criar importadores dedicados para layouts proprietarios quando
-  houver arquivos reais de exportacao de cada concorrente.
+Pendente
 
-## Prioridade 2 - Onboarding de restaurante
+□ Criar pagina separada de Politica de Cookies
+□ Revisao juridica formal
+□ DPA/contrato de operador com restaurantes clientes
+□ Politica formal de retencao por tipo de dado
+□ Canal operacional para solicitacoes do titular
+□ Processo de exportacao, exclusao e anonimizacao por titular
 
-- Implementado: fluxo guiado no painel da plataforma para identidade, plano,
-  operacao inicial, master e marca.
-- Implementado: onboarding com login e senha proprios do Autenix, sem Google Auth
-  nesta fase.
-- Implementado: credenciais e links principais exibidos depois da criacao,
-  incluindo central, admin, setores, cardapio e importacao inicial.
-- Pendente: transformar o cadastro em autoatendimento publico no futuro.
-- Pendente: convite automatico por email/WhatsApp com credenciais e links.
+------------------------------
 
-## Prioridade 2.1 - White label avancado
+### Feature: Observabilidade
 
-- Implementado: configuracao de cores de fonte no white label do restaurante.
-- Implementado: separacao de cor de texto principal, texto secundario, titulos
-  e textos sobre fundos escuros/destaque.
-- Implementado: aplicacao das cores no tema global das areas do restaurante
-  via variaveis de marca.
-- Implementado: preview visual de fontes antes de salvar a identidade do
-  restaurante.
-- Implementado: normalizacao do payload de white label no frontend para evitar
-  envio de campos calculados da plataforma ao salvar o restaurante.
-- Pendente: auditoria automatica de contraste/acessibilidade antes de salvar.
+Status: 85%
 
-## Prioridade 3 - Reservas
+Tasks
 
-- Implementado: area publica `/r/{slug}/reservas` para solicitacao de reserva.
-- Implementado: portal publico `/r/{slug}` e `/r/{slug}/acesso` com atalhos
-  objetivos para reserva, fila de espera, acompanhamento e orientacao de QR
-  seguro da mesa.
-- Implementado: aba Reservas no painel administrativo com criacao interna,
-  listagem, vinculo opcional de mesa e mudanca de status.
-- Implementado: aba Reservas na sessao do garcom para visualizar agenda,
-  confirmar chegada, vincular mesa, acomodar, cancelar e reabrir reservas.
-- Implementado: reservas ligadas ao `restaurante_id` com RLS e acesso somente
-  pelo backend tenant-aware.
-- Implementado: fila de espera para atendimento imediato, com status `fila` e
-  `chamada`.
-- Implementado: link publico de acompanhamento por codigo seguro da reserva.
-- Implementado: tela publica para o cliente acompanhar status, posicao na fila,
-  quantidade de grupos na frente e atualizacao automatica.
-- Implementado: garcom e admin podem colocar reserva na fila, chamar cliente,
-  voltar para fila, vincular mesa e acomodar.
-- Implementado: tela publica de reserva simplificada e objetiva.
-- Implementado: WhatsApp do restaurante no white label para contato do cliente.
-- Implementado: compartilhamento de reserva no garcom/admin com WhatsApp,
-  email quando informado e copia do link de acompanhamento.
-- Implementado: historico/auditoria de reservas com eventos de criacao,
-  mudanca de status, troca de mesa e compartilhamento.
-- Implementado: regras avancadas de disponibilidade por horario, capacidade e
-  salao, com configuracao no Admin e bloqueio no backend.
-- Implementado: outbox `reservas_notificacoes` com RLS para registrar
-  notificacoes automaticas de reserva criada, confirmada, fila, chamada,
-  cancelada e concluida.
-- Implementado: historico de reservas registra evento `notificacao_automatica`
-  e exibe o novo rotulo no garcom/admin.
-- Implementado: envio automatico opcional por webhook de backend via
-  `RESERVA_NOTIFICACAO_WEBHOOK_URL`, sem expor token no frontend.
-- Parcial: envio real por email/WhatsApp depende de configurar provedor
-  dedicado. Sem webhook, as notificacoes ficam registradas como
-  `sem_provedor`.
+✔ Health Check
+✔ Readiness
+✔ Logs estruturados
+✔ Request ID por requisicao
+✔ Diagnostico tecnico protegido no painel da plataforma
+✔ Monitor sintetico `npm run ops:health`
+✔ Runtime Errors da Vercel usado na validacao de producao
 
-## Prioridade 3.1 - Seguranca do cardapio publico
+Pendente
 
-- Feito: trocar QR Code publico simples por QR Code com token de sessao da
-  mesa.
-- Feito: criar tabela de sessoes de mesa com `restaurante_id`, `mesa_id`,
-  token seguro, status, criado_em, expira_em e encerrado_em.
-- Feito: gerar uma nova sessao/token ao gerar o QR seguro da mesa na Central ou
-  no painel administrativo.
-- Feito: marcar a mesa como ocupada ao gerar o QR seguro do atendimento.
-- Feito: validar no backend se o token pertence ao restaurante e a mesa antes
-  de permitir pedido, cancelamento de item ou chamada de garcom.
-- Feito: bloquear pedidos publicos quando a mesa estiver fechada,
-  com sessao expirada ou token invalido.
-- Feito: permitir que garcom autenticado crie pedidos apenas nas mesas do
-  proprio restaurante, sem reutilizar ou enfraquecer o token publico do QR Code.
-- Feito: encerrar e invalidar automaticamente a sessao ao fechar a mesa.
-- Feito: atualizar o QR Code para apontar para `/r/{slug}/mesa/{id}?sessao=...`.
-- Feito: criar tela amigavel de "sessao encerrada" ou "atendimento nao
-  iniciado" quando alguem abrir link antigo.
-- Feito: proteger tambem o Socket.IO publico da mesa com o token de sessao.
-- Feito: criar botao operacional explicito de "iniciar atendimento" e
-  "encerrar atendimento" na Central e na aba Mesas do Admin.
-- Feito: bloquear encerramento operacional quando ainda existem pedidos abertos,
-  orientando fechar a conta primeiro.
-- Feito: leitura direta de `categorias` e `produtos` fechada na Data API do
-  Supabase; consultas ao cardapio passam pela API do Autenix.
-- Pendente: decidir se o cardapio pode continuar visivel em modo consulta sem
-  sessao ou se deve ficar sempre bloqueado como esta nesta fase.
-- Pendente: avaliar em fase posterior restricao opcional por IP/Wi-Fi do
-  restaurante ou dispositivo autorizado para setores internos.
+□ Alerta de deploy
+□ Alerta de erro 5xx
+□ Alerta de banco indisponivel
+□ Alerta de pico de tentativas de login
+□ Alerta de health check degradado
+□ Integracao futura com Sentry ou provedor equivalente
 
-## Prioridade 4 - Planos na landing page
+------------------------------
 
-- Implementado: secao de planos comerciais na landing page com Essencial,
-  Profissional e Enterprise.
-- Implementado: exibicao de limites e diferencas principais de recursos por
-  plano.
-- Implementado: formulario comercial de demonstracao na landing, com plano de
-  interesse vindo dos cards.
-- Implementado: animacoes suaves de entrada por scroll na landing page.
-- Implementado: CTA de reserva na landing quando ela esta no contexto de um
-  restaurante.
-- Pendente: substituir o envio por email local por um fluxo comercial persistido
-  no backend ou CRM.
-- Pendente: adicionar cadastro publico self-service.
-- Pendente: conectar a escolha do plano ao onboarding/self-service quando o
-  fluxo SaaS estiver pronto.
+### Feature: Validacao da Entrega
 
-## Prioridade 5 - SaaS e cobranca
+Status: 90%
 
-- Implementado: dashboard SaaS no painel da plataforma com MRR previsto,
-  clientes ativos, trials e alertas comerciais.
-- Implementado: alertas de vencimento, atraso e limite de uso.
-- Pendente: integrar gateway de pagamento.
-- Pendente: gerar cobrancas, notas/recibos e reconciliacao automatica.
+Tasks
 
-## Prioridade 6 - Observabilidade e operacao
+✔ Lint do frontend funcionando
+✔ Testes unitarios do backend
+✔ Testes unitarios do frontend
+✔ Build do frontend
+✔ Playwright configurado
+✔ E2E de fluxo operacional
+✔ E2E de sessao segura da mesa
+✔ E2E de isolamento multi-tenant
+✔ E2E de reservas
+✔ E2E de importacao
+✔ Smoke seguro de producao
+✔ Teste de carga k6 leve, piloto e pico controlado
+✔ Carga autenticada de piloto executada em producao controlada
 
-- Implementado: logs estruturados no backend com request id,
-  restaurante_id, role, status da resposta e latencia.
-- Implementado: health check tecnico `/api/health` e readiness
-  `/api/health/readiness`.
-- Implementado: rotina manual `npm run ops:cleanup`, com dry-run por padrao,
-  lock de concorrencia, execucao por tenant e expiracao idempotente de sessoes
-  de mesa vencidas.
-- Implementado: monitor sintetico `npm run ops:health` para API, readiness e
-  frontend, com saida JSON e exit code para cron, CI ou monitor externo.
-- Implementado: painel tecnico simples no portal da plataforma, consumindo
-  endpoint protegido `/api/platform/diagnostico` com saude de banco, storage,
-  sessoes de mesa, reservas, notificacoes, importacoes e pedidos sem expor
-  dados sensiveis.
-- Implementado: documentacao operacional em `docs/entrega-piloto.md` com
-  checklist de entrega, onboarding, suporte, backup/restore e incidentes.
-- Parcial: monitoramento de erros em producao validado por Runtime Errors da
-  Vercel durante a entrega; ainda falta configurar alerta externo recorrente.
-- Pendente: alertas para falha de deploy, erro 5xx, banco indisponivel e pico de
-  tentativas de login.
-- Pendente: agendar a rotina operacional por cron futuro e ampliar limpeza de
-  uploads temporarios orfaos quando houver metadados suficientes.
-- Parcial: plano de backup e restore documentado; ainda falta teste real de
-  restore em staging/Supabase.
+Pendente
 
-## Prioridade 7 - Escalabilidade e arquitetura
+□ Rodar E2E controlado em staging dedicado antes de novos pilotos
+□ Automatizar quality gates em CI
+□ Reduzir bundle grande apontado pelo Vite
 
-- Implementado: fallback operacional de sincronizacao em producao sem depender
-  de Socket.IO, com polling por tela, sincronizacao ao voltar a aba para foco e
-  Socket.IO restrito ao dev ou ativado explicitamente por flag.
-- Pendente: evoluir o tempo real para um servico persistente compativel ou para
-  Supabase Realtime quando o volume justificar broadcast real entre instancias.
-- Implementado: scripts de teste de carga sintetico do polling com k6 para
-  perfis leve, piloto e pico controlado.
-- Implementado: teste de carga autenticado de piloto executado em producao
-  controlada com paineis simultaneos e sessao publica de mesa.
-- Pendente: quebrar `client/src/App.jsx` em telas e componentes menores.
-- Pendente: quebrar `server/index.js` em modulos por dominio: auth, plataforma,
-  restaurantes, pedidos, mesas, reservas, financeiro, importacao e upload.
-- Implementado: lint antigo do frontend resolvido; `npm run lint` passa sem
-  erros ou avisos e pode ser usado como quality gate em CI.
-- Implementado: testes E2E com Playwright adicionados e executados com
-  credenciais temporarias em ambiente controlado, cobrindo login operacional,
-  pedidos, fechamento de mesa, reservas, importacao e isolamento multi-tenant.
-- Implementado: scripts separados `test:e2e:smoke` e `test:e2e:controlled`
-  para diferenciar validacao segura de producao e fluxo completo com escrita.
-- Pendente: adicionar cache controlado para cardapio por restaurante, invalidando
-  ao editar categoria/produto.
-- Pendente: revisar pool de conexoes e estrategia de conexao no Supabase para
-  volume maior.
-- Pendente: criar jobs agendados para expiracao de sessoes, alertas comerciais e
-  manutencao operacional.
-- Pendente: avaliar separacao futura de servicos se o Socket.IO crescer mais que
-  o restante da API.
+------------------------------
 
-## Prioridade 8 - Banco de dados e governanca
+### Feature: Operacao, Backup e Restore
 
-- Implementado: migrations incrementais com historico privado, checksum, lock
-  de concorrencia, status e baseline controlado para bancos existentes.
-- Implementado: horario real de fechamento dos pedidos em `TIMESTAMPTZ`, com
-  relatorios e filtros diarios no fuso `America/Sao_Paulo`.
-- Implementado: indices das chaves estrangeiras compostas de reservas, eventos
-  e sessoes de mesa adicionados conforme o advisor do Supabase.
-- Implementado: auditoria formal de planos/status comercial e auditoria
-  operacional tenant-aware para categorias, produtos, usuarios, mesas,
-  fechamento financeiro, reservas, importacoes, rollback, configuracoes,
-  white label e cancelamentos de itens, sem armazenar senha, hash, token ou
-  segredo.
-- Implementado: API segura de consulta de auditoria para admin do restaurante
-  e painel da plataforma, com filtros por restaurante, acao, entidade, usuario,
-  entidade afetada e periodo.
-- Pendente: ampliar auditoria para cancelamento de pedido inteiro, operacoes
-  financeiras avancadas e exportacao/retencao formal dos eventos.
-- Pendente: soft delete completo com rastreio de quem arquivou/excluiu.
-- Pendente: revisar indices com dados reais depois dos primeiros restaurantes em
-  producao.
-- Pendente: formalizar politica de retencao de historico de pedidos, chamadas,
-  reservas, logs e importacoes.
-- Parcial: script `npm run test:rls` aceita `RLS_DATABASE_URL` para validar com
-  `autenix_backend`; falta executar com a credencial correta em ambiente
-  controlado.
+Status: 80%
 
-## Fase futura - Autenticacao Google
+Tasks
 
-- Avaliar login com Google depois que o multi-restaurante estiver mais maduro.
-- Permitir Google Auth principalmente para admins, masters e financeiro.
-- Manter login e senha simples para garcom, cozinha e operacao diaria.
-- Criar vinculo seguro entre conta Google, usuario, role e restaurante_id.
-- Suportar usuarios com acesso a mais de um restaurante.
-- Criar fluxo de convite por email para associar colaboradores.
+✔ Runbook de entrega
+✔ Checklist de onboarding
+✔ Guia de suporte
+✔ Plano de incidente
+✔ Rotina manual `npm run ops:cleanup`
+✔ Cleanup com dry-run por padrao
+✔ Cleanup idempotente e protegido contra concorrencia
+✔ Documentacao de backup e restore Supabase
+✔ Procedimento de rollback de deploy
 
-## Pendencias tecnicas paralelas
+Pendente
 
-- Continuar expandindo validacao com Zod para demais rotas administrativas
-  ainda sem schema dedicado, mantendo rejeicao de campos inesperados em
-  endpoints sensiveis.
-- Executar e evoluir os testes Playwright em staging com credenciais reais de
-  dois restaurantes.
-- Executar teste de carga k6 e ajustar pool/queries com base nas metricas.
-- Testar restore real do Supabase em ambiente seguro.
-- Tela interna de suporte para localizar restaurante, usuario, reserva e mesa
-  sem acessar dados de outro tenant indevidamente.
-- Portal publico self-service para cadastro de restaurante.
-- Convites por email/WhatsApp para masters e colaboradores.
+□ Teste real de restore em ambiente seguro
+□ Agendar cleanup por cron futuro
+□ Limpar uploads temporarios orfaos quando houver metadados suficientes
+□ Criar checklist operacional de emergencia dentro do painel
+
+------------------------------
+
+## P1 - Piloto
+
+### Feature: Fluxo Operacional do Restaurante
+
+Status: 95%
+
+Tasks
+
+✔ Login do restaurante
+✔ Central de operacao
+✔ Cadastro de categorias
+✔ Cadastro de produtos
+✔ Cadastro de mesas
+✔ Cadastro de equipe
+✔ Inicio de atendimento da mesa
+✔ Geracao de QR seguro
+✔ Cardapio publico por sessao
+✔ Pedido do cliente
+✔ Pedido do garcom
+✔ Cozinha com status de preparo
+✔ Notificacao ao garcom
+✔ Confirmacao de entrega
+✔ Fechamento da mesa
+✔ Forma de pagamento
+✔ Historico de comanda
+✔ Relatorios financeiros
+
+Pendente
+
+□ Melhorar telas internas apos feedback de uso real
+□ Refinar estados vazios e mensagens de erro por perfil
+□ Avaliar modo offline/local assistido em etapa futura
+
+------------------------------
+
+### Feature: Importacao
+
+Status: 95%
+
+Tasks
+
+✔ CSV
+✔ XLSX
+✔ Preview
+✔ Mapeamento manual
+✔ Mapeamento automatico
+✔ Presets
+✔ Importacao de categorias
+✔ Importacao de produtos
+✔ Importacao de mesas
+✔ Importacao de usuarios
+✔ Upload de imagens por arquivo
+✔ Historico de importacoes
+✔ Rollback em ate 24 horas
+✔ Respeito aos limites do plano
+
+Pendente
+
+□ Layouts proprietarios
+□ Importadores especificos por sistema concorrente real
+□ Testar com planilhas reais de restaurantes migrados
+
+------------------------------
+
+### Feature: Reservas
+
+Status: 98%
+
+Tasks
+
+✔ Portal publico de reservas
+✔ Tela publica simplificada
+✔ Fila de espera
+✔ Acompanhamento publico por codigo
+✔ Posicao na fila
+✔ Chamada do cliente
+✔ Voltar cliente para fila
+✔ Vinculo com mesa
+✔ Acomodacao
+✔ Cancelamento
+✔ Reabertura
+✔ Aba Reservas no admin
+✔ Aba Reservas no garcom
+✔ Historico de eventos
+✔ Auditoria de reservas
+✔ Regras de disponibilidade
+✔ Saloes
+✔ Webhook opcional
+✔ Outbox de notificacoes
+✔ Compartilhamento por link, WhatsApp e email quando informado
+
+Pendente
+
+□ Integracao real de Email
+□ Integracao real de WhatsApp
+□ Tela de cliente para acompanhar fila em tempo real com UX mais refinada
+
+------------------------------
+
+### Feature: Plataforma SaaS
+
+Status: 82%
+
+Tasks
+
+✔ Login separado da plataforma
+✔ Painel master dos masters
+✔ Cadastro de restaurante
+✔ Criacao de master por restaurante
+✔ Restaurante com `restaurante_id`
+✔ Planos comerciais
+✔ Limites de plano
+✔ Dashboard SaaS
+✔ MRR previsto
+✔ Clientes ativos
+✔ Historico Comercial
+✔ Pausar cliente
+✔ Reativar cliente
+✔ Excluir logicamente cliente
+✔ Bloqueio de acesso para pausado, cancelado ou excluido
+✔ Diagnostico tecnico da plataforma
+✔ Consulta segura de auditoria
+
+Pendente
+
+□ Gateway de pagamento
+□ Cobranca recorrente
+□ CRM comercial
+□ Cadastro publico self-service
+□ Convite automatico por email/WhatsApp
+□ Suporte a usuario com multiplos restaurantes
+
+------------------------------
+
+### Feature: White Label
+
+Status: 90%
+
+Tasks
+
+✔ Logo por restaurante
+✔ Nome de exibicao
+✔ Cor primaria
+✔ Cor secundaria
+✔ Cor de texto principal
+✔ Cor de texto secundario
+✔ Cor de titulo
+✔ Cor de texto sobre destaque
+✔ WhatsApp do restaurante
+✔ Preview visual
+✔ Normalizacao segura do payload
+
+Pendente
+
+□ Auditoria automatica de contraste antes de salvar
+□ Sugestao automatica de paleta a partir da logo
+□ Melhorar controle de cores de fonte por contexto
+
+------------------------------
+
+## P2 - Comercial e Escala
+
+### Feature: Landing Page Comercial
+
+Status: 92%
+
+Tasks
+
+✔ Landing page profissional
+✔ Narrativa visual por scroll
+✔ Hero com mockup do sistema
+✔ Sistema em funcionamento
+✔ Fluxo do QR ao relatorio
+✔ Restaurante ao vivo
+✔ Comparacao antes e depois
+✔ Cards interativos
+✔ Planos comerciais
+✔ Formulario comercial
+✔ Responsividade desktop/mobile
+✔ Respeito a `prefers-reduced-motion`
+✔ Links legais no rodape
+✔ Consentimento no formulario comercial
+
+Pendente
+
+□ Persistir leads comerciais no backend ou CRM
+□ Envio por email corporativo do Autenix
+□ Cadastro publico self-service a partir do plano escolhido
+
+------------------------------
+
+### Feature: Onboarding de Restaurante
+
+Status: 78%
+
+Tasks
+
+✔ Onboarding guiado na plataforma
+✔ Identidade inicial
+✔ Plano inicial
+✔ Criacao de master
+✔ Criacao de mesas iniciais
+✔ Links principais apos cadastro
+✔ Importacao inicial pelo admin
+
+Pendente
+
+□ Autoatendimento publico
+□ Convite automatico de master
+□ Convite automatico de colaboradores
+□ Google Auth depois do multi-restaurante estar mais maduro
+
+------------------------------
+
+### Feature: Banco de Dados e Governanca
+
+Status: 88%
+
+Tasks
+
+✔ Migrations incrementais
+✔ Historico privado de migrations
+✔ Checksum de migrations
+✔ Lock de concorrencia em migrations
+✔ Baseline controlado
+✔ RLS nas tabelas sensiveis
+✔ Auditoria operacional tenant-aware
+✔ Auditoria de categorias
+✔ Auditoria de produtos
+✔ Auditoria de usuarios
+✔ Auditoria de mesas
+✔ Auditoria de financeiro
+✔ Auditoria de reservas
+✔ Auditoria de importacoes
+✔ Auditoria de configuracoes
+✔ Auditoria de white label
+✔ API segura de consulta de auditoria
+
+Pendente
+
+□ Auditoria de cancelamento de pedido inteiro
+□ Auditoria de operacoes financeiras avancadas
+□ Politica formal de retencao de historico
+□ Revisar indices com dados reais
+□ Executar `test:rls` com credencial `autenix_backend` em staging
+
+------------------------------
+
+## P3 - Futuro
+
+### Feature: Cobranca
+
+Status: 20%
+
+Tasks
+
+✔ Planos definidos
+✔ Limites aplicados
+✔ Campos comerciais no restaurante
+✔ Alertas comerciais
+✔ Historico de plano
+
+Pendente
+
+□ Gateway
+□ Checkout
+□ Assinatura recorrente
+□ Webhooks de pagamento
+□ Reconciliacao
+□ Nota ou recibo
+□ Suspensao automatica por inadimplencia
+
+------------------------------
+
+### Feature: CRM
+
+Status: 10%
+
+Tasks
+
+✔ Formulario comercial na landing
+✔ Plano de interesse no formulario
+✔ Historico comercial basico no restaurante
+
+Pendente
+
+□ Persistencia de leads
+□ Funil comercial
+□ Atividades e follow-up
+□ Origem de lead
+□ Envio de proposta
+□ Integracao com email
+
+------------------------------
+
+### Feature: Escalabilidade Avancada
+
+Status: 45%
+
+Tasks
+
+✔ Polling por tela em producao
+✔ Socket.IO restrito a dev ou flag explicita
+✔ Scripts de carga k6
+✔ Pool PostgreSQL configuravel
+✔ Health/readiness
+
+Pendente
+
+□ Cache controlado do cardapio por restaurante
+□ Invalidacao de cache por produto/categoria/marca
+□ Separar `client/src/App.jsx` em telas menores
+□ Separar `server/index.js` em modulos por dominio
+□ Avaliar Supabase Realtime ou servico persistente de tempo real
+□ Revisar estrategia de pool com volume maior
+
+------------------------------
+
+### Feature: Autenticacao Google
+
+Status: 0%
+
+Tasks
+
+□ Avaliar Google Auth para admins, masters e financeiro
+□ Manter login simples para garcom/cozinha/operacao diaria
+□ Vincular Google com usuario, role e `restaurante_id`
+□ Suportar usuario com acesso a mais de um restaurante
+□ Criar convite por email para associar colaboradores
+
+Pendente
+
+□ Decisao tecnica apos multi-restaurante mais maduro
